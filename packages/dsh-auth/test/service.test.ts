@@ -17,6 +17,31 @@ describe('InMemoryHuaqiuAuthService', () => {
     expect(await svc.auth.getUserInfo()).toEqual({ id: 'u1', token: 'tok-1', nickname: 'Alice' })
   })
 
+  it('keeps stored credentials isolated from caller-owned objects', async () => {
+    const svc = new InMemoryHuaqiuAuthService()
+    const credentials = { id: 'u1', token: 'tok-1', nickname: 'Alice' }
+    svc.setCredentials(credentials)
+
+    credentials.token = 'caller-mutated'
+    const snapshot = await svc.auth.getUserInfo()
+    snapshot!.nickname = 'reader-mutated'
+
+    expect(await svc.auth.getUserInfo()).toEqual({ id: 'u1', token: 'tok-1', nickname: 'Alice' })
+  })
+
+  it('keeps listener snapshots isolated from auth state', async () => {
+    const svc = new InMemoryHuaqiuAuthService()
+    let notified: { id: string; token: string; nickname?: string } | null = null
+    svc.auth.onAuthStateChanged((info) => {
+      notified = info
+    })
+
+    svc.setCredentials({ id: 'u1', token: 'tok-1' })
+    notified!.token = 'listener-mutated'
+
+    expect(await svc.auth.getUserInfo()).toEqual({ id: 'u1', token: 'tok-1' })
+  })
+
   it('update replaces the previous credentials (acceptance group B)', async () => {
     const svc = new InMemoryHuaqiuAuthService()
     svc.setCredentials({ id: 'u1', token: 'old' })

@@ -41,7 +41,7 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
   readonly auth: HuaqiuAuthApi = {
     isAuthenticated: () => this.current !== null,
     getAccessToken: async () => this.current?.token ?? null,
-    getUserInfo: async () => this.current,
+    getUserInfo: async () => this.current ? { ...this.current } : null,
     login: async () => {
       /* login is a browser action */
     },
@@ -50,12 +50,14 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
   }
 
   setCredentials(info: HuaqiuUserInfo): void {
-    this.current = info
+    this.current = { ...info }
     this.emit()
   }
 
   invalidate(): void {
-    if (this.current === null) return
+    if (this.current === null) {
+      return
+    }
     this.current = null
     this.emit()
   }
@@ -66,6 +68,8 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
   }
 
   private emit(): void {
-    for (const listener of this.listeners) listener(this.current)
+    for (const listener of this.listeners) {
+      listener(this.current ? { ...this.current } : null)
+    }
   }
 }
