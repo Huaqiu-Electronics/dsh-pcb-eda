@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-artifacts",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
