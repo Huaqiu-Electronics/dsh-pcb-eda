@@ -19,10 +19,24 @@ export function createAuthStorage(
   return {
     get() {
       const raw = storage.getItem(key)
-      if (!raw) return null
+      if (!raw) {
+        return null
+      }
       try {
         const parsed = JSON.parse(raw) as AuthTokenPayload
-        if (!parsed || typeof parsed.token !== 'string' || typeof parsed.id !== 'string') return null
+        const invalidIdentity =
+          !parsed ||
+          typeof parsed.token !== 'string' ||
+          parsed.token.length === 0 ||
+          typeof parsed.id !== 'string' ||
+          parsed.id.length === 0
+        const invalidExpiry =
+          parsed?.expiresAt !== undefined &&
+          (typeof parsed.expiresAt !== 'number' || !Number.isFinite(parsed.expiresAt))
+        if (invalidIdentity || invalidExpiry) {
+          storage.removeItem(key)
+          return null
+        }
         // Parity with auth.eda.cn's 5-day token window.
         if (parsed.expiresAt !== undefined && parsed.expiresAt * 1000 <= Date.now()) {
           storage.removeItem(key)
@@ -30,6 +44,7 @@ export function createAuthStorage(
         }
         return parsed
       } catch {
+        storage.removeItem(key)
         return null
       }
     },
