@@ -51,6 +51,8 @@ function setState(next: AuthState): void {
 
 /** Attach the singleton auth capability and push the initial snapshot. */
 export function registerAuth(a: AuthClient['auth']): void {
+  unsubscribe?.()
+  unsubscribe = null
   auth = a
   unsubscribe = a.onAuthStateChanged((info) => {
     setState(stateOf(info))
