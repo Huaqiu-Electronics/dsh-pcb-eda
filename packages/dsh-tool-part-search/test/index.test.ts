@@ -31,6 +31,29 @@ describe('@huaqiu/dsh-tool-part-search plugin', () => {
     expect(typeof dispose).toBe('function')
   })
 
+  it('rolls back already registered tools when registration fails partway through', () => {
+    const disposed: string[] = []
+    let registrations = 0
+    const ctx = {
+      tools: {
+        register: (def: unknown) => {
+          const toolName = (def as { name: string }).name
+          registrations += 1
+          if (registrations === 3) {
+            throw new Error('registration failed')
+          }
+          return () => disposed.push(toolName)
+        },
+      },
+    }
+
+    expect(() => apply(ctx as never)).toThrow('registration failed')
+    expect(disposed).toEqual([
+      'search_hqsch_parts',
+      'get_hqsch_part',
+    ])
+  })
+
   it('throws loudly when the tools service is missing', () => {
     expect(() => apply({} as never)).toThrow(/requires the DSH/)
   })
