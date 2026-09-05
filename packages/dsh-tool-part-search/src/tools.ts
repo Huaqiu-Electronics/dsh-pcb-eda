@@ -214,10 +214,7 @@ export function createPartSearchTools(service: PartSearchServiceLike) {
       output: { schema: { type: 'json' }, render: renderJson },
       timeoutMs: TOOL_TIMEOUT_MS,
       async execute(args) {
-        const parts: PartIdentifier[] = args.parts.map((part) => ({
-          manufacturerId: part.manufacturer_id,
-          mpn: part.mpn,
-        }))
+        const parts = args.parts.map(toPartIdentifier)
         return asJson(await service.getSupplyChain(parts))
       },
     }),
