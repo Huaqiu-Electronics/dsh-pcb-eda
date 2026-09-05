@@ -183,6 +183,11 @@ describe('artifacts HTTP routes', () => {
     expect((await get(`${ARTIFACTS_ROUTE_PREFIX}/..%2F..%2Fetc`)).status).toBe(404)
     expect((await get(`/api/v1/huaqiu/artifacts`)).status).toBe(404)
   })
+
+  it('rejects paths that only share the route prefix text', async () => {
+    const a = await svc.create({ type: 'schematic', filename: 'board.kicad_sch', content: '(kicad_sch)' })
+    expect((await get(`${ARTIFACTS_ROUTE_PREFIX}${a.id}`)).status).toBe(404)
+  })
 })
 
 describe('@huaqiu/dsh-artifacts plugin entry', () => {

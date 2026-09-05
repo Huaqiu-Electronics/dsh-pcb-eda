@@ -33,7 +33,9 @@ function parsePath(req: IncomingMessage): { id: string; content: boolean } | nul
   const url = req.url ?? ''
   const q = url.indexOf('?')
   const pathname = q >= 0 ? url.slice(0, q) : url
-  if (!pathname.startsWith(ARTIFACTS_ROUTE_PREFIX)) return null
+  if (pathname !== ARTIFACTS_ROUTE_PREFIX && !pathname.startsWith(`${ARTIFACTS_ROUTE_PREFIX}/`)) {
+    return null
+  }
   const rest = pathname.slice(ARTIFACTS_ROUTE_PREFIX.length)
   // rest === '' or startsWith('/')
   if (rest === '') return null
