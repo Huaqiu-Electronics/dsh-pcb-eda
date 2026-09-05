@@ -46,6 +46,12 @@ function parsePath(req: IncomingMessage): { id: string; content: boolean } | nul
 export function createArtifactsHandler(service: HuaqiuArtifacts): ArtifactsHandler {
   return async (req, res) => {
     try {
+      if (req.method !== 'GET') {
+        res.setHeader('allow', 'GET')
+        sendJson(res, 405, { error: 'method not allowed' })
+        return
+      }
+
       const parsed = parsePath(req)
       if (!parsed) {
         sendJson(res, 404, { error: 'not found' })
