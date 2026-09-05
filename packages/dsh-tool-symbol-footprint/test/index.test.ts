@@ -65,6 +65,29 @@ describe('@huaqiu/dsh-tool-symbol-footprint plugin', () => {
     ])
   })
 
+  it('rolls back earlier tools when registration fails partway through', () => {
+    const { ctx } = ctxStub()
+    const disposed: string[] = []
+    const failure = new Error('registration failed')
+    let calls = 0
+
+    ;(ctx.tools as { register(tool: Tool): () => void }).register = (tool) => {
+      calls += 1
+      if (calls === 3) {
+        throw failure
+      }
+      return () => {
+        disposed.push(tool.name)
+      }
+    }
+
+    expect(() => apply(ctx as never)).toThrow(failure)
+    expect(disposed).toEqual([
+      'generate_footprint_from_image',
+      'generate_symbol_from_image',
+    ])
+  })
+
   it('throws loudly when the tools service is missing', () => {
     expect(() => apply({} as never)).toThrow(/requires the DSH/)
   })
