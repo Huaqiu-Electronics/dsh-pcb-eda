@@ -43,7 +43,9 @@ describe('auth webServer routes (browser→node transport)', () => {
         },
       )
       req.on('error', reject)
-      if (body !== undefined) req.write(JSON.stringify(body))
+      if (body !== undefined) {
+        req.write(typeof body === 'string' ? body : JSON.stringify(body))
+      }
       req.end()
     })
   }
@@ -95,6 +97,15 @@ describe('auth webServer routes (browser→node transport)', () => {
     expect((await post(`${AUTH_ROUTE_PREFIX}/session`, { token: '' })).status).toBe(400)
     expect((await post(`${AUTH_ROUTE_PREFIX}/session`, { userId: 'u' })).status).toBe(400)
     expect(await svc.auth.isAuthenticated()).toBe(false)
+  })
+
+  it('rejects malformed session JSON as a client error', async () => {
+    const res = await post(`${AUTH_ROUTE_PREFIX}/session`, '{"token":')
+    expect({ status: res.status, body: JSON.parse(res.text) }).toEqual({
+      status: 400,
+      body: { error: 'invalid json body' },
+    })
+    expect(svc.auth.isAuthenticated()).toBe(false)
   })
 
   it('404s unknown paths', async () => {
