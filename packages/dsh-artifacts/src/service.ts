@@ -252,10 +252,7 @@ export class HuaqiuArtifactService implements HuaqiuArtifacts {
 
   private isExpired(meta: ArtifactMeta): boolean {
     if (!meta.expiresAt) return false
-    try {
-      return new Date(meta.expiresAt).getTime() <= Date.now()
-    } catch {
-      return false
-    }
+    const expiresAt = Date.parse(meta.expiresAt)
+    return !Number.isFinite(expiresAt) || expiresAt <= Date.now()
   }
 }

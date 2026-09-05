@@ -89,6 +89,17 @@ describe('HuaqiuArtifactService', () => {
     expect(await svc.readContent(a.id)).toBeNull()
   })
 
+  it('rejects artifacts with invalid expiry metadata', async () => {
+    const a = await svc.create({ type: 'schematic', filename: 'a.kicad_sch', content: 'x', ttlSeconds: 3600 })
+    const metaPath = path.join(root, 'dsh-artifacts', a.id, 'meta.json')
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'))
+    meta.expiresAt = 'not-a-date'
+    fs.writeFileSync(metaPath, JSON.stringify(meta))
+
+    expect(await svc.get(a.id)).toBeNull()
+    expect(await svc.readContent(a.id)).toBeNull()
+  })
+
   it('deleteAll removes everything or only expired', async () => {
     const a = await svc.create({ type: 'schematic', filename: 'a.kicad_sch', content: 'a' })
     const b = await svc.create({ type: 'schematic', filename: 'b.kicad_sch', content: 'b' })
