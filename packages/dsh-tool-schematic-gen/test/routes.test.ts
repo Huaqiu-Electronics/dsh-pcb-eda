@@ -112,7 +112,11 @@ describe('progress route', () => {
     const handler = createProgressHandler(seededStore())
     const { res, out } = stubRes()
     await handler(req('HEAD', `${PROGRESS_ROUTE_PREFIX}/call-1`), res)
-    expect(out.status).toBe(200)
+    expect({ status: out.status, raw: out.raw, json: out.json }).toEqual({
+      status: 200,
+      raw: '',
+      json: null,
+    })
   })
 
   it('marks the response no-store so no proxy can serve a stale snapshot', async () => {
