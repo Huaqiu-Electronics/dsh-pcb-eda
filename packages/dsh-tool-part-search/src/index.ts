@@ -47,6 +47,16 @@ function log(): PluginLogger {
   return _log
 }
 
+function disposeTools(disposers: readonly (() => void)[]): void {
+  for (const disposeTool of disposers) {
+    try {
+      disposeTool()
+    } catch {
+      // One failing unregister must not hide the others.
+    }
+  }
+}
+
 /**
  * Host plugin body — register the four agent-visible part-search tools.
  *
@@ -63,17 +73,19 @@ export function apply(ctx: Context): () => void {
   }
 
   const service = createPartSearch()
-  const disposers = createPartSearchTools(service).map((tool) => ctx.tools.register(tool))
+  const disposers: Array<() => void> = []
+  try {
+    for (const tool of createPartSearchTools(service)) {
+      disposers.push(ctx.tools.register(tool))
+    }
+  } catch (error) {
+    disposeTools(disposers)
+    throw error
+  }
 
   log().info('registered agent tools', { tools: disposers.length })
 
   return function dispose() {
-    for (const disposeTool of disposers) {
-      try {
-        disposeTool()
-      } catch {
-        // One failing unregister must not hide the others.
-      }
-    }
+    disposeTools(disposers)
   }
 }
