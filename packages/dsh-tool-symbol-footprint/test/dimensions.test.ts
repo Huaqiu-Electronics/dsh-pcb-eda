@@ -54,6 +54,27 @@ describe('parseDimensionOverrides', () => {
     expect(r.overrides).toEqual({ label: 'standard' })
   })
 
+  it('preserves boolean slot types when applying overrides', () => {
+    expect(parseDimensionOverrides('thermal=true', { thermal: false })).toEqual({
+      overrides: { thermal: true },
+      unknownKeys: [],
+      badValues: [],
+    })
+    expect(parseDimensionOverrides('thermal=FALSE', { thermal: true })).toEqual({
+      overrides: { thermal: false },
+      unknownKeys: [],
+      badValues: [],
+    })
+  })
+
+  it('rejects invalid values for boolean slots', () => {
+    expect(parseDimensionOverrides('thermal=yes', { thermal: false })).toEqual({
+      overrides: {},
+      unknownKeys: [],
+      badValues: ['thermal=yes'],
+    })
+  })
+
   it('ignores prose and empty input', () => {
     expect(parseDimensionOverrides('', current).overrides).toEqual({})
     expect(parseDimensionOverrides('please fix it', current).overrides).toEqual({})
