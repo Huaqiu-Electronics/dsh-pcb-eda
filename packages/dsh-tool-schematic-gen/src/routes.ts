@@ -23,14 +23,14 @@ export type ProgressHandler = (
   res: ServerResponse,
 ) => Promise<void> | void
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function sendJson(res: ServerResponse, status: number, body: unknown, omitBody = false): void {
   const payload = JSON.stringify(body)
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     // Progress is live — never let a proxy serve a stale snapshot.
     'cache-control': 'no-store',
   })
-  res.end(payload)
+  res.end(omitBody ? undefined : payload)
 }
 
 /** Split the sub-path off the prefix. Returns `null` on a bad shape. */
@@ -59,22 +59,23 @@ export function createProgressHandler(store: ProgressStore): ProgressHandler {
       sendJson(res, 405, { error: 'method not allowed' })
       return
     }
+    const omitBody = req.method === 'HEAD'
     const parsed = parsePath(req)
     if (!parsed) {
-      sendJson(res, 404, { error: 'not found' })
+      sendJson(res, 404, { error: 'not found' }, omitBody)
       return
     }
     if (parsed.callId === null) {
       // No id: hand back every live run so a client without a callId (e.g. a
       // card mounted on replay) can still find its run.
-      sendJson(res, 200, { runs: store.list() })
+      sendJson(res, 200, { runs: store.list() }, omitBody)
       return
     }
     const doc = store.get(parsed.callId)
     if (!doc) {
-      sendJson(res, 404, { error: 'no live run for this call id' })
+      sendJson(res, 404, { error: 'no live run for this call id' }, omitBody)
       return
     }
-    sendJson(res, 200, doc)
+    sendJson(res, 200, doc, omitBody)
   }
 }
