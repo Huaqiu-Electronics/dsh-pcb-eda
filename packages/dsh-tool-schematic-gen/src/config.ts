@@ -194,10 +194,11 @@ export function buildRunBody(
  * and whitespace are replaced.
  */
 export function sanitizeZipBaseName(designName: string): string {
-  return String(designName || '')
+  const normalized = String(designName || '')
     .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, ' ')
     .replace(/\s+/g, '_')
     .replace(/_+/g, '_')
     .replace(/^_+|_+$/g, '')
-    .slice(0, 60) || 'circuit'
+
+  return Array.from(normalized).slice(0, 60).join('') || 'circuit'
 }

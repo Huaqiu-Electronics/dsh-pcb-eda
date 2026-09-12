@@ -95,4 +95,11 @@ describe('sanitizeZipBaseName', () => {
     expect(sanitizeZipBaseName('')).toBe('circuit')
     expect(sanitizeZipBaseName('x'.repeat(200)).length).toBe(60)
   })
+
+  it('does not split unicode code points at the filename limit', () => {
+    const name = sanitizeZipBaseName(`${'x'.repeat(59)}😀tail`)
+
+    expect(name).toBe(`${'x'.repeat(59)}😀`)
+    expect(Array.from(name)).toHaveLength(60)
+  })
 })
