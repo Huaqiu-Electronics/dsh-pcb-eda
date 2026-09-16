@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-plugin-log",
-  "version": "0.3.22",
+  "version": "0.3.24",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
