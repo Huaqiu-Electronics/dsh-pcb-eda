@@ -13,9 +13,12 @@
  * This plugin owns DSH integration only: it translates tool calls into hq-edge
  * requests and returns the semantic `SchematicNetlist`. It contains no
  * KiCad-specific logic, no schematic parsing, and no host IPC. The plugin is
- * self-contained — no `@hqedge/*` dependency; the base URL is delivered by the
- * hq-edge supervisor as overlay config (`hqEdgeBaseUrl`), with
- * `HQ_EDGE_BASE_URL` as env fallback (same convention as `@huaqiu/dsh-auth`).
+ * self-contained — no `@hqedge/*` dependency. The base URL is resolved at
+ * request time in this order: (1) the `ctx.hqEdge.baseUrl` service provided by
+ * the edge-bridge HOST (the loopback HQ Edge endpoint), then (2) the
+ * supervisor's overlay config (`hqEdgeBaseUrl`), then (3) `HQ_EDGE_BASE_URL`
+ * env fallback (same convention as `@huaqiu/dsh-auth`). `hqEdge` is a REQUIRED
+ * inject — the plugin cannot reach hq-edge without the bridge.
  *
  * @module @huaqiu/dsh-eda-host
  */
@@ -28,8 +31,23 @@ import { createNetListTools } from './tools.js'
 /** Plugin id — matches package.json. */
 export const name = '@huaqiu/dsh-eda-host'
 
-/** Cordis services this half depends on. */
-export const inject = ['tools'] as const
+/**
+ * Cordis services this half depends on.
+ *
+ * `hqEdge` is REQUIRED: the edge-bridge (the HOST) provides the node-side
+ * `hqEdge` service whose `baseUrl` is the loopback HQ Edge endpoint
+ * (`createNodeHqEdge(upstreamRoot, …)` → `get baseUrl()`). Without it the
+ * plugin cannot reach hq-edge at all — by design it cannot work standalone
+ * (the user-confirmed contract is "eda-host cannot work without hqEdge").
+ * Declaring it here is what lets `apply()` read `ctx.hqEdge` without Cordis
+ * throwing `cannot get property "hqEdge" without inject` (its context proxy
+ * walks the fiber tree and throws at the root fiber when the service was
+ * never injected into this plugin's fiber).
+ *
+ * `tools` is the DSH node runtime tool registry used to register the netlist
+ * tools.
+ */
+export const inject = ['hqEdge', 'tools'] as const
 
 export type { EdaHostConfig } from './config.js'
 export type { EdaHostClient } from './client.js'
@@ -53,7 +71,16 @@ declare module '@deepseek-ai/cordis' {
      * lazily so this plugin does not hard-depend on the bridge and still works
      * in standalone DSH installs (where the service is absent).
      */
-    hqEdge?: { baseUrl?: string }
+    /**
+     * Provided by the hq-edge `edge-bridge` plugin (the HOST). `baseUrl` is the
+     * loopback HQ Edge endpoint, e.g. "http://localhost:18080". This is a
+     * REQUIRED inject (see `export const inject` above): `apply()` reads
+     * `ctx.hqEdge` to resolve the endpoint, so the service must be present or
+     * Cordis throws `cannot get property "hqEdge" without inject`. When present
+     * but its `baseUrl` is empty, the netlist tools degrade to a clear
+     * FAILED_PRECONDITION rather than throwing at load time.
+     */
+    hqEdge: { baseUrl?: string }
   }
 }
 

@@ -1,8 +1,11 @@
 # DSH bundle patch: inserts the Huaqiu EDA host netlist tool plugin.
-# The entry inject must match the node-half module contract (`src/index.ts` —
-# export const inject). The tool's apply() reads the `tools` service; the
-# hq-edge supervisor delivers the base URL as overlay config.
+# The entry `inject` MUST match the node-half module contract (`src/index.ts`
+# `export const inject`): `hqEdge` + `tools`. `hqEdge` is REQUIRED — the
+# edge-bridge (HOST) provides it and its `baseUrl` is the loopback HQ Edge
+# endpoint the netlist tools fetch from (`createNodeHqEdge(upstreamRoot,…)` →
+# `get baseUrl()`). Omitting `hqEdge` from inject makes `apply()`'s
+# `ctx.hqEdge` access throw `cannot get property "hqEdge" without inject`.
 - insert:
     - id: huaqiu-dsh-eda-host
       name: '@huaqiu/dsh-eda-host'
-      inject: ['tools']
+      inject: ['hqEdge', 'tools']
