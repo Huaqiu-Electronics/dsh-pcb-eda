@@ -1,0 +1,8 @@
+# DSH bundle patch: inserts the Huaqiu EDA host netlist tool plugin.
+# The entry inject must match the node-half module contract (`src/index.ts` —
+# export const inject). The tool's apply() reads the `tools` service; the
+# hq-edge supervisor delivers the base URL as overlay config.
+- insert:
+    - id: huaqiu-dsh-eda-host
+      name: '@huaqiu/dsh-eda-host'
+      inject: ['tools']
