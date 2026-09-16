@@ -180,3 +180,120 @@ deploy + test:
 - Supervisor overlay derivation:
   `hq-edge/apps/server/src/dsh/supervisor.ts` `readPluginPatchEntry` +
   `ensureHQBuiltinPlugins`.
+
+---
+
+## 6. `edge-bridge/overlay.yml` — actual usage, outdated?, necessary?
+
+This section answers the follow-up audit of
+`hq-edge/apps/server/dsh-plugins/edge-bridge/overlay.yml`. Verified against the
+**real bundled dsh-home** at
+`/Users/admin/.hq-edge/1.8.7/dsh-home/hq/builtin-plugins/0.1.3-7-g2c412ba/overlay.yml`
+(the copy DSH actually loads) and the supervisor source.
+
+### 6.1 What DSH actually loads (materialized, not the checked-in file)
+
+`ensureHQBuiltinPlugins()` (supervisor.ts:1419, called at :943) **regenerates**
+the overlay from discovered packages + each package's own `cordis.patch.yml`:
+
+- `bridgeSourceDir = path.dirname(this.config.patchFile)` — the parent dir of
+  the checked-in `overlay.yml` (i.e. `.../dsh-plugins/edge-bridge/`) is the
+  **plugins-root discovery anchor** (`discoverSiblingHqPlugins`).
+- `buildHqPluginOverlay(plugins)` (supervisor.ts:330) **renders a brand-new
+  overlay** — `- insert:` with one entry per discovered package, `inject`
+  taken from each package's `cordis.patch.yml` via `readPluginPatchEntry`, and
+  `config` (hqEdgeBaseUrl / targetHost / editorType) injected into the bridge
+  (+ `dsh-auth`). This generated file is written into the versioned bundle and
+  set as `this.materializedPatchFile`.
+- `buildArgs` (supervisor.ts:1315) loads `this.materializedPatchFile ??
+  this.config.patchFile`. Since `materializedPatchFile` is always set after
+  `ensureHQBuiltinPlugins`, **DSH loads the materialized overlay, never the
+  checked-in `edge-bridge/overlay.yml` content.**
+
+So the checked-in file's **body is dead at runtime** — its entry list and
+hardcoded `inject` values are overwritten by regeneration.
+
+### 6.2 Real (materialized) overlay — note `dsh-eda-host` IS present
+
+The bundled `0.1.3-7-g2c412ba/overlay.yml` contains (verbatim, ids as
+generated):
+
+```yaml
+- insert:
+    - id: "hq-edge-bridge"            # @hqedge/dsh-edge-bridge  (config: hqEdgeBaseUrl/targetHost/editorType)
+    - id: "huaqiu-artifacts"          # @huaqiu/dsh-artifacts          inject: [webServer]
+    - id: "huaqiu-auth"               # @huaqiu/dsh-auth               inject: [webServer]  + config.hqEdgeBaseUrl
+    - id: "huaqiu-dsh-eda-host"       # @huaqiu/dsh-eda-host           inject: [hqEdge, tools]   ← our fix, correct
+    - id: "huaqiu-tool-part-search"   # @huaqiu/dsh-tool-part-search    inject: [tools]
+    - id: "huaqiu-tool-schematic-gen" # @huaqiu/dsh-tool-schematic-gen   inject: [tools, huaqiuArtifacts, webServer]
+    - id: "huaqiu-tool-symbol-footprint" # @huaqiu/dsh-tool-symbol-footprint inject: [tools, huaqiuArtifacts, webServer]
+    - id: "hq-erc"                    # @hqedge/dsh-erc               (NO inject line)
+```
+
+Key confirmations:
+
+- **`huaqiu-dsh-eda-host` is mounted with `inject: [hqEdge, tools]`** — the
+  supervisor derived this from the plugin's `cordis.patch.yml` (§2 fix). So the
+  runtime is already correct; the earlier `without inject` error was against an
+  older bundle that predated the materialization of our change.
+- **`hq-erc` has NO `inject:` line.** Reasoning: `inject` in the overlay is
+  *optional*. When absent, Cordis falls back to the plugin's module
+  `export const inject` (`erc/lib/index.js:59` → `['hqEdge','tools']`). That is
+  exactly why `erc` worked as the reference while `eda-host` (which had
+  `inject:['tools']` in BOTH places) did not. Takeaway: a `@huaqiu/*` plugin
+  MUST declare `inject` in `cordis.patch.yml` (the supervisor copies it into
+  the overlay); a host plugin like `erc`/`edge-bridge` can rely on its module
+  `export const inject` instead.
+- The `@huaqiu/*` `inject` lists here are the **authoritative** ones (from each
+  package's `cordis.patch.yml`), and they differ from the checked-in
+  `edge-bridge/overlay.yml` — see §6.3.
+
+### 6.3 Is the checked-in `edge-bridge/overlay.yml` outdated? — YES (as docs)
+
+Compared with the materialized overlay (§6.2) it is **stale**:
+
+1. **Missing `dsh-eda-host` entirely.** The checked-in file ends at
+   `huaqiu-tool-symbol-footprint` and never lists `@huaqiu/dsh-eda-host` — the
+   plugin this whole investigation fixed. The runtime generated overlay has it.
+2. **Stale `inject` for `schematic-gen` / `symbol-footprint`.** Checked-in says
+   `['tools','huaqiuAuth','huaqiuArtifacts','webServer']` /
+   `['tools','huaqiuAuth','huaqiuArtifacts']`, but the real packages emit
+   `['tools','huaqiuArtifacts','webServer']` (no `huaqiuAuth`; symbol-footprint
+   also gains `webServer`). The checked-in values were hand-copied long ago and
+   never tracked the packages' own `cordis.patch.yml`.
+3. **Cosmetic id drift:** checked-in labels `erc` as `hq-tool-erc`; the
+   generated id is `hq-erc` (derived `hq-${basename}`). Irrelevant — the
+   supervisor regenerates ids.
+
+(The checked-in file's own header already concedes this: it says the supervisor
+"REGENERATES this overlay at boot" and the file is the "dev fallback anchor …
+documents the full expected set." It just hasn't been kept in sync with the
+package set.)
+
+### 6.4 Is it necessary? — the FILE yes, the CONTENT no
+
+- **The file (as `config.patchFile` anchor) is necessary.** `ensureHQBuiltinPlugins`
+  early-returns `if (!this.config.patchFile) return` (supervisor.ts:1420), and
+  `bridgeSourceDir = path.dirname(config.patchFile)` must resolve to a directory
+  containing a `package.json` (guarded at :1425) so sibling discovery works.
+  Without it, **no HQ plugin is materialized** and DSH runs without hq-edge.
+  So `edge-bridge/overlay.yml` must keep existing at that path (it could even be
+  a different filename inside `edge-bridge/`, but the convention is this file).
+- **The file's CONTENT is not necessary** — it is fully regenerated and never
+  loaded by DSH. Editing its `inject`/entry list has **zero runtime effect**;
+  the single source of truth for each plugin's overlay contract is its own
+  `cordis.patch.yml` (read by `readPluginPatchEntry`).
+
+### 6.5 Action
+
+- **No runtime fix needed here.** The fix for the `without inject` error is the
+  `cordis.patch.yml` + module `inject` change in §2, already materialized (§6.2).
+- **Hygiene only (optional):** the checked-in `edge-bridge/overlay.yml` should be
+  updated to (a) add the `huaqiu-dsh-eda-host` entry and (b) sync the
+  `schematic-gen` / `symbol-footprint` injects to match their `cordis.patch.yml`,
+  so it stops misleading readers. This is documentation-only — it changes nothing
+  DSH loads. Not done automatically; flag if you want it touched.
+- **Deployment recap (unchanged from §4):** pack `@huaqiu/dsh-eda-host`
+  (keep version `0.3.20`), `cd hq-edge && pnpm dev:hq-plugins`, restart. The
+  supervisor re-materializes because the bundle fingerprint changes, and the new
+  `huaqiu-dsh-eda-host` overlay entry (with `hqEdge`) is emitted automatically.
