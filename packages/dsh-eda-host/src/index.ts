@@ -24,7 +24,6 @@ import { getLogger } from '@huaqiu/dsh-plugin-log'
 import { createEdaHostClient, type EdaHostClient } from './client.js'
 import { hasHost, resolveEdaHostConfig, type EdaHostConfig } from './config.js'
 import { createNetListTools } from './tools.js'
-import { NetlistError } from './types.js'
 
 /** Plugin id — matches package.json. */
 export const name = '@huaqiu/dsh-eda-host'
@@ -48,6 +47,13 @@ export { NetlistError } from './types.js'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     edaHost: EdaHostClient
+    /**
+     * Provided by the hq-edge `edge-bridge` plugin (the HOST). `baseUrl` is the
+     * loopback HQ Edge endpoint, e.g. "http://localhost:18080". We read it
+     * lazily so this plugin does not hard-depend on the bridge and still works
+     * in standalone DSH installs (where the service is absent).
+     */
+    hqEdge?: { baseUrl?: string }
   }
 }
 
@@ -58,10 +64,15 @@ const log = getLogger(COMPONENT)
 /**
  * Host plugin body — provide `edaHost` and register the three netlist tools.
  *
- * When no host base URL is configured, tools return ok:false with
- * error.kind "FAILED_PRECONDITION" instead of throwing at load time: the
- * plugin can be installed in standalone DSH where hq-edge is absent, and the
- * tools degrade to a clear semantic message.
+ * The HQ Edge endpoint is resolved **lazily at request time** (see
+ * `getHqEdgeBaseUrl`): the edge-bridge plugin provides `ctx.hqEdge.baseUrl`,
+ * which wins over the static `config.hqEdgeBaseUrl` / `HQ_EDGE_BASE_URL` env
+ * fallback. This matches how `@huaqiu/dsh-artifacts` and `@huaqiu/dsh-tool-
+ * symbol-footprint` reach hq-edge, and means the URL is correct even when this
+ * plugin is applied before the bridge. When no host URL is available at call
+ * time, the tools degrade to a clear FAILED_PRECONDITION instead of throwing at
+ * load time — so the plugin still installs in standalone DSH where hq-edge is
+ * absent.
  *
  * @param ctx - real cordis context (node side).
  * @returns disposer — unregisters the tools on plugin dispose.
@@ -74,44 +85,21 @@ export function apply(ctx: Context, config: Partial<EdaHostConfig> = {}): () => 
   }
 
   const resolved = resolveEdaHostConfig(config)
+
+  // Late-bound host endpoint: prefer the edge-bridge service, then the overlay
+  // config / env value. Consulted on every request (see client.ts).
+  const getHqEdgeBaseUrl = (): string | undefined => {
+    const hq = ctx.hqEdge
+    return hq?.baseUrl && hq.baseUrl.trim().length > 0 ? hq.baseUrl : undefined
+  }
+
   log.info('applying dsh-eda-host node half', {
-    hasHost: hasHost(resolved),
-    hqEdgeBaseUrl: resolved.hqEdgeBaseUrl ?? null,
+    hasConfigHost: hasHost(resolved),
+    hqEdgeBaseUrlFromConfig: resolved.hqEdgeBaseUrl ?? null,
     netlistPathPrefix: resolved.netlistPathPrefix,
   })
 
-  let client: EdaHostClient
-
-  if (hasHost(resolved)) {
-    client = createEdaHostClient(resolved)
-  } else {
-    // Standalone install (no hq-edge supervisor): every scope degrades to
-    // FAILED_PRECONDITION with a clear message.
-    const unavailable: EdaHostClient = {
-      getProjectNetlist: async () => {
-        throw new NetlistError(
-          'FAILED_PRECONDITION',
-          'eda-host: no hq-edge base URL configured (hqEdgeBaseUrl / HQ_EDGE_BASE_URL) — ' +
-            'netlist tools require the hq-edge EDA host bridge.',
-        )
-      },
-      getSelectionNetlist: async () => {
-        throw new NetlistError(
-          'FAILED_PRECONDITION',
-          'eda-host: no hq-edge base URL configured (hqEdgeBaseUrl / HQ_EDGE_BASE_URL) — ' +
-            'netlist tools require the hq-edge EDA host bridge.',
-        )
-      },
-      getActivePageNetlist: async () => {
-        throw new NetlistError(
-          'FAILED_PRECONDITION',
-          'eda-host: no hq-edge base URL configured (hqEdgeBaseUrl / HQ_EDGE_BASE_URL) — ' +
-            'netlist tools require the hq-edge EDA host bridge.',
-        )
-      },
-    }
-    client = unavailable
-  }
+  const client = createEdaHostClient(resolved, { baseUrlResolver: getHqEdgeBaseUrl })
 
   ctx.effect(() => ctx.provide('edaHost', client))
 
@@ -121,7 +109,7 @@ export function apply(ctx: Context, config: Partial<EdaHostConfig> = {}): () => 
     disposers.push(ctx.tools.register(tool))
   }
 
-  log.info('dsh-eda-host node half ready', { tools: 3, hostMode: hasHost(resolved) })
+  log.info('dsh-eda-host node half ready', { tools: 3, configHostMode: hasHost(resolved) })
 
   return () => {
     for (const dispose of disposers) {

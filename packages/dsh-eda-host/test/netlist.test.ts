@@ -98,6 +98,45 @@ describe('createEdaHostClient', () => {
     })
     await expect(client.getProjectNetlist()).rejects.toMatchObject({ kind: 'UNAVAILABLE' })
   })
+
+  it('prefers a baseUrlResolver (ctx.hqEdge) over static config', async () => {
+    const seen: string[] = []
+    const client = createEdaHostClient(
+      { hqEdgeBaseUrl: 'http://stale:1' },
+      {
+        baseUrlResolver: () => 'http://hqedge:9',
+        fetchImpl: async (url: URL | RequestInfo) => {
+          seen.push(String(url))
+          return jsonResponse(200, { netlist: { components: [], nets: [] } })
+        },
+      },
+    )
+    await client.getSelectionNetlist()
+    expect(seen[0]).toBe('http://hqedge:9/api/v1/netlist/selection')
+  })
+
+  it('falls back to static config when the resolver returns nothing', async () => {
+    const seen: string[] = []
+    const client = createEdaHostClient(BASE_CONFIG, {
+      baseUrlResolver: () => undefined,
+      fetchImpl: async (url: URL | RequestInfo) => {
+        seen.push(String(url))
+        return jsonResponse(200, { netlist: { components: [], nets: [] } })
+      },
+    })
+    await client.getProjectNetlist()
+    expect(seen[0]).toBe('http://host:18080/api/v1/netlist/project')
+  })
+
+  it('throws FAILED_PRECONDITION when no base URL is resolvable', async () => {
+    const client = createEdaHostClient(
+      { hqEdgeBaseUrl: '' },
+      { baseUrlResolver: () => undefined },
+    )
+    await expect(client.getProjectNetlist()).rejects.toMatchObject({
+      kind: 'FAILED_PRECONDITION',
+    })
+  })
 })
 
 describe('createNetListTools', () => {

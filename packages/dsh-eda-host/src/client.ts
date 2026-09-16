@@ -17,6 +17,16 @@ import {
 
 export interface EdaHostClientDeps {
   fetchImpl?: typeof fetch
+  /**
+   * Optional late-bound resolver for the HQ Edge base URL. When supplied it is
+   * consulted on EVERY request and takes priority over the static `config`
+   * value. This lets the node half read the endpoint from the `ctx.hqEdge`
+   * service the edge-bridge plugin provides — the same pattern `@huaqiu/
+   * dsh-artifacts` and `@huaqiu/dsh-tool-symbol-footprint` use — so the URL is
+   * picked up even if this plugin is applied before the bridge, and stays
+   * correct in standalone installs where no host is present.
+   */
+  baseUrlResolver?: () => string | undefined
 }
 
 export interface EdaHostClient {
@@ -43,7 +53,20 @@ export function createEdaHostClient(
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch
 
   async function fetchScope(scope: NetlistScope): Promise<SchematicNetlist> {
-    const url = netlistUrlOf(config, scope)
+    // Resolve the host endpoint per request. A resolver (ctx.hqEdge) wins over
+    // the static config/env value; if neither yields a URL we degrade to the
+    // same clear FAILED_PRECONDITION the standalone install path uses.
+    const baseUrl = deps.baseUrlResolver?.()?.trim()
+      ?? config.hqEdgeBaseUrl?.trim()
+      ?? ''
+    if (baseUrl.length === 0) {
+      throw new NetlistError(
+        'FAILED_PRECONDITION',
+        'eda-host: no hq-edge base URL configured (hqEdgeBaseUrl / HQ_EDGE_BASE_URL) — ' +
+          'netlist tools require the hq-edge EDA host bridge.',
+      )
+    }
+    const url = netlistUrlOf({ ...config, hqEdgeBaseUrl: baseUrl }, scope)
 
     let response: Response
     try {
