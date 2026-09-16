@@ -1,0 +1,8 @@
+# Optional HuaQiu Web presentation layer. It disables the built-in sidebar
+# occupants, then appends a replacement browser presentation row.
+- id: ui-brand-official
+  disabled: true
+
+- insert:
+    - id: ui-theme-huaqiu
+      name: '@huaqiu/dsh-ui-theme-huaqiu'

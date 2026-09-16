@@ -15,6 +15,7 @@ each able to stand on its own and be published to npm.
 |---|---|---|---|
 | `@huaqiu/dsh-auth` | dual-face | eda.cn login HIT (embedded `auth.eda.cn` iframe) + sidebar login; node `huaqiuAuth` credential cache | Phase 0A — working |
 | `@huaqiu/dsh-artifacts` | node + routes | filesystem artifact store + HTTP preview routes; `huaqiuArtifacts` service | Phase 0B — working |
+| `@huaqiu/dsh-ui-theme-huaqiu` | browser Bundle | HuaQiu red palette, HQ marks, sidebar name, and blank-session slogan | working |
 | `@huaqiu/dsh-tool-part-search` | node only | 4 part-search tools wrapping the published `@huaqiu/part-search` library | Phase 1 — **published v0.1.0** |
 | `@huaqiu/dsh-tool-symbol-footprint` | dual-face | symbol / footprint generation over `wss://www.eda.cn/componentV2/chat` + dimension-confirmation HIT card | working |
 | `@huaqiu/dsh-tool-schematic-gen` | dual-face | schematic + system-design generation via gen.eda.cn CopilotKit SSE + zip export + ECAD preview card | working |
