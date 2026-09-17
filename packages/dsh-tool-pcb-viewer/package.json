@@ -1,0 +1,66 @@
+{
+  "name": "@huaqiu/dsh-tool-pcb-viewer",
+  "version": "0.3.10",
+  "description": "KiCad .kicad_pcb → interactive 2D-layout + 3D board viewer DSH plugin: a pcb_preview tool, an in-conversation turn-tail card (live 3D thumbnail + actions), a big-screen split panel, and a standalone full-page route. Parses via @huaqiu/kicad-sexpr-parser through a model adapter.",
+  "type": "module",
+  "main": "./lib/index.mjs",
+  "types": "./lib/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.mts",
+      "default": "./lib/index.mjs"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.0",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.0",
+    "react": "^18"
+  },
+  "dependencies": {
+    "@huaqiu/kicad-sexpr-parser": "^0.1.1",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/three": "^0.185.4",
+    "react": "^18.3.1"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "kicad",
+    "pcb",
+    "3d",
+    "viewer",
+    "eda"
+  ],
+  "license": "MIT"
+}
