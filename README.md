@@ -19,6 +19,7 @@ each able to stand on its own and be published to npm.
 | `@huaqiu/dsh-tool-part-search` | node only | 4 part-search tools wrapping the published `@huaqiu/part-search` library | Phase 1 — **published v0.1.0** |
 | `@huaqiu/dsh-tool-symbol-footprint` | dual-face | symbol / footprint generation over `wss://www.eda.cn/componentV2/chat` + dimension-confirmation HIT card | working |
 | `@huaqiu/dsh-tool-schematic-gen` | dual-face | schematic + system-design generation via gen.eda.cn CopilotKit SSE + zip export + ECAD preview card | working |
+| `@huaqiu/dsh-kicad` | node + skill | 10 KiCad PCB tools over the official KiCad IPC API, bundled with the `kicad-ipc` skill | working |
 
 ## Architecture
 
@@ -42,6 +43,23 @@ Two plugin shapes:
 - **Dual-face** (`inject: ['tools', ...]` + `dsh.client.inject: ['@deepseek-ai/dsh-client-runtime']`) —
   auth, symbol/footprint, schematic-gen. A cordis node half registers tools/services/routes,
   and a browser half registers React `tool.call.toolview` cards for human-in-the-loop steps.
+- **Node + bundled skill** (`inject: ['skills', 'tools']`) — `dsh-kicad`. Registers tools
+  *and* a skill in the same `apply()`, so installing the plugin makes the skill available
+  with no second installation step. The skill directory ships in `files[]` and is located
+  at runtime relative to the loaded module:
+
+  ```js
+  const skillDir = join(dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'kicad-ipc')
+  ctx.skills.register({
+    name: 'kicad-ipc',
+    description,
+    content: readFileSync(join(skillDir, 'SKILL.md'), 'utf8'),
+    resourceBase: { kind: 'directory', path: skillDir },
+  })
+  ```
+
+  `resourceBase` is what lets the agent resolve the skill's `scripts/` and `references/`
+  relative paths. See `packages/dsh-kicad/README.md`.
 
 ### Node half (cordis plugin)
 
@@ -171,6 +189,7 @@ packages/<pkg>/
   src/index.ts        # cordis plugin entry: name, inject, apply()
   src/tools.ts        # agent tool bodies (defineTool)
   src/client/         # browser half: HIT cards (React), ecad helpers, theme
+  skills/             # optional bundled skills (dsh-kicad) — must be in files[]
   cordis.patch.yml    # profile insert
   tsdown.config.ts    # build → lib/ (client bundle for dual-face packages)
   test/               # vitest

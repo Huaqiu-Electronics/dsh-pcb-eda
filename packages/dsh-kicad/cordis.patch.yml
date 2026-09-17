@@ -1,0 +1,15 @@
+# DSH bundle patch: inserts the Huaqiu KiCad plugin into a profile's layer stack.
+#
+# This one row delivers BOTH halves of `dsh-kicad` (task: dsh-kicad-skill-plugin):
+# the KiCad tools and the bundled `kicad-ipc` skill. The plugin registers the
+# skill itself at load time via `ctx.skills.register()`, so there is no separate
+# skill installation step and no second skill registration mechanism.
+#
+# The entry `inject` MUST match the node-half module contract (`src/index.ts`
+# `export const inject`): `skills` + `tools`. `skills` is REQUIRED — without it
+# `apply()`'s `ctx.skills` access throws `cannot get property "skills" without
+# inject`.
+- insert:
+    - id: huaqiu-dsh-kicad
+      name: '@huaqiu/dsh-kicad'
+      inject: ['skills', 'tools']

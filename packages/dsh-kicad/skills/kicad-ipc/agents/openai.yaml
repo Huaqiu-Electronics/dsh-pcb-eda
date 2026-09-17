@@ -1,0 +1,3 @@
+interface:
+  display_name: "KiCad IPC PCB"
+  short_description: "通过官方 IPC SDK 安全地编辑 PCB"
