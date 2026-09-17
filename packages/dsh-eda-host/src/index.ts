@@ -2,11 +2,13 @@
  * `@huaqiu/dsh-eda-host` — node plugin entry.
  *
  * Provides the `edaHost` service (semantic EDA-host capability) and registers
- * three agent tools:
+ * five agent tools:
  *
  *   get_project_netlist      complete project netlist
  *   get_selection_netlist    currently selected components netlist
  *   get_active_page_netlist  active schematic page netlist
+ *   get_eda_host_info        which EDA host, version, installation
+ *   get_eda_host_capabilities  what the current host can actually do
  *
  * ── Architectural boundary (task: add-dsh-eda-host) ─────────────────────────
  * The ONLY production request path is DSH → dsh-eda-host → hq-edge → EDA host.
@@ -26,7 +28,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { getLogger } from '@huaqiu/dsh-plugin-log'
 import { createEdaHostClient, type EdaHostClient } from './client.js'
 import { hasHost, resolveEdaHostConfig, type EdaHostConfig } from './config.js'
-import { createNetListTools } from './tools.js'
+import { createEdaHostTools, createNetListTools } from './tools.js'
 
 /** Plugin id — matches package.json. */
 export const name = '@huaqiu/dsh-eda-host'
@@ -50,8 +52,14 @@ export const name = '@huaqiu/dsh-eda-host'
 export const inject = ['hqEdge', 'tools'] as const
 
 export type { EdaHostConfig } from './config.js'
-export type { EdaHostClient } from './client.js'
+export type { EdaHostClient, EdaHostRequestOptions } from './client.js'
 export type {
+  EdaHostCapability,
+  EdaHostExecutable,
+  EdaHostIdentity,
+  EdaHostInfo,
+  EdaHostInstallation,
+  EdaHostType,
   ElectricalNet,
   ElectricalType,
   NetlistErrorKind,
@@ -61,6 +69,7 @@ export type {
   SchematicNetlist,
 } from './types.js'
 export { NetlistError } from './types.js'
+export { parseNetlistBody } from './client.js'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -88,6 +97,12 @@ declare module '@deepseek-ai/cordis' {
 const COMPONENT = 'dsh-eda-host'
 const log = getLogger(COMPONENT)
 
+// Emitted on import, before any Cordis dependency is resolved. Pairs with the
+// "node half ready" marker in apply(): if this line is logged but that one is
+// not, the edge-bridge never provided `hqEdge` and this plugin is still
+// pending — which is otherwise completely silent.
+log.info('dsh-eda-host: module loaded (waiting for the hqEdge + tools services)')
+
 /**
  * Host plugin body — provide `edaHost` and register the three netlist tools.
  *
@@ -113,30 +128,61 @@ export function apply(ctx: Context, config: Partial<EdaHostConfig> = {}): () => 
 
   const resolved = resolveEdaHostConfig(config)
 
+  // ── Explicit bridge dependency ───────────────────────────────────────────
+  // `hqEdge` is a REQUIRED inject, so Cordis only calls `apply()` once the
+  // edge-bridge has provided it. That means a missing bridge would otherwise
+  // leave this plugin pending forever with the tools never registered and
+  // nothing logged. Two things make that diagnosable:
+  //
+  //   1. `apply()` asserts the bridge actually gave us a usable endpoint and
+  //      THROWS when it did not — a loud startup failure beats five tools that
+  //      fail one by one at call time.
+  //   2. The module-level marker below is emitted on import. If
+  //      "dsh-eda-host: module loaded" appears in the log but
+  //      "dsh-eda-host: node half ready" never does, the bridge never provided
+  //      `hqEdge` and this plugin is still pending.
+  //
+  // hq-edge is NOT optional here — this plugin must never become a standalone
+  // DSH plugin (docs/tasks/expose-capability.md §3, §7).
+  const hq = ctx.hqEdge
+  if (!hq || typeof hq.baseUrl !== 'string' || hq.baseUrl.trim().length === 0) {
+    throw new Error(
+      '@huaqiu/dsh-eda-host requires a usable hq-edge context: the edge-bridge ' +
+        'plugin did not provide ctx.hqEdge.baseUrl. EDA host tools cannot work ' +
+        'without hq-edge — check that the bridge started and that the HQ Edge ' +
+        'port is valid.',
+    )
+  }
+
   // Late-bound host endpoint: prefer the edge-bridge service, then the overlay
   // config / env value. Consulted on every request (see client.ts).
   const getHqEdgeBaseUrl = (): string | undefined => {
-    const hq = ctx.hqEdge
-    return hq?.baseUrl && hq.baseUrl.trim().length > 0 ? hq.baseUrl : undefined
+    const current = ctx.hqEdge
+    return current?.baseUrl && current.baseUrl.trim().length > 0 ? current.baseUrl : undefined
   }
 
   log.info('applying dsh-eda-host node half', {
     hasConfigHost: hasHost(resolved),
     hqEdgeBaseUrlFromConfig: resolved.hqEdgeBaseUrl ?? null,
     netlistPathPrefix: resolved.netlistPathPrefix,
+    hostPathPrefix: resolved.hostPathPrefix,
+    requestTimeoutMs: resolved.requestTimeoutMs,
   })
 
   const client = createEdaHostClient(resolved, { baseUrlResolver: getHqEdgeBaseUrl })
 
   ctx.effect(() => ctx.provide('edaHost', client))
 
-  const tools = createNetListTools({ client })
+  const tools = [...createNetListTools({ client }), ...createEdaHostTools({ client })]
   const disposers: Array<() => void> = []
   for (const tool of tools) {
     disposers.push(ctx.tools.register(tool))
   }
 
-  log.info('dsh-eda-host node half ready', { tools: 3, configHostMode: hasHost(resolved) })
+  log.info('dsh-eda-host node half ready', {
+    tools: tools.length,
+    configHostMode: hasHost(resolved),
+  })
 
   return () => {
     for (const dispose of disposers) {

@@ -68,6 +68,8 @@ export type NetlistErrorKind =
   | 'INTERNAL'
   /** Host unavailable (connection refused). */
   | 'UNAVAILABLE'
+  /** The host did not answer within the request budget. */
+  | 'DEADLINE_EXCEEDED'
 
 export class NetlistError extends Error {
   readonly kind: NetlistErrorKind
@@ -77,4 +79,94 @@ export class NetlistError extends Error {
     this.name = 'NetlistError'
     this.kind = kind
   }
+}
+
+// ---------------------------------------------------------------------------
+// EDA host discovery — structural mirror of `hq.host.v1`
+// ---------------------------------------------------------------------------
+
+/**
+ * `hq.host.v1` carries **no availability flags**.
+ *
+ * A host that answers `GetEdaHostInfo` is, by definition, available, and every
+ * executable it lists is one it can actually run. Unavailability is therefore
+ * never a field to check — it is a failed request, surfaced as `ok:false` with
+ * `error.kind` `UNAVAILABLE` / `FAILED_PRECONDITION` / `DEADLINE_EXCEEDED`.
+ *
+ * Consequence for consumers: never infer "unavailable" from a missing or empty
+ * value. Absence of `identity`/`installation` just means proto3 omitted
+ * defaults (see `parseEdaHostInfo`), and empty `path` only means the host could
+ * not resolve an absolute location — the tool is still runnable by name.
+ */
+
+/**
+ * Which EDA application sits behind the semantic host boundary.
+ *
+ * Deliberately EDA-independent: a new host adds a value here rather than
+ * introducing host-specific messages or tools.
+ */
+export type EdaHostType =
+  | 'EDA_HOST_TYPE_UNSPECIFIED'
+  | 'EDA_HOST_TYPE_KICAD'
+  | 'EDA_HOST_TYPE_HQ_EDA'
+
+/**
+ * A capability an EDA host may provide.
+ *
+ * A capability is advertised only when the host can actually provide it —
+ * discovering a capability is not the same as implementing it. Unknown values
+ * MUST be treated as "not supported" so a newer host cannot confuse an older
+ * plugin.
+ */
+export type EdaHostCapability =
+  | 'EDA_HOST_CAPABILITY_UNSPECIFIED'
+  | 'EDA_HOST_CAPABILITY_SCHEMATIC'
+  | 'EDA_HOST_CAPABILITY_PCB'
+  | 'EDA_HOST_CAPABILITY_NETLIST'
+  | 'EDA_HOST_CAPABILITY_NETLIST_SELECTION'
+  | 'EDA_HOST_CAPABILITY_NETLIST_ACTIVE_PAGE'
+  | 'EDA_HOST_CAPABILITY_ERC'
+  | 'EDA_HOST_CAPABILITY_DRC'
+  | 'EDA_HOST_CAPABILITY_BOM'
+  | 'EDA_HOST_CAPABILITY_PLACEMENT'
+
+/** A host-provided command line tool. */
+export interface EdaHostExecutable {
+  /** Stable tool name, e.g. "kicad-cli". */
+  name: string
+  /**
+   * Absolute path when the host could resolve one.
+   *
+   * Empty means "resolvable by name only" (e.g. found on `PATH` but the host
+   * did not report a location) — never "not installed" or "unusable".
+   */
+  path: string
+}
+
+/** Where the host application lives on disk. */
+export interface EdaHostInstallation {
+  applicationPath: string
+  /**
+   * Executables the host can run. Being listed here IS the availability
+   * signal: there is no per-executable availability flag.
+   */
+  executables: EdaHostExecutable[]
+}
+
+/** Which EDA host is connected. */
+export interface EdaHostIdentity {
+  hostType: EdaHostType
+  hostName: string
+  version: string
+}
+
+/**
+ * EDA-independent description of the connected host.
+ *
+ * Answering this message is the host's way of saying it is available — there is
+ * no `available` field to inspect.
+ */
+export interface EdaHostInfo {
+  identity: EdaHostIdentity
+  installation: EdaHostInstallation
 }
