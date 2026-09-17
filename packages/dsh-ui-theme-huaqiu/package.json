@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-ui-theme-huaqiu",
-  "version": "0.3.25",
+  "version": "0.4.1",
   "description": "HuaQiu Web theme and HQ brand plugin for DeepSeek Harness",
   "type": "module",
   "main": "./lib/index.mjs",
