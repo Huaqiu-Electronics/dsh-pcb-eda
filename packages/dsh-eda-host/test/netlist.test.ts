@@ -422,6 +422,7 @@ describe('createEdaHostTools', () => {
   function hostEnvOf(handlers: {
     info?: () => Promise<unknown>
     capabilities?: () => Promise<unknown>
+    pcbSelection?: () => Promise<unknown>
   }): EdaHostClient {
     return {
       getProjectNetlist: async () => ({ components: [], nets: [] }),
@@ -430,14 +431,17 @@ describe('createEdaHostTools', () => {
       getEdaHostInfo: (async () => handlers.info?.()) as EdaHostClient['getEdaHostInfo'],
       getEdaHostCapabilities: (async () =>
         handlers.capabilities?.()) as EdaHostClient['getEdaHostCapabilities'],
+      getPcbSelection: (async () =>
+        handlers.pcbSelection?.()) as EdaHostClient['getPcbSelection'],
     }
   }
 
-  it('registers exactly the two host discovery tools', () => {
+  it('registers exactly the three host discovery/selection tools', () => {
     const tools = createEdaHostTools({ client: hostEnvOf({}) })
     expect(tools.map((t) => t.name).sort()).toEqual([
       'get_eda_host_capabilities',
       'get_eda_host_info',
+      'get_pcb_selection',
     ])
   })
 
@@ -483,6 +487,88 @@ describe('createEdaHostTools', () => {
     expect(result.ok).toBe(false)
     expect(result.error.kind).toBe('UNAVAILABLE')
     expect(result.info).toBeUndefined()
+  })
+
+  it('returns ok:true with a valid empty PCB selection', async () => {
+    const emptySelection = {
+      footprints: [],
+      pads: [],
+      tracks: [],
+      arcs: [],
+      vias: [],
+      zones: [],
+      shapes: [],
+      texts: [],
+      dimensions: [],
+      groups: [],
+      nets: [],
+    }
+    const tools = createEdaHostTools({
+      client: hostEnvOf({ pcbSelection: async () => emptySelection }),
+    })
+    const tool = tools.find((t) => t.name === 'get_pcb_selection')!
+    const result = (await tool.execute({}, {} as never)) as {
+      ok: boolean
+      selection: { footprints: unknown[] }
+    }
+    expect(result.ok).toBe(true)
+    expect(result.selection.footprints).toEqual([])
+  })
+
+  it('returns ok:true with a populated PCB selection', async () => {
+    const selection = {
+      footprints: [
+        {
+          id: '00000000-0000-0000-0000-000000000001',
+          reference: 'U1',
+          value: 'STM32F103C8T6',
+          footprint: 'LQFP-48',
+          position: { x: 10.5, y: 3.25 },
+          rotationDeg: 90,
+          pads: [{ id: 'p1', pin: '1', layer: 'F.Cu' }],
+        },
+      ],
+      pads: [],
+      tracks: [{ id: 't1', layer: 'F.Cu', widthMm: 0.25, lengthMm: 12.3, net: { name: 'GND', code: 1 } }],
+      arcs: [],
+      vias: [],
+      zones: [],
+      shapes: [],
+      texts: [],
+      dimensions: [],
+      groups: [],
+      nets: [{ name: 'GND', code: 1 }],
+    }
+    const tools = createEdaHostTools({
+      client: hostEnvOf({ pcbSelection: async () => selection }),
+    })
+    const tool = tools.find((t) => t.name === 'get_pcb_selection')!
+    const result = (await tool.execute({}, {} as never)) as {
+      ok: boolean
+      selection: { footprints: { reference: string }[]; tracks: unknown[] }
+    }
+    expect(result.ok).toBe(true)
+    expect(result.selection.footprints[0]!.reference).toBe('U1')
+    expect(result.selection.tracks).toHaveLength(1)
+  })
+
+  it('propagates PCB selection failures with a semantic kind', async () => {
+    const tools = createEdaHostTools({
+      client: hostEnvOf({
+        pcbSelection: async () => {
+          throw new NetlistError('FAILED_PRECONDITION', 'no PCB editor open')
+        },
+      }),
+    })
+    const tool = tools.find((t) => t.name === 'get_pcb_selection')!
+    const result = (await tool.execute({}, {} as never)) as {
+      ok: boolean
+      selection?: unknown
+      error: { kind: string }
+    }
+    expect(result.ok).toBe(false)
+    expect(result.error.kind).toBe('FAILED_PRECONDITION')
+    expect(result.selection).toBeUndefined()
   })
 })
 

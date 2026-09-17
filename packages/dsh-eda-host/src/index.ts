@@ -2,11 +2,12 @@
  * `@huaqiu/dsh-eda-host` — node plugin entry.
  *
  * Provides the `edaHost` service (semantic EDA-host capability) and registers
- * five agent tools:
+ * six agent tools:
  *
  *   get_project_netlist      complete project netlist
  *   get_selection_netlist    currently selected components netlist
  *   get_active_page_netlist  active schematic page netlist
+ *   get_pcb_selection        semantic PCB selection of the current PCB editor
  *   get_eda_host_info        which EDA host, version, installation
  *   get_eda_host_capabilities  what the current host can actually do
  *
@@ -63,6 +64,20 @@ export type {
   ElectricalNet,
   ElectricalType,
   NetlistErrorKind,
+  PcbArc,
+  PcbDimension,
+  PcbFootprint,
+  PcbGroup,
+  PcbNetRef,
+  PcbPad,
+  PcbPoint,
+  PcbSegment,
+  PcbSelection,
+  PcbShape,
+  PcbText,
+  PcbTrack,
+  PcbVia,
+  PcbZone,
   PinDefinition,
   PinReference,
   SchematicComponent,

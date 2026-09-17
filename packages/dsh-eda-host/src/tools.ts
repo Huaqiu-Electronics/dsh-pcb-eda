@@ -24,7 +24,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { EdaHostClient, EdaHostRequestOptions } from './client.js'
-import { NetlistError, type EdaHostCapability, type EdaHostInfo, type SchematicNetlist } from './types.js'
+import { NetlistError, type EdaHostCapability, type EdaHostInfo, type PcbSelection, type SchematicNetlist } from './types.js'
 
 /** Structural alias of the DSH `JsonValue`. */
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
@@ -60,6 +60,10 @@ type HostInfoResult =
 
 type HostCapabilitiesResult =
   | { ok: true; capabilities: EdaHostCapability[] }
+  | { ok: false; error: { kind: string; message: string } }
+
+type PcbSelectionResult =
+  | { ok: true; selection: PcbSelection }
   | { ok: false; error: { kind: string; message: string } }
 
 /**
@@ -188,6 +192,36 @@ export function createNetListTools(env: NetlistToolEnv) {
            return asJson<HostInfoResult>({ ok: true, info })
          } catch (err) {
            return asJson<HostInfoResult>({ ok: false, error: failureOf(err) })
+         }
+       },
+     }),
+
+     defineTool({
+       name: 'get_pcb_selection',
+       description:
+         `Read the semantic PCB selection from the current PCB editor through hq-edge ` +
+         `(DSH → dsh-eda-host → hq-edge → EDA host). Returns { ok, selection: { footprints[], ` +
+         `pads[], tracks[], arcs[], vias[], zones[], shapes[], texts[], dimensions[], groups[], ` +
+         `nets[] } }. ` +
+         `Each footprint has reference, value, footprint, position {x,y} in mm, rotationDeg and ` +
+         `pads[] (pin, type, shape, position, widthMm, heightMm, rotationDeg, layer, net{name, ` +
+         `code}); tracks have layer, start/end in mm, widthMm, lengthMm and net; vias have ` +
+         `layers[], drillMm, viaType and start/end; zones have layer, net and outline segments. ` +
+         `Every object carries id — the EDA-host native object identity. ` +
+         `IMPORTANT: ok:true with all-empty arrays is a VALID empty selection (nothing selected) ` +
+         `— do not treat it as a failure. ` +
+         ERROR_SEMANTICS,
+       parameters: {},
+       output: { schema: { type: 'json' }, render: renderJson },
+       async execute(_args: unknown, exec: ToolExecLike): Promise<Json> {
+         try {
+           const options: EdaHostRequestOptions = exec?.signal
+             ? { signal: exec.signal }
+             : {}
+           const selection = await env.client.getPcbSelection(options)
+           return asJson<PcbSelectionResult>({ ok: true, selection })
+         } catch (err) {
+           return asJson<PcbSelectionResult>({ ok: false, error: failureOf(err) })
          }
        },
      }),

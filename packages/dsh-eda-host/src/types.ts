@@ -55,6 +55,138 @@ export interface SchematicNetlist {
 }
 
 /**
+ * Semantic PCB selection types.
+ *
+ * Self-contained structural mirror of `hq.pcb.v1` (the hq-edge-owned semantic
+ * protobuf contract for `PcbSelectionService.GetSelection`). Units follow the
+ * hq.pcb.v1 convention: positions/sizes/lengths in mm, rotations in degrees,
+ * `id` is the KiCad native object identity.
+ */
+
+export interface PcbPoint {
+  x: number
+  y: number
+}
+
+export interface PcbNetRef {
+  name: string
+  code: number
+}
+
+export interface PcbPad {
+  id: string
+  pin: string
+  type: string
+  shape: string
+  position?: PcbPoint
+  widthMm: number
+  heightMm: number
+  rotationDeg: number
+  layer: string
+  net?: PcbNetRef
+}
+
+export interface PcbFootprint {
+  id: string
+  reference: string
+  value: string
+  footprint: string
+  position?: PcbPoint
+  rotationDeg: number
+  pads: PcbPad[]
+}
+
+export interface PcbTrack {
+  id: string
+  layer: string
+  start?: PcbPoint
+  end?: PcbPoint
+  widthMm: number
+  lengthMm: number
+  net?: PcbNetRef
+}
+
+export interface PcbArc {
+  id: string
+  layer: string
+  start?: PcbPoint
+  end?: PcbPoint
+  mid?: PcbPoint
+  net?: PcbNetRef
+}
+
+export interface PcbVia {
+  id: string
+  layers: string[]
+  drillMm: number
+  viaType: string
+  start?: PcbPoint
+  end?: PcbPoint
+}
+
+export interface PcbSegment {
+  start?: PcbPoint
+  end?: PcbPoint
+}
+
+export interface PcbZone {
+  id: string
+  layer: string
+  net?: PcbNetRef
+  outline: PcbSegment[]
+}
+
+export interface PcbShape {
+  id: string
+  layer: string
+  shapeType: string
+  start?: PcbPoint
+  end?: PcbPoint
+  center?: PcbPoint
+  radiusMm: number
+  mid?: PcbPoint
+  widthMm: number
+}
+
+export interface PcbText {
+  id: string
+  layer: string
+  text: string
+  position?: PcbPoint
+  rotationDeg: number
+  hJustify: string
+  vJustify: string
+}
+
+export interface PcbDimension {
+  id: string
+  layer: string
+  start?: PcbPoint
+  end?: PcbPoint
+  value: string
+  dimType: string
+}
+
+export interface PcbGroup {
+  id: string
+  itemIds: string[]
+}
+
+export interface PcbSelection {
+  footprints: PcbFootprint[]
+  pads: PcbPad[]
+  tracks: PcbTrack[]
+  arcs: PcbArc[]
+  vias: PcbVia[]
+  zones: PcbZone[]
+  shapes: PcbShape[]
+  texts: PcbText[]
+  dimensions: PcbDimension[]
+  groups: PcbGroup[]
+  nets: PcbNetRef[]
+}
+
+/**
  * Semantic error categories for netlist retrieval. Mirrors the gRPC status
  * contract of `hq.ir.schematic.v1.NetListService` so an agent can distinguish
  * "valid but empty" from "cannot answer at all".

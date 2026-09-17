@@ -15,6 +15,8 @@ export interface EdaHostConfig {
   hqEdgeBaseUrl?: string
   /** Path prefix on the host; default "/api/v1/netlist". */
   netlistPathPrefix?: string
+  /** Path prefix for PCB selection; default "/api/v1/pcb-selection". */
+  pcbSelectionPathPrefix?: string
   /** Path prefix for host discovery; default "/api/v1/host". */
   hostPathPrefix?: string
   /**
@@ -29,6 +31,8 @@ export interface EdaHostConfig {
 }
 
 export const DEFAULT_NETLIST_PATH_PREFIX = '/api/v1/netlist'
+
+export const DEFAULT_PCB_SELECTION_PATH_PREFIX = '/api/v1/pcb-selection'
 
 export const DEFAULT_HOST_PATH_PREFIX = '/api/v1/host'
 
@@ -50,6 +54,10 @@ export function resolveEdaHostConfig(
   const baseUrl = config?.hqEdgeBaseUrl ?? env.HQ_EDGE_BASE_URL ?? ''
   const pathPrefix =
     config?.netlistPathPrefix ?? env.HQ_EDGE_NETLIST_PATH ?? DEFAULT_NETLIST_PATH_PREFIX
+  const pcbSelectionPrefix =
+    config?.pcbSelectionPathPrefix ??
+    env.HQ_EDGE_PCB_SELECTION_PATH ??
+    DEFAULT_PCB_SELECTION_PATH_PREFIX
   const hostPrefix =
     config?.hostPathPrefix ?? env.HQ_EDGE_HOST_PATH ?? DEFAULT_HOST_PATH_PREFIX
   const timeoutRaw = config?.requestTimeoutMs ?? env.HQ_EDGE_REQUEST_TIMEOUT_MS
@@ -57,6 +65,7 @@ export function resolveEdaHostConfig(
   return {
     hqEdgeBaseUrl: baseUrl,
     netlistPathPrefix: pathPrefix,
+    pcbSelectionPathPrefix: pcbSelectionPrefix,
     hostPathPrefix: hostPrefix,
     requestTimeoutMs:
       Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_REQUEST_TIMEOUT_MS,
@@ -73,6 +82,16 @@ export function netlistUrlOf(config: EdaHostConfig, scope: NetlistScope): string
   const base = (config.hqEdgeBaseUrl ?? '').replace(/\/+$/, '')
   const prefix = (config.netlistPathPrefix ?? DEFAULT_NETLIST_PATH_PREFIX).replace(/^\/+|\/+$/g, '')
   return `${base}/${prefix}${SCOPE_ROUTE[scope]}`
+}
+
+/** Build the absolute URL for the PCB selection route. */
+export function pcbSelectionUrlOf(config: EdaHostConfig): string {
+  const base = (config.hqEdgeBaseUrl ?? '').replace(/\/+$/, '')
+  const prefix = (config.pcbSelectionPathPrefix ?? DEFAULT_PCB_SELECTION_PATH_PREFIX).replace(
+    /^\/+|\/+$/g,
+    '',
+  )
+  return `${base}/${prefix}`
 }
 
 /** Host discovery route suffix. */
