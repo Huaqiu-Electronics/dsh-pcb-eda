@@ -87,6 +87,39 @@ describe('apply() — plugin loading', () => {
     const broken = { skills: ctx.skills } as never
     expect(() => apply(broken)).toThrow(/tools/)
   })
+
+  // ── Degraded load ────────────────────────────────────────────────────────
+  // HQ Edge's builtin-plugin staging used to copy only package.json + lib/, so
+  // skills/ never reached the bundle. Because apply() threw, that single
+  // missing asset aborted the whole DSH plugin tree and the server could not
+  // start at all. The blast radius of "this plugin's skill is missing" must be
+  // "this plugin is degraded" — never "DSH exits".
+  describe('degraded when the bundled skill is missing', () => {
+    const MISSING = '/nonexistent/dsh-kicad/skills/kicad-ipc'
+
+    it('loads anyway and still registers every KiCad tool', () => {
+      const { ctx, skills, tools } = fakeCtx()
+      expect(() => apply(ctx as never, { skillsDir: MISSING })).not.toThrow()
+
+      expect(skills).toHaveLength(0)
+      expect(tools.map((t) => t.name)).toEqual(kicadToolNames())
+    })
+
+    it('returns a working disposer that unregisters only what it registered', () => {
+      const { ctx, unregistered } = fakeCtx()
+      const dispose = apply(ctx as never, { skillsDir: MISSING })
+      dispose()
+
+      expect(unregistered.some((u) => u.startsWith('skill:'))).toBe(false)
+      expect(unregistered).toHaveLength(kicadToolNames().length)
+    })
+
+    it('keeps readBundledSkill() fatal — packaging checks must still fail loud', () => {
+      // The degradation above is about not killing the HOST. An explicit
+      // packaging assertion (tests, `dsh-doctor`) should still throw.
+      expect(() => readBundledSkill(import.meta.url, MISSING)).toThrow(/bundled skill missing/)
+    })
+  })
 })
 
 describe('apply() — bundled skill discovery (§15)', () => {

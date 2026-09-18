@@ -158,6 +158,46 @@ export function readBundledSkill(moduleUrl: string, override?: string): {
 }
 
 /**
+ * Read the bundled skill, or `null` when the installed package does not carry
+ * one.
+ *
+ * ── Why this degrades instead of throwing ──────────────────────────────────
+ * A missing `skills/` tree is a PACKAGING failure, and the honest signal for a
+ * packaging failure is a loud error — but not a dead server. `apply()` runs
+ * inside the DSH plugin tree: throwing here aborts the whole loader
+ * (`plugin tree failed to load`), kills the DSH process, and takes every other
+ * plugin and the entire EDA session down with it, for one missing asset.
+ *
+ * That actually happened: HQ Edge's builtin-plugin staging copied only
+ * `package.json` + `lib/`, so `skills/` never reached the bundle and the
+ * server could not start at all. The correct blast radius for "this plugin's
+ * skill is missing" is "this plugin is degraded", so we log at error level
+ * with the exact path and remedy, skip skill registration, and keep the tools
+ * (which fail per-call with a typed `FAILED_PRECONDITION` rather than at load).
+ *
+ * @param moduleUrl - `import.meta.url` of the calling module.
+ * @param override - explicit skill directory (plugin config or env var).
+ */
+export function tryReadBundledSkill(
+  moduleUrl: string,
+  override?: string,
+): { dir: string; name: string; description: string; content: string } | null {
+  try {
+    return readBundledSkill(moduleUrl, override)
+  } catch (err) {
+    log.error(
+      'dsh-kicad: bundled skill unavailable — continuing degraded, the KiCad ' +
+        'tools are registered but will fail until the package is reinstalled',
+      {
+        expectedDir: resolveSkillDir(moduleUrl, override),
+        error: String((err as Error)?.message ?? err),
+      },
+    )
+    return null
+  }
+}
+
+/**
  * Host plugin body — register the `kicad-ipc` skill and the KiCad tools.
  *
  * Both halves are registered here so that one installation delivers both. The
@@ -179,32 +219,39 @@ export function apply(ctx: Context, config: KicadConfigInput = {}): () => void {
 
   const resolved = resolveKicadConfig(config)
 
-  // Throws when the installed package is missing its skill — a packaging
-  // failure must be loud, not silently degraded (§15).
-  const skill = readBundledSkill(import.meta.url, config.skillsDir)
+  // Degraded rather than fatal: see tryReadBundledSkill. A null skill means
+  // the installed package is incomplete, not that the host is unusable.
+  const skill = tryReadBundledSkill(import.meta.url, config.skillsDir)
+  // Tools resolve their Python scripts under the skill directory, so they use
+  // the same path even when the skill itself is missing — a call then fails
+  // with a typed FAILED_PRECONDITION naming the exact script it needed.
+  const skillDir = skill?.dir ?? resolveSkillDir(import.meta.url, config.skillsDir)
 
   log.info('applying dsh-kicad node half', {
     hasConfigHost: hasHostConfig(config),
     pythonPath: resolved.pythonPath,
-    skillDir: skill.dir,
+    skillDir,
+    skillPresent: skill !== null,
     timeoutMs: resolved.timeoutMs,
   })
 
   const disposers: Array<() => void> = []
 
   // ── Skill (bundled, no separate installation) ────────────────────────────
-  disposers.push(
-    ctx.skills.register({
-      name: skill.name,
-      description: skill.description,
-      content: skill.content,
-      resourceBase: { kind: 'directory', path: skill.dir },
-    }),
-  )
+  if (skill) {
+    disposers.push(
+      ctx.skills.register({
+        name: skill.name,
+        description: skill.description,
+        content: skill.content,
+        resourceBase: { kind: 'directory', path: skill.dir },
+      }),
+    )
+  }
 
   // ── Tools ────────────────────────────────────────────────────────────────
   const tools = createKicadTools({
-    scriptsDir: scriptsDir(skill.dir),
+    scriptsDir: scriptsDir(skillDir),
     pythonPath: resolved.pythonPath,
     config: resolved,
   })
@@ -213,7 +260,8 @@ export function apply(ctx: Context, config: KicadConfigInput = {}): () => void {
   }
 
   log.info('dsh-kicad node half ready', {
-    skill: skill.name,
+    skill: skill?.name ?? null,
+    degraded: skill === null,
     tools: tools.length,
     expectedTools: kicadToolNames().length,
   })

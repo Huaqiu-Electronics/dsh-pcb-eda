@@ -74,6 +74,10 @@ Verified in `deepseek-harness`, not assumed:
 - Nothing copies skills out at install time; the plugin reads
   `node_modules/<pkg>/skills/...` at `apply()` time, so **`files[]` must include
   `skills`** or npm strips it.
+  ⚠️ **This holds for DSH, not for HQ Edge.** HQ Edge does not install the
+  package — it *re-materializes* it into `<DSH_HOME>/hq/builtin-plugins/<version>/`
+  with its own copy step, which historically shipped only `package.json` + `lib/`.
+  See §6; a plugin that ships assets must confirm that copy step carries them.
 - Validation is `validateRuntimeSkill` (`index.ts:741`): name must match
   `/^[a-z0-9]+(?:-[a-z0-9]+)*$/`, `description` must be non-empty, `invocation` may be
   omitted. `resourceBase` is `{ kind: 'directory', path }` and is what lets the agent
@@ -167,7 +171,51 @@ DSH_KICAD_PYTHON=/path/to/python-with-kipy pnpm launch-dsh
 # then: kicad_ipc_diagnose  ->  kicad_ipc_verify_live  ->  kicad_pcb_create_track
 ```
 
-## 6. Known issues / follow-ups
+## 6. Startup incident: the bundled skill never reached the runtime
+
+On first real startup HQ Edge failed to boot. From
+`~/.hq-edge/logs/server/server.2026-09-18.log`:
+
+```
+Error: dsh: plugin tree failed to load: failed to apply loader entry include
+(cordis:include): failed to apply loader entry huaqiu-dsh-kicad
+(@huaqiu/dsh-kicad): @huaqiu/dsh-kicad: bundled skill missing at
+/Users/admin/.hq-edge/1.8.9/dsh-home/hq/builtin-plugins/0.1.3-29-g0d3ac71/dsh-kicad/skills/kicad-ipc/SKILL.md
+→ DSH exited unexpectedly (code 1)
+```
+
+**Root cause — not in this repo.** The tarball was correct (`pnpm pack` contained
+`skills/`), and `files[]` was correct. HQ Edge's builtin-plugin staging,
+`copyPluginVerbatim` in `apps/server/src/dsh/supervisor.ts`, copied only
+`package.json` + `lib/`, so `skills/` never reached the bundle the loader reads.
+`pluginSetVersion` is pinned by `dist/…/dsh-plugins/manifest.json`, so the
+version and the overlay were both unchanged and the fast path happily re-served
+the asset-less bundle.
+
+Two fixes, one per side of the boundary:
+
+| # | Where | Change |
+|---|---|---|
+| 1 | `hq-edge` `apps/server/src/dsh/supervisor.ts` | `PLUGIN_VERBATIM_DIRS = ["lib", "skills"]` — the copy step and the fingerprint now cover `skills/`, and a new `bundleHasPluginAssets()` guard makes the fast path re-materialize when a plugin gains an asset tree under a pinned version (existence checks, not hashing). |
+| 2 | `dsh-pcb-eda` `packages/dsh-kicad/src/index.ts` | `apply()` no longer throws when the skill is missing. It logs at error level with the expected path and registers the 10 tools anyway — see below. |
+
+**Why (2) as well as (1).** `apply()` runs inside the DSH plugin tree, so
+throwing there aborted the entire loader and killed the DSH process — every
+other plugin and the whole EDA session — over one missing asset. The correct
+blast radius for "this plugin's skill is missing" is "this plugin is degraded":
+the tools still register and fail per-call with a typed `FAILED_PRECONDITION`
+naming the script they needed. `readBundledSkill()` stays fatal, so packaging
+checks and tests still fail loudly.
+
+Verified after rebuild (`~/.hq-edge/logs/dsh-plugins/dsh-plugins.log`):
+
+```
+applying dsh-kicad node half  skillDir=…/builtin-plugins/0.1.3-29-g0d3ac71/dsh-kicad/skills/kicad-ipc  skillPresent=true
+dsh-kicad node half ready     skill=kicad-ipc  degraded=false  tools=10  expectedTools=10
+[ DshSupervisor ] DSH ready
+```
+
+## 7. Known issues / follow-ups
 
 1. **Pre-existing typecheck failure, not caused by this migration.**
    `pnpm typecheck` at the repo root fails in `packages/dsh-eda-host`:
@@ -186,7 +234,7 @@ DSH_KICAD_PYTHON=/path/to/python-with-kipy pnpm launch-dsh
 4. **Schematic coverage is absent.** The migrated skill is PCB-only, matching the source.
    §7 permits this for a first version.
 
-## 7. Acceptance criteria (spec §24)
+## 8. Acceptance criteria (spec §24)
 
 | Criterion | Status |
 |---|---|
