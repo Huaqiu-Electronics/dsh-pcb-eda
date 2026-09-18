@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-tool-pcb-viewer",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "KiCad .kicad_pcb → interactive 2D-layout + 3D board viewer DSH plugin: a pcb_preview tool, an in-conversation turn-tail card (live 3D thumbnail + actions), a big-screen split panel, and a standalone full-page route. Parses via @huaqiu/kicad-sexpr-parser through a model adapter.",
   "type": "module",
   "main": "./lib/index.mjs",

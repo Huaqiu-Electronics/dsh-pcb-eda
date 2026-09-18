@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-kicad",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
