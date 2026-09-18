@@ -19,6 +19,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createRequire } from 'node:module'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, extname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { InMemoryHuaqiuAuthService, createAuthHandler, AUTH_ROUTE_PREFIX, type HuaqiuAuthService } from '@huaqiu/dsh-auth'
 import { HuaqiuArtifactService, createArtifactsHandler, ARTIFACTS_ROUTE_PREFIX } from '@huaqiu/dsh-artifacts'
@@ -72,7 +73,9 @@ function resolveAppDist(override?: string): string {
     return join(pkgPath.replace(/package\.json$/, ''), 'dist')
   } catch {
     // Monorepo fallback (before publish): lib/standalone.mjs → packages/component-gen-app/dist
-    const local = resolve(new URL('../../component-gen-app/dist', import.meta.url).pathname)
+    // fileURLToPath (not `new URL(...).pathname`) so Windows paths do not get a
+    // doubled drive prefix (`C:\C:\...`) once `resolve` roots the leading slash.
+    const local = resolve(fileURLToPath(new URL('../../component-gen-app/dist', import.meta.url)))
     return local
   }
 }

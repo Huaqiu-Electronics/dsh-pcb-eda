@@ -150,9 +150,10 @@ describe('apply() — bundled skill discovery (§15)', () => {
 
     const skill = skills[0]!
     expect(skill.resourceBase.kind).toBe('directory')
-    expect(skill.resourceBase.path).toMatch(/skills\/kicad-ipc$/)
-    // Progressive-disclosure resources must sit beside SKILL.md.
-    expect(skill.resourceBase.path).toContain('packages/dsh-kicad')
+    expect(skill.resourceBase.path).toMatch(/skills[/\\]kicad-ipc$/)
+    // Progressive-disclosure resources must sit beside SKILL.md. Both separators
+    // are matched so the assertion holds on Windows (`\`) and POSIX (`/`).
+    expect(skill.resourceBase.path).toMatch(/[/\\]packages[/\\]dsh-kicad[/\\]skills[/\\]kicad-ipc$/)
   })
 
   it('resolves the skill relative to the package, not the source checkout', () => {

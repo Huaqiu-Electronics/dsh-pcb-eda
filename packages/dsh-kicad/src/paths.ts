@@ -17,6 +17,7 @@
  */
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import { KICAD_SKILL_NAME } from './scripts.js'
 
@@ -35,7 +36,12 @@ export function resolveSkillDir(moduleUrl: string, override?: string): string {
   const envOverride = process.env['DSH_KICAD_SKILLS_DIR']
   if (envOverride && envOverride.trim().length > 0) return resolve(envOverride)
 
-  const here = dirname(new URL(moduleUrl).pathname)
+  // `new URL(moduleUrl).pathname` keeps a leading slash on Windows
+  // (`/C:/Users/...`), which `resolve()` then roots at the drive root and turns
+  // into `C:\C:\Users\...` — a doubled drive prefix. `fileURLToPath` decodes the
+  // file URL into a native path on every platform, so it is the correct input
+  // for `dirname`/`resolve`.
+  const here = dirname(fileURLToPath(moduleUrl))
   // One level up is right for both `lib/` (built) and `src/` (vitest) because
   // both sit directly under the package root next to `skills/`.
   return resolve(here, '..', 'skills', KICAD_SKILL_NAME)
