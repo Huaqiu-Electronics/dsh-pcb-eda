@@ -44,6 +44,15 @@ interface SessionOwner {
 }
 /** 会话快照的 useSession 选择器（宿主注入）。 */
 type UseSession = <T>(selector: (snapshot: SessionSnapshot | undefined) => T) => T
+/**
+ * chat 视图快照（session 作用域的 chat 钩子，宿主以 useChat 注入）。
+ * 对话节点在这里：`nodes` 是 ChatNodeStore，数组形式是 `legacy.nodes`。
+ */
+interface ChatSnapshot {
+  legacy?: { nodes?: SessionNode[] }
+}
+/** chat 快照的 useChat 选择器（宿主注入）。 */
+type UseChat = <T>(selector: (snapshot: ChatSnapshot | undefined) => T) => T
 
 const inject = ['slots']
 
@@ -455,11 +464,16 @@ function PcbTailCard(props: PcbTailCardProps) {
 
 // ---------------------------------------------------------------- 会话观察器（渲染 null）
 interface PreviewWatcherProps {
+  useChat?: UseChat
   useSession?: UseSession
 }
 
-function PreviewWatcher({ useSession }: PreviewWatcherProps) {
-  const nodes = useSession ? useSession((s) => (s && s.nodes) || EMPTY_NODES) : EMPTY_NODES
+function PreviewWatcher({ useChat, useSession }: PreviewWatcherProps) {
+  // 对话节点现在由 chat 视图提供（ChatSnapshot.legacy.nodes）；旧契约的 session.nodes 保留为回退。
+  // 两个 hook 都无条件调用，保证 hook 顺序稳定。
+  const chatNodes = useChat ? useChat((s) => (s && s.legacy && s.legacy.nodes) || EMPTY_NODES) : EMPTY_NODES
+  const sessionNodes = useSession ? useSession((s) => (s && s.nodes) || EMPTY_NODES) : EMPTY_NODES
+  const nodes = chatNodes.length > 0 ? chatNodes : sessionNodes
   useEffect(() => {
     const idx = indexPreviews(nodes)
     previewIndex.byTurn = idx.byTurn
