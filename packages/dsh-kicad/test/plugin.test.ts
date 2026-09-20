@@ -16,6 +16,7 @@ interface RegisteredSkill {
   name: string
   description: string
   content: string
+  source: 'runtime'
   resourceBase: { kind: string; path: string }
 }
 
@@ -131,6 +132,9 @@ describe('apply() — bundled skill discovery (§15)', () => {
     // DSH ignores skills whose id does not match /^[a-z0-9]+(?:-[a-z0-9]+)*$/.
     expect(skill.name).toBe('kicad-ipc')
     expect(skill.name).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    // DSH rejects skills without a string source at load time ("source must be
+    // a string"); plugin-bundled skills must carry the runtime source.
+    expect(skill.source).toBe('runtime')
   })
 
   it('registers a non-empty description and the full SKILL.md body', () => {

@@ -79,6 +79,12 @@ export interface SkillRegistration {
   description: string
   /** Full SKILL.md body. */
   content: string
+  /**
+   * Discovery source. The DSH registry requires it on every loaded skill and
+   * rejects a missing value with "source must be a string" at load time.
+   * `'runtime'` is the registry-owned source for plugin-bundled skills.
+   */
+  source: 'runtime'
   /** Where `references/` and `scripts/` live for progressive disclosure. */
   resourceBase: { kind: 'directory'; path: string }
 }
@@ -244,6 +250,7 @@ export function apply(ctx: Context, config: KicadConfigInput = {}): () => void {
         name: skill.name,
         description: skill.description,
         content: skill.content,
+        source: 'runtime',
         resourceBase: { kind: 'directory', path: skill.dir },
       }),
     )
