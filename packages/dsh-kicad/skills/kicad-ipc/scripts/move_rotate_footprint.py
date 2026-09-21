@@ -17,20 +17,20 @@ def get_footprint(board, reference: str):
         if footprint.reference_field.text.value == reference
     ]
     if len(matches) != 1:
-        raise RuntimeError(f"reference {reference!r} 匹配到 {len(matches)} 个封装；未做修改。")
+        raise RuntimeError(f"reference {reference!r} matched {len(matches)} footprints; no changes made.")
     return matches[0]
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference", required=True, help="目标封装 reference，例如 R1")
-    parser.add_argument("--dx-mm", type=float, default=0.0, help="X 位移，单位 mm")
-    parser.add_argument("--dy-mm", type=float, default=0.0, help="Y 位移，单位 mm")
-    parser.add_argument("--rotation-deg", type=float, default=0.0, help="增量旋转角度，单位度")
-    parser.add_argument("--save", action="store_true", help="验证成功后通过 IPC 保存 PCB")
+    parser.add_argument("--reference", required=True, help="target footprint reference, e.g. R1")
+    parser.add_argument("--dx-mm", type=float, default=0.0, help="X offset, in mm")
+    parser.add_argument("--dy-mm", type=float, default=0.0, help="Y offset, in mm")
+    parser.add_argument("--rotation-deg", type=float, default=0.0, help="incremental rotation angle, in degrees")
+    parser.add_argument("--save", action="store_true", help="save the PCB over IPC after successful validation")
     args = parser.parse_args()
     if args.dx_mm == 0 and args.dy_mm == 0 and args.rotation_deg == 0:
-        parser.error("至少指定一个位移或旋转参数")
+        parser.error("specify at least one offset or rotation parameter")
 
     kicad, board = connect_board()
     try:
@@ -42,9 +42,9 @@ def main() -> None:
 
         def validate(updated):
             if len(updated) != 1:
-                raise RuntimeError("KiCad 未更新恰好一个封装。")
+                raise RuntimeError("KiCad did not update exactly one footprint.")
             if updated[0].position == old_position and updated[0].orientation == old_orientation:
-                raise RuntimeError("KiCad 没有应用封装变换。")
+                raise RuntimeError("KiCad did not apply the footprint transform.")
 
         updated, = commit_or_drop(
             board,
@@ -52,10 +52,10 @@ def main() -> None:
             lambda: board.update_items(footprint),
             validate,
         )
-        print(f"已更新 {args.reference}: position={updated.position}, orientation={updated.orientation}")
+        print(f"Updated {args.reference}: position={updated.position}, orientation={updated.orientation}")
         if args.save:
             board.save()
-            print("已通过 IPC 保存 PCB。")
+            print("Saved PCB over IPC.")
     finally:
         close_kicad(kicad)
 

@@ -22,22 +22,22 @@ def point(value: str) -> Vector2:
     try:
         x_mm, y_mm = (float(part.strip()) for part in value.split(",", 1))
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("坐标必须是 x,y（单位 mm），例如 10,20") from exc
+        raise argparse.ArgumentTypeError("coordinates must be x,y (in mm), e.g. 10,20") from exc
     return Vector2.from_xy(from_mm(x_mm), from_mm(y_mm))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--net", required=True, help="已存在的 PCB 网络名")
-    parser.add_argument("--start", type=point, required=True, help="起点 x,y，单位 mm")
-    parser.add_argument("--end", type=point, required=True, help="终点 x,y，单位 mm")
-    parser.add_argument("--width-mm", type=float, required=True, help="线宽，单位 mm")
-    parser.add_argument("--layer", default="F.Cu", help="目标铜层，默认 F.Cu")
-    parser.add_argument("--save", action="store_true", help="验证成功后通过 IPC 保存 PCB")
+    parser.add_argument("--net", required=True, help="name of an existing PCB net")
+    parser.add_argument("--start", type=point, required=True, help="start point x,y, in mm")
+    parser.add_argument("--end", type=point, required=True, help="end point x,y, in mm")
+    parser.add_argument("--width-mm", type=float, required=True, help="track width, in mm")
+    parser.add_argument("--layer", default="F.Cu", help="target copper layer, default F.Cu")
+    parser.add_argument("--save", action="store_true", help="save the PCB over IPC after successful validation")
     args = parser.parse_args()
 
     if args.width_mm <= 0:
-        parser.error("--width-mm 必须大于 0")
+        parser.error("--width-mm must be greater than 0")
 
     kicad, board = connect_board()
     try:
@@ -50,9 +50,9 @@ def main() -> None:
 
         def validate(created):
             if len(created) != 1:
-                raise RuntimeError("KiCad 未创建恰好一条走线。")
+                raise RuntimeError("KiCad did not create exactly one track.")
             if created[0].width != track.width or created[0].net.name != args.net:
-                raise RuntimeError("KiCad 返回的创建结果与请求不一致。")
+                raise RuntimeError("KiCad returned a result that does not match the request.")
 
         created_track, = commit_or_drop(
             board,
@@ -61,10 +61,10 @@ def main() -> None:
             validate,
         )
 
-        print(f"已创建 track: {created_track.id}")
+        print(f"Created track: {created_track.id}")
         if args.save:
             board.save()
-            print("已通过 IPC 保存 PCB。")
+            print("Saved PCB over IPC.")
     finally:
         close_kicad(kicad)
 
