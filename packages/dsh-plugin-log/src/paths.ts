@@ -4,30 +4,30 @@
  * package. Keep in sync when `@hqedge/paths` changes its path conventions.
  *
  * ────────────────────────────────────────────────────────────────────────────
- * Shared OS-native path resolution for HQ Edge runtimes.
+ * Shared path resolution for HQ Edge runtimes.
  *
  * The single source of truth for where HQ Edge places per-user directories.
  * `getHqEdgeHome()` is the root: every other path getter (`getLogBaseDir`,
  * `getLogDir`) is derived from it, so all HQ Edge user directories live under
  * one self-contained tree and every consumer resolves the same location.
  *
- * Path conventions by platform (env-paths `data` shape, except macOS — see
- * below):
+ * The home is **the same on every platform** — `~/.hq-edge/` — because HQ Edge
+ * is a developer/EDA runtime environment rather than a conventional desktop
+ * app: a single dotfile under `$HOME` keeps logging, diagnostics, DSH
+ * integration, CLI behavior and documentation identical on macOS / Linux /
+ * Windows, instead of introducing a second filesystem convention
+ * (`%LOCALAPPDATA%\hq-edge` or `~/.local/share/hq-edge`) per platform.
+ * `HQ_EDGE_HOME` is the universal escape hatch (tests, bundling, portable
+ * installs, CI).
  *
- *   - macOS:   ~/.hq-edge/                                  (this override)
- *   - Linux:   ~/.local/share/hq-edge/   (honors $XDG_DATA_HOME)
- *   - Windows: %LOCALAPPDATA%\hq-edge\
- *
- * macOS deviates from `env-paths`: a dotfile under `$HOME` rather than the
- * `~/Library/Application Support/hq-edge/` sandbox location. Rationale: HQ
- * Edge is a single-developer EDA workstation tool, not a sandboxed macOS app.
- * A dotfile in `$HOME` is more discoverable (one `ls -la` shows every HQ Edge
- * user-data tree), survives sandbox / permission oddities, and aligns with the
- * historical `~/.hq` location users already had from `dshHome.ts` before this
- * unification. It also means DSH plugin code that imports `@hqedge/paths` does
- * not need to branch on platform for the macOS case.
+ * Note: the immutable HQ Edge runtime (`<installRoot>/dsh`,
+ * `<installRoot>/dsh-plugins`) and `<KiCad installation>/` (application
+ * install) are deliberately NOT this home — user data, managed runtime and
+ * installation stay distinct. Mutable per-version DSH state lives UNDER this
+ * home at `<home>/<version>/dsh-home` (see dshHome.ts). The
+ * `~/.hq/hq-edge/<version>/` path from an earlier design draft never landed.
  */
-import { homedir, platform } from 'node:os'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 /**
@@ -36,46 +36,29 @@ import { join } from 'node:path'
 export const APP_ID = 'hq-edge'
 
 /**
- * Resolves the OS-native per-user home/data directory for HQ Edge — the single
- * root from which every other HQ Edge path getter is derived.
+ * Resolves the per-user data home directory for HQ Edge — the single root from
+ * which every other HQ Edge path getter is derived.
  *
- *   - macOS:   ~/.hq-edge/                                  (override)
- *   - Linux:   ~/.local/share/hq-edge/   (honors $XDG_DATA_HOME)
- *   - Windows: %LOCALAPPDATA%\hq-edge\
+ *   macOS / Linux / Windows: ~/.hq-edge/
  *
- * The macOS override is documented above. The path may also be overridden
- * explicitly via `override` or the `HQ_EDGE_HOME` environment variable (useful
- * for tests / bundling / portable installs).
+ * Unconditional across platforms (see the file header for the rationale). The
+ * path may be overridden explicitly via `override` or the `HQ_EDGE_HOME`
+ * environment variable (useful for tests / bundling / portable installs).
  */
 export function getHqEdgeHome(override?: string): string {
   if (override) return override
   if (process.env.HQ_EDGE_HOME) return process.env.HQ_EDGE_HOME
 
-  const home = homedir()
-  // macOS override: dotfile under $HOME, not the Library sandbox.
-  // See the file header for the rationale.
-  if (platform() === 'darwin') {
-    return join(home, '.hq-edge')
-  }
-  if (platform() === 'win32') {
-    const localAppData = process.env.LOCALAPPDATA
-    if (localAppData) return join(localAppData, APP_ID)
-    return join(home, 'AppData', 'Local', APP_ID)
-  }
-  // Linux / other POSIX — follows the XDG_DATA_HOME convention.
-  const xdgDataHome = process.env.XDG_DATA_HOME
-  return xdgDataHome ? join(xdgDataHome, APP_ID) : join(home, '.local', 'share', APP_ID)
+  return join(homedir(), '.hq-edge')
 }
 
 /**
- * Resolves the OS-native base log directory for HQ Edge.
+ * Resolves the base log directory for HQ Edge.
  *
  * Built on top of `getHqEdgeHome()` as `<home>/logs` on every platform, so
  * logs live inside the HQ Edge home tree:
  *
- *   macOS:   ~/.hq-edge/logs/
- *   Linux:   ~/.local/share/hq-edge/logs/
- *   Windows: %LOCALAPPDATA%\hq-edge\logs\
+ *   macOS / Linux / Windows: ~/.hq-edge/logs/
  *
  * The path may be overridden explicitly via `override` or the
  * `HQ_EDGE_LOG_DIR` environment variable.
