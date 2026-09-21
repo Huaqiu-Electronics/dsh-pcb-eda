@@ -10,12 +10,12 @@
  * @module
  */
 
-import { DEFAULT_REQUEST_TIMEOUT_MS, hostUrlOf, netlistUrlOf, pcbSelectionUrlOf, type EdaHostConfig, type NetlistScope } from './config.js'
+import { DEFAULT_REQUEST_TIMEOUT_MS, hostUrlOf, netlistUrlOf, pcbBoardUrlOf, pcbSelectionUrlOf, type EdaHostConfig, type NetlistScope } from './config.js'
 import {
   NetlistError,
   type EdaHostCapability,
   type EdaHostInfo,
-  type PcbSelection,
+  type PcbSnapshot,
   type SchematicNetlist,
 } from './types.js'
 
@@ -53,11 +53,17 @@ export interface EdaHostClient {
   /** Capabilities the host currently provides. */
   getEdaHostCapabilities(options?: EdaHostRequestOptions): Promise<EdaHostCapability[]>
   /**
-   * Semantic PCB selection of the current PCB editor (hq.pcb.v1
-   * PcbSelectionService.GetSelection bridged through hq-edge). An empty
-   * selection resolves to an all-empty `PcbSelection` — never an error.
+   * Semantic PCB snapshot of the current PCB editor selection (hq.pcb.v1
+   * PcbQueryService.GetSelection bridged through hq-edge). An empty
+   * selection resolves to an all-empty `PcbSnapshot` — never an error.
    */
-  getPcbSelection(options?: EdaHostRequestOptions): Promise<PcbSelection>
+  getPcbSelection(options?: EdaHostRequestOptions): Promise<PcbSnapshot>
+  /**
+   * Semantic PCB snapshot of the complete board (hq.pcb.v1
+   * PcbQueryService.GetBoard bridged through hq-edge). An empty board
+   * resolves to an all-empty `PcbSnapshot` — never an error.
+   */
+  getPcbBoard(options?: EdaHostRequestOptions): Promise<PcbSnapshot>
 }
 
 /** HTTP status → semantic error kind (see routes/edaHostStatus.ts on hq-edge). */
@@ -267,11 +273,11 @@ export function createEdaHostClient(
     return parseNetlistBody(await getJson(url, options, 'netlist'))
   }
 
-  function parsePcbSelection(value: unknown): PcbSelection {
+  function parsePcbSnapshot(value: unknown, what: string): PcbSnapshot {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       throw new NetlistError(
         'INTERNAL',
-        'eda-host: malformed PCB selection response from hq-edge',
+        `eda-host: malformed ${what} response from hq-edge`,
       )
     }
 
@@ -290,7 +296,7 @@ export function createEdaHostClient(
       dimensions: asArray((value as Record<string, unknown>).dimensions),
       groups: asArray((value as Record<string, unknown>).groups),
       nets: asArray((value as Record<string, unknown>).nets),
-    } as PcbSelection
+    } as PcbSnapshot
   }
 
   return {
@@ -331,7 +337,14 @@ export function createEdaHostClient(
       const resolved = resolveConfig()
       const url = pcbSelectionUrlOf(resolved)
       const body = (await getJson(url, options, 'pcb selection')) as unknown
-      return parsePcbSelection(body)
+      return parsePcbSnapshot(body, 'PCB selection')
+    },
+
+    getPcbBoard: async (options) => {
+      const resolved = resolveConfig()
+      const url = pcbBoardUrlOf(resolved)
+      const body = (await getJson(url, options, 'pcb board')) as unknown
+      return parsePcbSnapshot(body, 'PCB board')
     },
   }
 }

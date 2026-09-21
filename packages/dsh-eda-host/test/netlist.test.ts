@@ -361,6 +361,9 @@ describe('createNetListTools', () => {
       getPcbSelection: async () => {
         throw new Error('not used')
       },
+      getPcbBoard: async () => {
+        throw new Error('not used')
+      },
     }
   }
 
@@ -426,6 +429,7 @@ describe('createEdaHostTools', () => {
     info?: () => Promise<unknown>
     capabilities?: () => Promise<unknown>
     pcbSelection?: () => Promise<unknown>
+    pcbBoard?: () => Promise<unknown>
   }): EdaHostClient {
     return {
       getProjectNetlist: async () => ({ components: [], nets: [] }),
@@ -436,14 +440,16 @@ describe('createEdaHostTools', () => {
         handlers.capabilities?.()) as EdaHostClient['getEdaHostCapabilities'],
       getPcbSelection: (async () =>
         handlers.pcbSelection?.()) as EdaHostClient['getPcbSelection'],
+      getPcbBoard: (async () => handlers.pcbBoard?.()) as EdaHostClient['getPcbBoard'],
     }
   }
 
-  it('registers exactly the three host discovery/selection tools', () => {
+  it('registers exactly the four host discovery/query tools', () => {
     const tools = createEdaHostTools({ client: hostEnvOf({}) })
     expect(tools.map((t) => t.name).sort()).toEqual([
       'get_eda_host_capabilities',
       'get_eda_host_info',
+      'get_pcb_board',
       'get_pcb_selection',
     ])
   })
@@ -572,6 +578,91 @@ describe('createEdaHostTools', () => {
     expect(result.ok).toBe(false)
     expect(result.error.kind).toBe('FAILED_PRECONDITION')
     expect(result.selection).toBeUndefined()
+  })
+
+  describe('get_pcb_board', () => {
+  const emptyBoard = {
+    footprints: [],
+    pads: [],
+    tracks: [],
+    arcs: [],
+    vias: [],
+    zones: [],
+    shapes: [],
+    texts: [],
+    dimensions: [],
+    groups: [],
+    nets: [],
+  }
+
+  it('returns ok:true with a valid empty board snapshot', async () => {
+    const tools = createEdaHostTools({
+      client: hostEnvOf({ pcbBoard: async () => emptyBoard }),
+    })
+    const tool = tools.find((t) => t.name === 'get_pcb_board')!
+    const result = (await tool.execute({}, {} as never)) as {
+      ok: boolean
+      snapshot: { footprints: unknown[] }
+    }
+    expect(result.ok).toBe(true)
+    expect(result.snapshot.footprints).toEqual([])
+  })
+
+  it('returns ok:true with a populated board snapshot', async () => {
+    const board = {
+      footprints: [
+        {
+          id: '00000000-0000-0000-0000-000000000001',
+          reference: 'U1',
+          value: 'STM32F103C8T6',
+          footprint: 'LQFP-48',
+          position: { x: 10.5, y: 3.25 },
+          rotationDeg: 90,
+          pads: [{ id: 'p1', pin: '1', layer: 'F.Cu' }],
+        },
+      ],
+      pads: [{ id: 'p1', pin: '1', layer: 'F.Cu' }],
+      tracks: [{ id: 't1', layer: 'F.Cu', widthMm: 0.25, lengthMm: 12.3, net: { name: 'GND', code: 1 } }],
+      arcs: [],
+      vias: [{ id: 'v1', drillMm: 0.3, viaType: 'THROUGH', layers: ['F.Cu', 'B.Cu'] }],
+      zones: [],
+      shapes: [],
+      texts: [],
+      dimensions: [],
+      groups: [],
+      nets: [{ name: 'GND', code: 1 }],
+    }
+    const tools = createEdaHostTools({
+      client: hostEnvOf({ pcbBoard: async () => board }),
+    })
+    const tool = tools.find((t) => t.name === 'get_pcb_board')!
+    const result = (await tool.execute({}, {} as never)) as {
+      ok: boolean
+      snapshot: { footprints: { reference: string }[]; vias: unknown[] }
+    }
+    expect(result.ok).toBe(true)
+    expect(result.snapshot.footprints[0]!.reference).toBe('U1')
+    expect(result.snapshot.vias).toHaveLength(1)
+  })
+
+  it('propagates PCB board failures with a semantic kind', async () => {
+    const tools = createEdaHostTools({
+      client: hostEnvOf({
+        pcbBoard: async () => {
+          throw new NetlistError('FAILED_PRECONDITION', 'no PCB editor open')
+        },
+      }),
+    })
+    const tool = tools.find((t) => t.name === 'get_pcb_board')!
+    const result = (await tool.execute({}, {} as never)) as {
+      ok: boolean
+      snapshot?: unknown
+      error: { kind: string }
+    }
+    expect(result.ok).toBe(false)
+    expect(result.error.kind).toBe('FAILED_PRECONDITION')
+    expect(result.snapshot).toBeUndefined()
+  })
   })
 })
 

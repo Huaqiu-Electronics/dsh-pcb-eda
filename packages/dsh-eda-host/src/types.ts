@@ -55,12 +55,13 @@ export interface SchematicNetlist {
 }
 
 /**
- * Semantic PCB selection types.
+ * Semantic PCB snapshot types.
  *
  * Self-contained structural mirror of `hq.pcb.v1` (the hq-edge-owned semantic
- * protobuf contract for `PcbSelectionService.GetSelection`). Units follow the
- * hq.pcb.v1 convention: positions/sizes/lengths in mm, rotations in degrees,
- * `id` is the KiCad native object identity.
+ * protobuf contract for `PcbQueryService.GetSelection` / `GetBoard`). The
+ * same PcbSnapshot shape backs both the current selection and the complete
+ * board. Units follow the hq.pcb.v1 convention: positions/sizes/lengths in mm,
+ * rotations in degrees, `id` is the KiCad native object identity.
  */
 
 export interface PcbPoint {
@@ -172,7 +173,7 @@ export interface PcbGroup {
   itemIds: string[]
 }
 
-export interface PcbSelection {
+export interface PcbSnapshot {
   footprints: PcbFootprint[]
   pads: PcbPad[]
   tracks: PcbTrack[]

@@ -17,6 +17,8 @@ export interface EdaHostConfig {
   netlistPathPrefix?: string
   /** Path prefix for PCB selection; default "/api/v1/pcb-selection". */
   pcbSelectionPathPrefix?: string
+  /** Path prefix for the complete-board query; default "/api/v1/pcb-board". */
+  pcbBoardPathPrefix?: string
   /** Path prefix for host discovery; default "/api/v1/host". */
   hostPathPrefix?: string
   /**
@@ -33,6 +35,8 @@ export interface EdaHostConfig {
 export const DEFAULT_NETLIST_PATH_PREFIX = '/api/v1/netlist'
 
 export const DEFAULT_PCB_SELECTION_PATH_PREFIX = '/api/v1/pcb-selection'
+
+export const DEFAULT_PCB_BOARD_PATH_PREFIX = '/api/v1/pcb-board'
 
 export const DEFAULT_HOST_PATH_PREFIX = '/api/v1/host'
 
@@ -58,6 +62,10 @@ export function resolveEdaHostConfig(
     config?.pcbSelectionPathPrefix ??
     env.HQ_EDGE_PCB_SELECTION_PATH ??
     DEFAULT_PCB_SELECTION_PATH_PREFIX
+  const pcbBoardPrefix =
+    config?.pcbBoardPathPrefix ??
+    env.HQ_EDGE_PCB_BOARD_PATH ??
+    DEFAULT_PCB_BOARD_PATH_PREFIX
   const hostPrefix =
     config?.hostPathPrefix ?? env.HQ_EDGE_HOST_PATH ?? DEFAULT_HOST_PATH_PREFIX
   const timeoutRaw = config?.requestTimeoutMs ?? env.HQ_EDGE_REQUEST_TIMEOUT_MS
@@ -66,6 +74,7 @@ export function resolveEdaHostConfig(
     hqEdgeBaseUrl: baseUrl,
     netlistPathPrefix: pathPrefix,
     pcbSelectionPathPrefix: pcbSelectionPrefix,
+    pcbBoardPathPrefix: pcbBoardPrefix,
     hostPathPrefix: hostPrefix,
     requestTimeoutMs:
       Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_REQUEST_TIMEOUT_MS,
@@ -88,6 +97,16 @@ export function netlistUrlOf(config: EdaHostConfig, scope: NetlistScope): string
 export function pcbSelectionUrlOf(config: EdaHostConfig): string {
   const base = (config.hqEdgeBaseUrl ?? '').replace(/\/+$/, '')
   const prefix = (config.pcbSelectionPathPrefix ?? DEFAULT_PCB_SELECTION_PATH_PREFIX).replace(
+    /^\/+|\/+$/g,
+    '',
+  )
+  return `${base}/${prefix}`
+}
+
+/** Build the absolute URL for the complete-board query route. */
+export function pcbBoardUrlOf(config: EdaHostConfig): string {
+  const base = (config.hqEdgeBaseUrl ?? '').replace(/\/+$/, '')
+  const prefix = (config.pcbBoardPathPrefix ?? DEFAULT_PCB_BOARD_PATH_PREFIX).replace(
     /^\/+|\/+$/g,
     '',
   )

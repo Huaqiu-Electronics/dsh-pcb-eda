@@ -72,7 +72,7 @@ export type {
   PcbPad,
   PcbPoint,
   PcbSegment,
-  PcbSelection,
+  PcbSnapshot,
   PcbShape,
   PcbText,
   PcbTrack,

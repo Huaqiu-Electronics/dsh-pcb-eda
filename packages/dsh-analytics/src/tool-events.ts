@@ -20,6 +20,7 @@ const TRACKED_TOOLS = new Set([
   'get_active_page_netlist',
   'get_eda_host_info',
   'get_pcb_selection',
+  'get_pcb_board',
   'get_eda_host_capabilities',
   'kicad_ipc_diagnose',
   'kicad_ipc_verify_live',
