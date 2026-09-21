@@ -112,6 +112,32 @@ declare module '@deepseek-ai/cordis' {
 const COMPONENT = 'dsh-eda-host'
 const log = getLogger(COMPONENT)
 
+/**
+ * Env vars relevant to the hq-edge / DSH / KiCad integration, captured at
+ * plugin apply() time so startup issues are diagnosable from the log.
+ *
+ * Values are logged verbatim EXCEPT `KICAD_API_TOKEN`, which is a live
+ * credential KiCad injects for the IPC socket — only its presence is logged
+ * (never the token itself).
+ */
+const DSH_ENV_LOG_KEYS = [
+  'DSH_KICAD_PYTHON',
+  'DSH_KICAD_SKILLS_DIR',
+  'DSH_HOME',
+  'HQ_EDGE_BASE_URL',
+  'KICAD_API_SOCKET',
+  'KICAD_API_TOKEN',
+] as const
+
+function envSnapshot(): Record<string, string | null> {
+  const snapshot: Record<string, string | null> = {}
+  for (const key of DSH_ENV_LOG_KEYS) {
+    const value = process.env[key]
+    snapshot[key] = key === 'KICAD_API_TOKEN' ? (value ? '<set>' : null) : (value ?? null)
+  }
+  return snapshot
+}
+
 // Emitted on import, before any Cordis dependency is resolved. Pairs with the
 // "node half ready" marker in apply(): if this line is logged but that one is
 // not, the edge-bridge never provided `hqEdge` and this plugin is still
@@ -182,6 +208,7 @@ export function apply(ctx: Context, config: Partial<EdaHostConfig> = {}): () => 
     netlistPathPrefix: resolved.netlistPathPrefix,
     hostPathPrefix: resolved.hostPathPrefix,
     requestTimeoutMs: resolved.requestTimeoutMs,
+    env: envSnapshot(),
   })
 
   const client = createEdaHostClient(resolved, { baseUrlResolver: getHqEdgeBaseUrl })
