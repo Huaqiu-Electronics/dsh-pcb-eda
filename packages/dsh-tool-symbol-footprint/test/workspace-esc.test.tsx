@@ -109,3 +109,76 @@ it('closes the workspace popup on Escape', () => {
   })
   expect(container.querySelector('.cga-stub')).not.toBeNull()
 })
+
+it('tracks click_generate_symbol whenever its sidebar entry is clicked', () => {
+  mountShell()
+  const track = vi.fn()
+  const ctx = {
+    get: (name: string): unknown => name === 'huaqiuAnalytics' ? { track } : undefined,
+  }
+  workspaceDispose = installWorkspace(ctx as never, undefined)
+
+  const symbol = document.querySelector<HTMLButtonElement>('[data-hqcg-symbol-entry]')!
+  const footprint = document.querySelector<HTMLButtonElement>('[data-hqcg-footprint-entry]')!
+
+  symbol.click()
+  expect(track).toHaveBeenCalledTimes(1)
+  expect(track).toHaveBeenLastCalledWith('click_generate_symbol')
+
+  // The analytics contract counts sidebar-entry clicks, including a toggle.
+  symbol.click()
+  expect(track).toHaveBeenCalledTimes(2)
+  expect(track).toHaveBeenLastCalledWith('click_generate_symbol')
+
+  // Navigating away and clicking Symbol continues to emit the same event.
+  footprint.click()
+  track.mockClear()
+  symbol.click()
+  expect(track).toHaveBeenCalledOnce()
+  expect(track).toHaveBeenLastCalledWith('click_generate_symbol')
+})
+
+it('tracks click_generate_footprint whenever its sidebar entry is clicked', () => {
+  mountShell()
+  const track = vi.fn()
+  const ctx = {
+    get: (name: string): unknown => name === 'huaqiuAnalytics' ? { track } : undefined,
+  }
+  workspaceDispose = installWorkspace(ctx as never, undefined)
+
+  const footprint = document.querySelector<HTMLButtonElement>('[data-hqcg-footprint-entry]')!
+  const symbol = document.querySelector<HTMLButtonElement>('[data-hqcg-symbol-entry]')!
+
+  footprint.click()
+  expect(track).toHaveBeenCalledTimes(1)
+  expect(track).toHaveBeenLastCalledWith('click_generate_footprint')
+
+  // The analytics contract counts sidebar-entry clicks, including a toggle.
+  footprint.click()
+  expect(track).toHaveBeenCalledTimes(2)
+  expect(track).toHaveBeenLastCalledWith('click_generate_footprint')
+
+  // Navigating away and clicking Footprint continues to emit the same event.
+  symbol.click()
+  track.mockClear()
+  footprint.click()
+  expect(track).toHaveBeenCalledOnce()
+  expect(track).toHaveBeenLastCalledWith('click_generate_footprint')
+})
+
+it('tracks sidebar clicks when analytics becomes available after workspace installation', () => {
+  mountShell()
+  const track = vi.fn()
+  let analytics: { track: typeof track } | undefined
+  const ctx = {
+    get: (name: string): unknown => name === 'huaqiuAnalytics' ? analytics : undefined,
+  }
+  workspaceDispose = installWorkspace(ctx as never, undefined)
+  analytics = { track }
+
+  document.querySelector<HTMLButtonElement>('[data-hqcg-symbol-entry]')!.click()
+  document.querySelector<HTMLButtonElement>('[data-hqcg-footprint-entry]')!.click()
+
+  expect(track).toHaveBeenCalledWith('click_generate_symbol')
+  expect(track).toHaveBeenCalledWith('click_generate_footprint')
+})
