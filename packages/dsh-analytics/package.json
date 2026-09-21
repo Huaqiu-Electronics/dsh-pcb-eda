@@ -1,0 +1,55 @@
+{
+  "name": "@huaqiu/dsh-analytics",
+  "version": "0.4.4",
+  "description": "Huaqiu Sensors Analytics integration for DeepSeek Harness",
+  "type": "module",
+  "main": "./lib/index.mjs",
+  "types": "./lib/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.mts",
+      "default": "./lib/index.mjs"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@huaqiu/dsh-auth"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.0",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.0"
+  },
+  "dependencies": {
+    "@huaqiu/dsh-auth": "workspace:*",
+    "@huaqiu/dsh-plugin-log": "workspace:*",
+    "sa-sdk-javascript": "1.16.16"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown",
+    "test": "vitest run",
+    "prepack": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

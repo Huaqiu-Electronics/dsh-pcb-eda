@@ -69,7 +69,11 @@ export function FootprintGenPage({ ports, t, reopen = null }: FootprintGenPagePr
         ...(hint.trim() ? { packageType: hint.trim() } : {}),
       },
     })
-  }, [imageDataUrl, hint, runner])
+      .then(() => ports.track?.('generate_footprint', { err_msg: '' }))
+      .catch((err) => ports.track?.('generate_footprint', {
+        err_msg: String((err as Error)?.message || err),
+      }))
+  }, [imageDataUrl, hint, runner, ports])
 
   const confirmDimensions = useCallback((values: DimensionValues, edited: Record<string, boolean>): void => {
     void runner.run({

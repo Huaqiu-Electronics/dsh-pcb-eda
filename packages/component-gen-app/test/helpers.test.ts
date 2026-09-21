@@ -8,6 +8,20 @@ import { defaultArtifactsBase, parseEvent } from '../src/api/component-gen-clien
 import { humanizeKey } from '../src/utils/labels.js'
 import { translateFor } from '../src/copy/index.js'
 
+const SYMBOL_WITH_TWO_PINS = `(kicad_symbol_lib (version 20231120) (generator kicad_symbol_editor)
+  (symbol "Test"
+    (pin_names (offset 1.016))
+    (exclude_from_sim no) (in_bom yes) (on_board yes)
+    (property "Reference" "U" (at 0 0 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "Test" (at 0 -2.54 0) (effects (font (size 1.27 1.27))))
+    (symbol "Test_1_1"
+      (pin input line (at -2.54 0 0) (length 2.54)
+        (name "A" (effects (font (size 1.27 1.27))))
+        (number "1" (effects (font (size 1.27 1.27)))))
+      (pin output line (at 2.54 0 180) (length 2.54)
+        (name "B" (effects (font (size 1.27 1.27))))
+        (number "2" (effects (font (size 1.27 1.27))))))))`
+
 describe('defaultArtifactsBase', () => {
   it('derives the artifacts base from the component-gen base', () => {
     expect(defaultArtifactsBase('/api/v1/huaqiu/component-gen')).toBe('/api/v1/huaqiu/artifacts')
@@ -40,5 +54,13 @@ describe('translateFor', () => {
     const en = translateFor('en')
     expect(zh('card.submit')).toBeTruthy()
     expect(typeof en('card.submit')).toBe('string')
+  })
+})
+
+describe('symbolPinCount', () => {
+  it('counts generated symbol pins', async () => {
+    const symbols = await import('../src/utils/symbol-pins.js').catch(() => ({}))
+    expect(typeof symbols.symbolPinCount).toBe('function')
+    expect(symbols.symbolPinCount!(SYMBOL_WITH_TWO_PINS)).toBe(2)
   })
 })

@@ -12,6 +12,7 @@ import { UploadInput } from '../components/UploadInput.js'
 import { ResultStage } from '../components/ResultStage.js'
 import { useAuthGate } from '../hooks/useAuthGate.js'
 import { useJobRunner } from '../hooks/useJobRunner.js'
+import { symbolPinCount } from '../utils/symbol-pins.js'
 
 export interface SymbolGenPageProps {
   ports: ComponentGenPorts
@@ -53,6 +54,21 @@ export function SymbolGenPage({ ports, t, reopen = null }: SymbolGenPageProps): 
   useEffect(() => {
     ports.config().then(setConfig).catch(() => { /* best effort */ })
   }, [ports])
+
+  // 神策埋点：生成symbol
+  useEffect(() => {
+    if (runner.phase === 'failed') {
+      ports.track?.('generate_symbol', { success: false, err_msg: runner.error })
+    }
+    if (runner.phase === 'completed' && !runner.jobId?.startsWith('history:')) {
+      const artifact = runner.result.artifact as { id?: unknown } | undefined
+      if (typeof artifact?.id === 'string') {
+        void ports.artifactContent(artifact.id).then((source) => {
+          ports.track?.('generate_symbol', { success: true, err_msg: '', pin_count: symbolPinCount(source) })
+        })
+      }
+    }
+  }, [runner.phase])
 
   const maxBytes = config?.limits.imageBytes ?? 4 * 1024 * 1024
   const authed = auth.phase === 'authenticated'

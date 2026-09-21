@@ -149,6 +149,7 @@ export interface ComponentGenPlacePort {
 
 /** The whole contract the app needs from its host. */
 export interface ComponentGenPorts {
+  track?(event: string, properties?: Record<string, unknown>): void
   config(): Promise<ComponentGenConfig>
   startJob(req: StartJobRequest, signal?: AbortSignal): Promise<JobState>
   jobEvents(jobId: string, onEvent: (e: JobEvent) => void): () => void
