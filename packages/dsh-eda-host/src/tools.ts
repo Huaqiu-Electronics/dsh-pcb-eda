@@ -179,6 +179,9 @@ export function createNetListTools(env: NetlistToolEnv) {
          `Use it when you need factual information about the current EDA environment, such as ` +
          `"what EDA host am I connected to", "what version is it", "where is it installed", ` +
          `or "where is kicad-cli". ` +
+         `When the host is KiCad, the executable list also carries "kicad-python" — the ` +
+         `interpreter bundled with KiCad that owns the official kicad-python package ` +
+         `(kipy); the dsh-kicad skills already run with it automatically. ` +
          `The returned information is authoritative host-provided ground truth. ` +
          ERROR_SEMANTICS,
        parameters: {},

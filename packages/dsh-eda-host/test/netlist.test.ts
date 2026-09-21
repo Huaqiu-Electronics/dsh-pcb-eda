@@ -358,6 +358,9 @@ describe('createNetListTools', () => {
       getEdaHostCapabilities: async () => {
         throw new Error('not used')
       },
+      getPcbSelection: async () => {
+        throw new Error('not used')
+      },
     }
   }
 

@@ -88,6 +88,12 @@ KiCad IPC is not bundled; these are host requirements, the same ones `kicad-agen
 - A Python interpreter with the official `kicad-python` package (`kipy`) whose version
   matches the running KiCad. Configure it with plugin config `pythonPath` or
   `$DSH_KICAD_PYTHON` (default `python3`).
+- When KiCad is the EDA host (started through the HQ runtime), KiCad launches
+  hq-edge with `$DSH_KICAD_PYTHON` preset to KiCad's **bundled** interpreter (on
+  Windows `python.exe` sits next to `kicad.exe`; on macOS it is the
+  `Python.framework` copy inside `KiCad.app`) — the interpreter that owns `kipy` —
+  so no configuration is needed. The same path is advertised by
+  `get_eda_host_info` as the `kicad-python` host executable.
 - DSH running with **Full Access** — a non-Full-Access sandbox cannot reach KiCad's
   named pipe on Windows.
 
