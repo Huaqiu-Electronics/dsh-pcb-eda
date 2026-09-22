@@ -1,0 +1,41 @@
+{
+  "name": "@huaqiu/dsh-hqsch",
+  "version": "0.4.5",
+  "type": "module",
+  "main": "./lib/index.mjs",
+  "types": "./lib/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.mts",
+      "default": "./lib/index.mjs"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dependencies": {
+    "@huaqiu/dsh-plugin-log": "workspace:*"
+  },
+  "files": [
+    "lib",
+    "src",
+    "skills",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown",
+    "test": "vitest run",
+    "prepack": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
