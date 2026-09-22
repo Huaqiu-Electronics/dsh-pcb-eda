@@ -1,0 +1,16 @@
+{
+  "name": "hqeda-scenario-b",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hello": "tsx scripts/hello.ts"
+  },
+  "dependencies": {
+    "@huaqiu/huaqiu-client": "^0.1.7",
+    "@huaqiu/hqeda": "^0.2.7"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

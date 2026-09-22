@@ -141,6 +141,15 @@ importers:
         specifier: workspace:*
         version: link:../dsh-plugin-log
 
+  packages/dsh-hqsch:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.1
+        version: 4.0.2
+      '@huaqiu/dsh-plugin-log':
+        specifier: workspace:*
+        version: link:../dsh-plugin-log
+
   packages/dsh-kicad:
     dependencies:
       '@deepseek-ai/cordis':

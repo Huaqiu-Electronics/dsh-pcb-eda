@@ -1,0 +1,13 @@
+# DSH bundle patch: inserts the Huaqiu HQSCH scenario-b bundled skill plugin.
+#
+# This package registers the `hqsch-scenario-b` skill at load time via
+# `ctx.skills.register()`. It intentionally registers no tools: scenario-b
+# teaches the agent to generate and execute local TypeScript scripts against
+# HQ EDA.
+#
+# The entry `inject` MUST match the node-half module contract (`src/index.ts`
+# `export const inject`): `skills`.
+- insert:
+    - id: huaqiu-dsh-hqsch
+      name: '@huaqiu/dsh-hqsch'
+      inject: ['skills']
