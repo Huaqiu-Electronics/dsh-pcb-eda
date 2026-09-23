@@ -39,7 +39,7 @@ const HARNESS_DIR = path.resolve(SCRIPT_DIR, '..', '..', 'deepseek-harness');
 // Discover the real dsh plugins under packages/ (those declaring a `dsh`
 // config) — app/server/utility packages are not plugins and are excluded.
 // Resolve to absolute paths because `pnpm dsh` runs with cwd = HARNESS_DIR.
-const PLUGINS = dshPlugins().map((p) => p.dir);
+const PLUGINS = dshPlugins().map((p) => p.dir).filter((p) => !p.includes('dsh-eda-host'));
 
 /**
  * Kill any process currently listening on the given port.
