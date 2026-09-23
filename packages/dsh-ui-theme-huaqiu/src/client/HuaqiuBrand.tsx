@@ -9,12 +9,7 @@ export function HuaqiuBrandMark({ size, className }: { size: number; className?:
   )
 }
 
-/** Render the HuaQiu wordmark beside the sidebar mark, with a small DSH claim. */
+/** Render the HuaQiu wordmark beside the sidebar mark. */
 export function HuaqiuBrandName({ label }: { label: string }) {
-  return (
-    <span style={{ alignItems: 'baseline', display: 'inline-flex', gap: 8 }}>
-      <span style={{ color: 'var(--dsw-alias-label-primary)', fontSize: '16px', fontWeight: 600, letterSpacing: '0.02em' }}>{label}</span>
-      <span style={{ color: 'var(--dsw-alias-label-tertiary)', fontSize: '11px', fontWeight: 400, letterSpacing: '0.02em', whiteSpace: 'nowrap' }}>Powered by DSH</span>
-    </span>
-  )
+  return <span style={{ color: 'var(--dsw-alias-label-primary)', fontSize: '16px', fontWeight: 600, letterSpacing: '0.02em' }}>{label}</span>
 }
