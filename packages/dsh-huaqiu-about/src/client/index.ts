@@ -60,5 +60,5 @@ export function apply(ctx: ClientContext): void {
     order: 90,
     label: () => t('nav'),
     locale: ABOUT_NS,
-  }, () => createElement(AboutSection)))
+  }, () => createElement(AboutSection, { t })))
 }
