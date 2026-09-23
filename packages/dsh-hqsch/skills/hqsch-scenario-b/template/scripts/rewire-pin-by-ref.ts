@@ -1,8 +1,11 @@
 /**
  * Flow C 配方：把 REF 的某 pin 接到 TARGET_REF 的 TARGET_PIN（autoConnect）
  * REF=R201 PIN=1 TARGET_REF=U301 TARGET_PIN=14 CONFIRM=1 npx tsx scripts/rewire-pin-by-ref.ts
+ *
+ * 注意：`pinNum` 只接受纯数字。字母前缀引脚（A5/CC1…）请改用 pinName 路径，
+ * 本脚本会显式报错而不是静默传 NaN。
  */
-import { connect } from "@huaqiu/huaqiu-client";
+import { hqMainWithProject, pinNumber } from "./lib/hq.js";
 
 const REF = process.env.REF;
 const PIN = process.env.PIN;
@@ -10,13 +13,8 @@ const TARGET_REF = process.env.TARGET_REF;
 const TARGET_PIN = process.env.TARGET_PIN ?? "1";
 const CONFIRM = process.env.CONFIRM === "1";
 
-async function main() {
+hqMainWithProject(async ({ client, projectId, projectContext: ctx }) => {
   if (!REF || !PIN || !TARGET_REF) throw new Error("需要 REF= PIN= TARGET_REF=");
-  const client = await connect({ instanceId: process.env.HQ_INSTANCE_ID });
-  const active = await client.project.getActiveProject({ context: client.createEditorContext() });
-  const projectId = active.project?.projectId;
-  if (!projectId) throw new Error("请先打开工程");
-  const ctx = client.createProjectContext(projectId);
   console.log("projectId:", projectId);
 
   const a = await client.canvasOps.findObjectByProperty({ context: ctx, propKey: "Reference", propValue: REF });
@@ -32,11 +30,9 @@ async function main() {
   await client.canvasOps.autoConnectObjectsById({
     context: ctx,
     objectId1: id1,
-    pinNum1: [Number(PIN)],
+    pinNum1: [pinNumber(PIN, "PIN")],
     objectId2: id2,
-    pinNum2: [Number(TARGET_PIN)],
+    pinNum2: [pinNumber(TARGET_PIN, "TARGET_PIN")],
   });
   console.log("✓ autoConnect 完成 — 请 GetSnapshot 验收 pin→net");
-}
-
-main().catch((e) => { console.error("❌", e.message); process.exit(1); });
+});

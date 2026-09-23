@@ -3,24 +3,19 @@
  * OLD_REF=U3 CONFIRM=1 npx tsx scripts/replace-part-by-ref.ts
  *
  * 完整替换需：searchParts → placeKicadSymbol → 按 OLD 的 pin→net 逐脚 autoConnect
+ * ⚠ 本脚本只做"定位 + 删除"，不放置新器件、不重连引脚。
  */
-import { connect } from "@huaqiu/huaqiu-client";
+import { hqMainWithProject, waitForRemoved } from "./lib/hq.js";
 
 const OLD_REF = process.env.OLD_REF;
 const CONFIRM = process.env.CONFIRM === "1";
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function main() {
+hqMainWithProject(async ({ client, projectId, projectContext: ctx }) => {
   if (!OLD_REF) throw new Error("需要 OLD_REF=");
-  const client = await connect({ instanceId: process.env.HQ_INSTANCE_ID });
-  const active = await client.project.getActiveProject({ context: client.createEditorContext() });
-  const projectId = active.project?.projectId;
-  if (!projectId) throw new Error("请先打开工程");
-  const ctx = client.createProjectContext(projectId);
   console.log("projectId:", projectId);
 
   const snap = await client.kernel.getSnapshot({ context: ctx });
-  const s = snap.snapshot as Record<string, unknown[]>;
+  const s = snap.snapshot as unknown as Record<string, unknown[]>;
   const sym = (s.symbolInstances as Array<Record<string, unknown>>)?.find((x) => x.designator === OLD_REF);
   if (!sym) throw new Error(`快照无 ${OLD_REF}`);
 
@@ -32,13 +27,7 @@ async function main() {
   const id = found.objectIds?.[0];
   if (!id) throw new Error("FindObject 失败");
   await client.canvasOps.deleteObjectsByIds({ context: ctx, objectIds: [id] });
-  for (let i = 0; i < 10; i++) {
-    await sleep(300);
-    const occ = await client.canvasOps.getPageOccupancy({ context: ctx });
-    const ids = (occ.objectIds ?? []).map(String);
-    if (!ids.includes(String(id))) break;
-  }
+  // 删除后等对象真正消失（GetPageOccupancy 在 patternLayout 上，字段是 items[].objectId）
+  await waitForRemoved(client, ctx, [id], { label: `删除 ${OLD_REF}` });
   console.log(`✓ 已删除 ${OLD_REF} — 请 placeKicadSymbol 并 autoConnect 各 pin`);
-}
-
-main().catch((e) => { console.error("❌", e.message); process.exit(1); });
+});

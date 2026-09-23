@@ -13,13 +13,13 @@
 | `docs/` | LLM 知识库（工程规范 + 常用 RPC） |
 | `template/` | 本地脚本工程 + 连通性测试 |
 
-维护者更新 guides 或 Scenario-B playbooks 后在本仓库运行：
+**没有组装脚本。** 本目录（`packages/dsh-hqsch/skills/hqsch-scenario-b/`）就是权威来源，
+`docs/` 与 `template/` 直接在此维护；`@huaqiu/dsh-hqsch` 在加载时通过
+`ctx.skills.register` 把整个目录注册为 DSH 内建 skill（`resourceBase = <本目录>`）。
 
-```bash
-cd skills/hqeda && pnpm run build:scenario-b
-```
-
-`build:scenario-b` 会从 monorepo 拷贝 guides + RPC 文档，再合并 `onboarding/scenario-b/docs/`（读电路 / 改电路 / rpc-availability 等）与 `onboarding/scenario-b/template/`。
+> 旧版本 INSTALL 提到的 `cd skills/hqeda && pnpm run build:scenario-b` **已不存在**：
+> 仓库中没有 `skills/hqeda` 目录，也没有任何 `package.json` 定义该 script。
+> 改动 `docs/`、`SYSTEM-PROMPT.md` 后请同步 `AGENTS.md` / `CLAUDE.md`（三者内容一致）。
 
 ---
 
@@ -48,7 +48,7 @@ Skill 包**不包含** HQ EDA 软件本身。
 ```
 my-project/
 ├── AGENTS.md          ← 从本包复制或合并
-├── hqeda-scenario-b/  ← 或解压内容直接放在根目录
+├── hqsch-scenario-b/  ← 或解压内容直接放在根目录
 │   ├── docs/
 │   ├── template/
 │   └── ...
@@ -66,7 +66,7 @@ my-project/
 ### 3. 安装依赖并冒烟测试
 
 ```bash
-cd template    # 或你的 hqeda-scenario-b/template
+cd template    # 或你的 hqsch-scenario-b/template
 npm install
 npx tsx scripts/hello.ts
 ```
@@ -124,17 +124,19 @@ npx skills add <git-url> --path hqeda/scenario-b
 
 ## 五、分发给他人
 
-将整个 `scenario-b/` 打成 `hqeda-scenario-b.zip`：
+将整个 `hqsch-scenario-b/` 打成 `hqsch-scenario-b.zip`：
 
 ```
-hqeda-scenario-b.zip
+hqsch-scenario-b.zip
 ├── SKILL.md
 ├── SYSTEM-PROMPT.md
 ├── AGENTS.md          ← Codex 项目根
 ├── CLAUDE.md          ← Work Buddy / Claude UI
 ├── INSTALL.md
 ├── docs/
+│   └── script-lifetime.md   ← 进程生命周期（必读）
 └── template/
+    └── scripts/lib/hq.ts    ← 所有脚本的运行时外壳（必用）
 ```
 
 附一句：**「解压 → 配置 AGENTS.md 或粘贴 CLAUDE.md → 跑 template/hello.ts → 开始描述电路」**

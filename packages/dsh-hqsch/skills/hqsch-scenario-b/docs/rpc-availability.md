@@ -20,13 +20,21 @@ Do not reverse-engineer “performance regression” from a single hang: some
 unimplemented RPCs historically blocked for minutes before returning a clean
 `unimplemented` in ~2 ms. Prefer this table over timeout guessing.
 
+> **But never wait indefinitely.** A stalled RPC leaves the HTTP/2 stream open,
+> which `ref()`s the Node event loop and makes the `tsx` process immortal — every
+> retry leaks another one. All scripts therefore go through `hqMain` /
+> `hqMainWithProject` in `scripts/lib/hq.ts`, which injects a per-RPC deadline
+> (default 30 s) and a hard watchdog (default 180 s, exit code `124`).
+> See [script-lifetime.md](./script-lifetime.md).
+
 ## Works — OK for flows
 
 | Service | Method | Role |
 | --- | --- | --- |
 | `kernel` | `GetSnapshot` | **Primary** read-circuit / verify source (project-wide) |
 | `netList` | `GetProjectNetList` / `GetActivePageNetList` / `GetSelectionNetList` | Netlist semantics; accessor is **`netList`** (capital L) |
-| `canvasOps` / pattern host | `GetPageOccupancy` | Object registration poll after place |
+| `patternLayout` (**not** `canvasOps`) | `GetPageOccupancy` | Object registration poll after place; response is **`items[].objectId`** — there is no `objectIds` field |
+| `canvasOps` | `AutoConnectObjectsById` | Pin-to-pin connect; `pinNum` accepts **numeric pins only** |
 | `canvasOps` | `ListWireSegments` | Wire stats — field is **`wires`**, not `wireSegments` |
 | `canvasOps` | `GetObjectsJsonByIds` / `GetObjectJsonById` | Optional deep object JSON (advanced) |
 | `find` | `FindObject` | Optional object query (advanced; not Flow B primary) |

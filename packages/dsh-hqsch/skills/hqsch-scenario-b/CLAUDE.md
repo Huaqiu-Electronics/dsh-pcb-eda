@@ -23,9 +23,13 @@
 7. `docs/editing-a-circuit.md` — **局部改电路（Flow C）** / 确认 diff / 修改集 / 验收
 8. `docs/rpc-availability.md` — 接口可用性、禁建列表、耗时基线
 9. `docs/serialization.md` — toJsonString 与 BigInt
-10. `docs/rpc/*.md` — 仅当需要某个 RPC 的精确字段名时查阅
+10. `docs/script-lifetime.md` — **进程生命周期：必须用 `hqMain`，否则泄漏 node 进程**（写任何脚本前先读）
+11. `docs/rpc/*.md` — 仅当需要某个 RPC 的精确字段名时查阅
 
 ## 硬性规则
+
+- **所有脚本必须经 `scripts/lib/hq.ts` 的 `hqMain` / `hqMainWithProject` 进入**；**禁止**裸 `connect()` + `main().catch(e => process.exit(1))`。该外壳负责：每个 RPC 超时、硬看门狗、`client.close()`、保证进程退出。见 `docs/script-lifetime.md`。
+- **不要依赖"脚本会自己退出"**：卡住的 RPC 会让 node 进程永久存活，重试一次多泄漏一个。
 
 - 器件（R/C/Q/U）：在线搜索 + `client.componentPlace.placeKicadSymbol`；**禁止**手写 `json_part` / `PlacePart`
 - 电源符号：`ListSymbolLibraries` → `PlaceSymbolFromLibrary`
@@ -37,7 +41,7 @@
 - **每条 net 先跑 routing gate**：量距离 → 短（≤300 ext、交叉<3）用 `autoConnect`；长/拥挤用双端 `placePinStubWireAndNetAlias`（同一 `netName`）
 - 字母引脚（CC1、A5）：用 `pinName` / `pinNumber` **字符串**，禁止 `Number("A5")`
 - **pattern 的 host 电源引脚必须用 `pinName` 绑定**（如 `pinName:"VIN"`）；用 `pinNum` 会返回 `PIN_RESOLVE_FAILED`
-- **放置后必须等对象注册再 apply**：轮询 `getPageOccupancy` 直到所有新 id 出现，否则 apply 报 `OBJECT_NOT_FOUND` 或假 `PARTIAL`
+- **放置后必须等对象注册再 apply**：轮询 `client.patternLayout.getPageOccupancy`（**不是 canvasOps**；响应字段是 `items[].objectId`，**没有** `objectIds`）直到所有新 id 出现，否则 apply 报 `OBJECT_NOT_FOUND` 或假 `PARTIAL`。推荐直接调用 `waitForRegistered(client, ctx, ids)`（`scripts/lib/hq.ts`）。
 - **读取导线段字段是 `wires`**（`listWireSegments().wires`），**不是** `wireSegments`
 - 打印 protobuf 响应用 `toJsonString`；禁止对 RPC 结果裸 `JSON.stringify()`。遍历快照 `position.x/y`（bigint）时见 `docs/serialization.md` replacer
 - 耗时基线（区间，非 SLA）：快照约 **1.6–3.2s**；单次 pattern/放置脚本约 **15–20s**（抖动正常）。勿用超时反推「未实现」
@@ -74,7 +78,7 @@
    ```
    connect → getActiveProject → createProjectContext
    → 放置 host / 独立器件（part-search → placeKicadSymbol；电源符号 → PlaceSymbolFromLibrary）
-   → 【等待注册】轮询 getPageOccupancy 直到所有新 id 出现（关键！否则 apply 失败）
+   → 【等待注册】轮询 `client.patternLayout.getPageOccupancy`（或 `waitForRegistered()`）直到所有新 id 出现（关键！否则 apply 失败）
    → 规范位号 / 容值（覆盖引擎自动分配的 C1..C4）
    → applyCircuitPattern（每个适用 pattern 一次；先 planOnly 可选，再正式 apply）
    → 仅对 pattern 未覆盖的 net 做 hand-wire（每条 net 先跑 routing gate）
@@ -157,26 +161,23 @@
  *   [<leftover>] → hand (routing gate: 短 autoConnect / 长 stub+alias)
  * =====================================
  */
-import { connect, toJsonString } from "@huaqiu/huaqiu-client";
 import { HqServicesV1PatternLayoutService } from "@hqedge/connect";
+import { hqMainWithProject, waitForRegistered } from "./lib/hq.js";
 
 const PL = HqServicesV1PatternLayoutService;   // 枚举来源
-const INSTANCE = process.env.HQ_INSTANCE_ID;
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function main() {
-  const client = INSTANCE
-    ? await connect({ instanceId: INSTANCE })
-    : await connect();
-
-  const editorCtx = client.createEditorContext();
-  const active = await client.project.getActiveProject({ context: editorCtx });
-  const projectId = active.project?.projectId;
-  if (!projectId) throw new Error("请先在 HQ EDA 中打开原理图工程");
-  const ctx = client.createProjectContext(projectId);
+// ⚠ 必须走 hqMainWithProject：它给每个 RPC 加超时、挂硬看门狗、finally 里
+//   client.close()，并保证进程退出。裸 connect() 会泄漏 node 进程。
+hqMainWithProject(async ({ client, projectId, projectContext: ctx }) => {
+  console.log("projectId:", projectId);
 
   // 1) 放置 host / 独立器件（placeKicadSymbol；电源符号 PlaceSymbolFromLibrary）
-  // 2) 【关键】等待注册：轮询 getPageOccupancy 直到所有新 id 出现
+  //    记下返回的 objectId，放进 newIds
+  const newIds: bigint[] = [];
+
+  // 2) 【关键】等待注册：所有新 id 都出现在页面上再继续
+  await waitForRegistered(client, ctx, newIds);
+
   // 3) 规范位号 / 容值
   // 4) applyCircuitPattern — host 引脚用 pinName 绑定
   //      pattern: PL.CircuitPatternId.CIRCUIT_PATTERN_xxx
@@ -189,10 +190,11 @@ async function main() {
 
   await client.canvasOps.zoomAll({ context: ctx });
   console.log("done");
-}
-
-main().catch((e) => { console.error(e); process.exit(1); });
+});
 ```
+
+**禁止**把结尾写成 `main().catch((e) => { console.error(e); process.exit(1); })` ——
+成功路径没有 `process.exit(0)`，且卡住的 RPC 会让进程永不退出。
 
 ## 输出格式
 

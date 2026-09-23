@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.huaqiu.com/skills/v1/skill.schema.json",
-  "id": "hqeda-scenario-b",
+  "id": "hqsch-scenario-b",
   "name": "HQ EDA Scenario B — Coding Agent + Local Scripts",
   "vendor": "Huaqiu Electronics",
   "version": "0.1.0",

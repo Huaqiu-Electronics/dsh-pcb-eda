@@ -3,7 +3,7 @@
  *   C1 → C_IN (10 μF), C2 → C_IN_BYPASS (0.1 μF)
  *   C3 → C_OUT1 (10 μF), C4 → C_OUT2 (0.1 μF)
  */
-import { connect } from "@huaqiu/huaqiu-client";
+import { hqMainWithProject } from "./lib/hq.js";
 
 const RENAMES: Array<[string, string, string]> = [
   // [oldRef, newRef, value]
@@ -13,13 +13,7 @@ const RENAMES: Array<[string, string, string]> = [
   ["C4", "C_OUT2", "0.1 μF"],
 ];
 
-async function main() {
-  const client = await connect();
-  const active = await client.project.getActiveProject({ context: client.createEditorContext() });
-  const projectId = active.project?.projectId;
-  if (!projectId) throw new Error("no project");
-  const ctx = client.createProjectContext(projectId);
-
+hqMainWithProject(async ({ client, projectContext: ctx }) => {
   for (const [oldRef, newRef, value] of RENAMES) {
     const found = await client.canvasOps.findObjectByProperty({
       context: ctx, propKey: "Reference", propValue: oldRef,
@@ -47,6 +41,4 @@ async function main() {
     console.log(`  ${newRef}: ${(r.objectIds?.length ?? 0) > 0 ? "✓" : "✗"}`);
   }
   await client.canvasOps.zoomAll({ context: ctx });
-}
-
-main().catch((e) => { console.error("错误:", e.message); process.exit(1); });
+});

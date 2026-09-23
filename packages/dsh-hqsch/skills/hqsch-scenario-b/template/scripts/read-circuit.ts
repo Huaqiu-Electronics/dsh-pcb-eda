@@ -7,9 +7,8 @@
  *   NET=+3.3V npx tsx scripts/read-circuit.ts
  *   REF=VR201 TRACE=1 npx tsx scripts/read-circuit.ts
  */
-import { connect } from "@huaqiu/huaqiu-client";
+import { hqMainWithProject, naturalCompare, type EditorClient, type ProjectContext } from "./lib/hq.js";
 
-const INSTANCE = process.env.HQ_INSTANCE_ID;
 const REF = process.env.REF;
 const NET = process.env.NET;
 const TRACE = process.env.TRACE === "1" || process.env.TRACE === "true";
@@ -135,7 +134,8 @@ class SnapCtx {
         net: this.netOf.get(pinMetaId(p)) ?? "(未连接)",
         pos: p.position,
       }))
-      .sort((a, b) => Number(a.num) - Number(b.num));
+      // 引脚号可能是 "A5"/"CC1" —— 禁止 Number() 强转，用自然序比较。
+      .sort((a, b) => naturalCompare(a.num, b.num));
   }
   netMembers(netName: string, excludeRef?: string): Array<{ ref: string; pinLabel: string }> {
     const net = this.netByName.get(netName);
@@ -271,12 +271,7 @@ function printRoleSummary(ref: string, sym: Sym, rows: PinRow[], props: Array<{ 
   console.log(`    总结: 结合邻域${TRACE ? "/穿透" : ""}块描述 ${ref} 在局部子电路中的功能`);
 }
 
-async function resolveCanvasIds(
-  client: Awaited<ReturnType<typeof connect>>,
-  ctx: ReturnType<Awaited<ReturnType<typeof connect>>["createProjectContext"]>,
-  ref: string,
-  sym: Sym,
-): Promise<void> {
+async function resolveCanvasIds(client: EditorClient, ctx: ProjectContext, ref: string, sym: Sym): Promise<void> {
   console.log(`\n  ── canvas 编辑 id（读懂 → 改电路桥接）──`);
   console.log(`    snapshot metadata.id:  ${symMetaId(sym)}`);
   console.log(`    canvasObjectId:       ${sym.canvasObjectId ?? "(空)"}`);
@@ -288,12 +283,7 @@ async function resolveCanvasIds(
   }
 }
 
-async function main() {
-  const client = INSTANCE ? await connect({ instanceId: INSTANCE }) : await connect();
-  const active = await client.project.getActiveProject({ context: client.createEditorContext() });
-  const projectId = active.project?.projectId;
-  if (!projectId) throw new Error("请先打开原理图工程");
-  const pctx = client.createProjectContext(projectId);
+hqMainWithProject(async ({ client, projectId, projectContext: pctx }) => {
   console.log(`工程 projectId: ${projectId}\n`);
 
   const t = Date.now();
@@ -352,6 +342,4 @@ async function main() {
     for (const b of bridgesFromNet(buildSeriesBridgeGraph(ctx), NET))
       console.log(`    串联: ${b.ref} → 对侧 ${otherNet(b, NET)}`);
   }
-}
-
-main().catch((e) => { console.error("❌", e.message); process.exit(1); });
+});

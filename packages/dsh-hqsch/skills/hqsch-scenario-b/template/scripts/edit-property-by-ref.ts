@@ -2,20 +2,15 @@
  * Flow C 配方：按位号改属性
  * REF=C201 PROP=Value NEW="1 µF" CONFIRM=1 npx tsx scripts/edit-property-by-ref.ts
  */
-import { connect } from "@huaqiu/huaqiu-client";
+import { hqMainWithProject } from "./lib/hq.js";
 
 const REF = process.env.REF;
 const PROP = process.env.PROP ?? "Value";
 const NEW = process.env.NEW;
 const CONFIRM = process.env.CONFIRM === "1";
 
-async function main() {
+hqMainWithProject(async ({ client, projectId, projectContext: ctx }) => {
   if (!REF || NEW === undefined) throw new Error("需要 REF= 与 NEW=");
-  const client = await connect({ instanceId: process.env.HQ_INSTANCE_ID });
-  const active = await client.project.getActiveProject({ context: client.createEditorContext() });
-  const projectId = active.project?.projectId;
-  if (!projectId) throw new Error("请先打开工程");
-  const ctx = client.createProjectContext(projectId);
   console.log("projectId:", projectId);
 
   const found = await client.canvasOps.findObjectByProperty({ context: ctx, propKey: "Reference", propValue: REF });
@@ -39,6 +34,4 @@ async function main() {
     .symbolInstances?.find((s) => s.designator === REF);
   const v = sym?.metadata?.properties?.find((p) => p.key === PROP);
   console.log("快照验收:", PROP, "=", v ? String(Object.values(v.value as object)[0] ?? v.value) : NEW);
-}
-
-main().catch((e) => { console.error("❌", e.message); process.exit(1); });
+});
