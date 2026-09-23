@@ -1,10 +1,26 @@
 import { describe, expect, it } from 'vitest'
-import { AnalyticsEventQueue, isTrackedTool, toToolAnalyticsEvent } from '../src/tool-events.js'
+import {
+  AnalyticsEventQueue,
+  createTrackedToolSet,
+  isTrackedTool,
+  toToolAnalyticsEvent,
+} from '../src/tool-events.js'
+
+describe('createTrackedToolSet', () => {
+  it('combines generated and handwritten tools while applying exclusions', () => {
+    expect([...createTrackedToolSet(
+      ['builtin_tool', 'run_code'],
+      ['manual_tool', 'builtin_tool'],
+      ['run_code'],
+    )]).toEqual(['builtin_tool', 'manual_tool'])
+  })
+})
 
 describe('isTrackedTool', () => {
   it('includes built-in business tools and excludes other tools', () => {
     expect(isTrackedTool('generate_symbol_from_image')).toBe(true)
     expect(isTrackedTool('search_hqsch_parts')).toBe(true)
+    expect(isTrackedTool('get_project_netlist')).toBe(true)
     expect(isTrackedTool('kicad_pcb_create_track')).toBe(true)
     expect(isTrackedTool('run_code')).toBe(false)
     expect(isTrackedTool('mcp__custom__tool')).toBe(false)

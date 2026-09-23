@@ -45,7 +45,8 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsdown",
+    "generate:tools": "node ../../scripts/generate-analytics-tools.mjs",
+    "build": "pnpm generate:tools && tsdown",
     "test": "vitest run",
     "prepack": "pnpm build"
   },

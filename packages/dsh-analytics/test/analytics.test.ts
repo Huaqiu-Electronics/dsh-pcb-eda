@@ -24,9 +24,9 @@ describe('resolveReqSource', () => {
     expect(resolveReqSource(true, 'generic')).toBe('kicad')
   })
 
-  it('uses web outside host mode', () => {
-    expect(resolveReqSource(false, '')).toBe('web')
-    expect(resolveReqSource(false, 'hq-eda')).toBe('web')
+  it('uses website outside host mode', () => {
+    expect(resolveReqSource(false, '')).toBe('website')
+    expect(resolveReqSource(false, 'hq-eda')).toBe('website')
   })
 
   it('uses huaqiu_eda_desktop for the hq-eda host', () => {
@@ -47,7 +47,7 @@ describe('createAnalytics', () => {
         send_type: 'beacon',
       })],
       ['register', {
-        env: 'dev',
+        env: 'prod',
         project: 'dsh_copilot',
         req_source: 'kicad',
       }],
