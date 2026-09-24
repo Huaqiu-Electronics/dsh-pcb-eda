@@ -8,7 +8,7 @@
 跑完脚本后 `ps aux | grep tsx` 里残留一堆 node 进程；agent 重试 3 次就多 3 个；
 最终机器变卡、端口/内存被吃光，而 agent 看到的只是"命令没返回"。
 
-## 根因
+## 根因（历史）
 
 `connect()` 内部用 `createGrpcTransport`。HTTP/2 stream 打开期间，会话管理器会
 `ref()` Node 事件循环。若某个 RPC 迟迟不返回：
@@ -21,24 +21,33 @@
 unimplemented"，而它同时又叮嘱"不要用超时反推未实现"——两者叠加，agent 就会
 无限等下去，再重试，再泄漏一个进程。
 
-### 为什么 `finally { client.close() }` 救不了
+### 现在已由库层面修复
 
-`await` 不 settle 时，控制流根本到不了 `finally`。必须先让 `await` 一定会 settle，
-清理才有意义。`EditorClient.close()` 的官方注释也只保证"测试进程能退出"，
-不保证"卡住的 await 能被唤醒"。
+`@huaqiu/huaqiu-client >= 0.1.9` 在传输层把 `ConnectOptions.timeoutMs` 注入底层的
+Connect 传输（unary 与 stream 都覆盖）。超时的 RPC 会以 `deadline_exceeded` 被拒绝、
+其 HTTP/2 stream 被释放，于是 `await` 一定会 settle，`finally` 里的
+`client.close()` 因此可达，进程**自然退出**。
+
+因此本外壳**不再**需要客户端代理注入 `AbortSignal`、绝对看门狗或强制
+`process.exit()`。它只把 `HQ_RPC_TIMEOUT_MS` / `rpcTimeoutMs` 透传给 `connect()`，
+并负责下面"本外壳真正负责的部分"。
+
+### `finally { client.close() }` 的作用
+
+它是正常的生命周期清理（释放 HTTP/2 连接），不是超时恢复机制——
+超时恢复已由库的 per-RPC deadline 完成。
 
 ## `scripts/lib/hq.ts` 做什么
 
 | 机制 | 作用 |
 | --- | --- |
-| 每个 RPC 注入 `AbortSignal` 超时 | 让 `await` 一定会 settle（默认 30s） |
-| 硬看门狗 | 无论如何进程都会在 N ms 内终止（默认 180s，退出码 124） |
-| `finally { client.close() }` | 释放 HTTP/2 连接 |
-| `process.exitCode` + 冲刷宽限 | 保证 stdout/stderr 完整输出，不会被 `process.exit()` 截断 |
+| `connect({ timeoutMs })` | 把单 RPC 超时透传给库（库层面兜底，覆盖 unary/stream） |
+| `try / finally { client.close() }` | 正常生命周期清理，释放 HTTP/2 连接 |
+| `waitForRegistered` / `waitForRemoved` | 放置/删除后轮询页面占用，避免误判就绪 |
+| `naturalCompare` / `pinNumber` 等 | 与超时无关的易错点辅助函数 |
 
-超时由客户端级代理注入，所以**调用点不用改**——
-`client.kernel.getSnapshot({ context })` 依旧能写，底层已经带 deadline。
-这一点是刻意的：靠 agent 记得给每个 RPC 传 `{ signal }` 是不可靠的。
+调用点写法不变——`client.kernel.getSnapshot({ context })` 依旧能写；超时由库统一兜底，
+不依赖 agent 记得给每个 RPC 传 `{ signal }`。
 
 ## 用法
 
@@ -68,8 +77,7 @@ main().catch((e) => { console.error(e); process.exit(1); });
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `HQ_INSTANCE_ID` | — | 多开编辑器时指定实例；**未设时不要传 `undefined`**，否则绕过自动发现 |
-| `HQ_RPC_TIMEOUT_MS` | 30000 | 单个 RPC 超时 |
-| `HQ_HARD_TIMEOUT_MS` | 180000 | 整个脚本硬上限 |
+| `HQ_RPC_TIMEOUT_MS` | 30000 | 单个 RPC 超时，透传给 `connect({ timeoutMs })` |
 
 ## 退出码
 
@@ -77,10 +85,10 @@ main().catch((e) => { console.error(e); process.exit(1); });
 | --- | --- |
 | `0` | 成功 |
 | `1` | 脚本抛错（stderr 有 `❌` 前缀） |
-| `124` | 硬看门狗触发 —— 说明有 RPC 卡死且 deadline 未生效，需排查而非调大超时 |
 
-看到 124 **不要**简单调大 `HQ_HARD_TIMEOUT_MS`：那只是把泄漏时间拉长。
-应该查是哪个 RPC 卡住，并把它加入 `docs/rpc-availability.md` 的禁建表。
+进程现在依赖 Node 自然退出（冲刷完 stdout/stderr 后）；不再有看门狗强杀
+（退出码 124）。若脚本卡死无响应，应排查是哪个 RPC 卡住、把它加入
+`docs/rpc-availability.md` 的禁建表，而不是调大超时。
 
 ## 顺带修掉的两个坑（同一批改动）
 

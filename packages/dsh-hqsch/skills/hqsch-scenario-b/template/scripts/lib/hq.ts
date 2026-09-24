@@ -1,20 +1,31 @@
 /**
  * scripts/lib/hq.ts —— Scenario B 所有脚本的统一运行时外壳（强制使用）
  *
- * ── 为什么必须有这一层（改动前请读完）────────────────────────────
- * `connect()` 内部使用 `createGrpcTransport`，它在 HTTP/2 stream 打开期间会
- * `ref()` Node 事件循环。若某个 RPC 迟迟不返回（docs/rpc-availability.md 记录了
- * "历史上阻塞数分钟后才返回 clean unimplemented" 的情况），`await` 永不 settle、
- * stream 不关闭，事件循环无法排空 —— node 进程变成"永生进程"。agent 每次重试
- * （最多 3 次）都会再泄漏一个进程。
+ * ── 为什么必须有这一层 ───────────────────────────────────────────
+ * 连接 HQ EDA 的脚本必须统一从这里进出，原因有两个，二者独立：
  *
- * 关键陷阱：**把 `client.close()` 写进 `finally` 救不了**。`await` 不 settle 时
- * `finally` 根本不会执行。必须先让 `await` 一定会 settle，再谈清理。
+ *  1. **RPC 超时 / 永生进程**（已由 `@huaqiu/huaqiu-client` 在库层面解决）
+ *     `connect()` 内部用 `createGrpcTransport`，HTTP/2 stream 打开期间会
+ *     `ref()` Node 事件循环。若某个 RPC 迟迟不返回，`await` 永不 settle、
+ *     stream 不关闭，事件循环无法排空 —— node 进程变成"永生进程"。
  *
- * 因此本外壳同时做三件事：
- *   1. 每个 RPC 注入 `AbortSignal` 超时 → `await` 一定会 settle；
- *   2. 硬看门狗（hard watchdog）→ 无论发生什么，进程都能在 N 毫秒内终止；
- *   3. `finally` 中 `client.close()`，并给 stdout 留出冲刷时间后退出。
+ *     这个根因现在由客户端库 `@huaqiu/huaqiu-client@>=0.1.9` 在传输层修复：
+ *     `connect({ timeoutMs })` 会把 per-RPC 截止时间注入底层的 Connect
+ *     传输（unary 与 stream 都覆盖）。超时的 RPC 会被 `deadline_exceeded`
+ *     拒绝、其 HTTP/2 stream 被释放，`await` 于是一定会 settle，`finally`
+ *     里的 `client.close()` 因此可达，进程自然退出。
+ *
+ *     本外壳只需把 `HQ_RPC_TIMEOUT_MS` / `rpcTimeoutMs` 透传给 `connect()`
+ *     即可，**不再需要**客户端代理注入 `AbortSignal`、绝对看门狗或强制
+ *     `process.exit()`。那些是库修复到位之前的临时兜底，现已移除。
+ *
+ *  2. **确定性清理与易错轮询**（本外壳真正负责的部分，与超时无关）
+ *     - `finally { client.close() }`：无论成功失败都释放 HTTP/2 连接，
+ *       这是正常的生命周期安全网，不是超时恢复机制。
+ *     - `waitForRegistered()` / `waitForRemoved()`：放置/删除后轮询页面
+ *       占用，避免误判"已就绪"导致 `OBJECT_NOT_FOUND` / 假 `PARTIAL`。
+ *       其中 `GetPageOccupancy` 在 `client.patternLayout` 上、响应字段是
+ *       `items[].objectId`（没有 `objectIds`）——这是独立修过的坑。
  *
  * ── 用法 ───────────────────────────────────────────────────────
  *   import { hqMain, hqMainWithProject } from "./lib/hq.js";
@@ -23,24 +34,19 @@
  *   hqMainWithProject(async ({ client, projectContext }) => { ... });  // 还需要活动工程
  *
  * 禁止再直接写 `connect(...)` + `main().catch(e => process.exit(1))`，
- * 那正是进程泄漏的来源。
+ * 那会绕过统一的 `finally` 清理。
  *
  * 环境变量：
  *   HQ_INSTANCE_ID        多开编辑器时指定实例
- *   HQ_RPC_TIMEOUT_MS     单个 RPC 超时（默认 30000）
- *   HQ_HARD_TIMEOUT_MS    整个脚本硬超时（默认 180000）
+ *   HQ_RPC_TIMEOUT_MS     单个 RPC 超时（默认 30000）；透传给 `connect()`
  */
 
 import { connect, type EditorClient } from "@huaqiu/huaqiu-client";
 
 export type { EditorClient };
 
-/** 单个 RPC 的默认超时。超过即抛 DeadlineExceeded，而不是无限等待。 */
+/** 单个 RPC 的默认超时（毫秒）。透传给 `connect({ timeoutMs })`，由库层面兜底。 */
 export const DEFAULT_RPC_TIMEOUT_MS = 30_000;
-/** 整个脚本的硬上限。到点强制退出，杜绝进程堆积。 */
-export const DEFAULT_HARD_TIMEOUT_MS = 180_000;
-/** 退出前留给 stdout/stderr 冲刷的宽限期。 */
-const FLUSH_GRACE_MS = 3_000;
 
 export type ProjectContext = ReturnType<EditorClient["createProjectContext"]>;
 export type EditorContext = ReturnType<EditorClient["createEditorContext"]>;
@@ -50,22 +56,17 @@ export interface HqOptions {
   instanceId?: string;
   /** 直连指定 gRPC endpoint（测试 / 远程调试用）；未设则走本地注册表发现。 */
   grpcEndpoint?: string;
-  /** 覆盖单 RPC 超时（毫秒）。 */
+  /** 覆盖单 RPC 超时（毫秒）；透传给 `connect({ timeoutMs })`。 */
   rpcTimeoutMs?: number;
-  /** 覆盖硬看门狗（毫秒）。 */
-  hardTimeoutMs?: number;
 }
 
 export interface HqProjectSession {
-  /** 已注入 RPC 超时代理的客户端（务必用这个，不要用裸 connect 的结果）。 */
+  /** 连接后的客户端（超时由库层面按 `connect({ timeoutMs })` 兜底）。 */
   client: EditorClient;
   projectId: string;
   projectContext: ProjectContext;
   editorContext: EditorContext;
 }
-
-type AnyFn = (...args: any[]) => any;
-type CallOptions = { signal?: AbortSignal; timeoutMs?: number; [k: string]: unknown };
 
 function positiveIntEnv(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -74,122 +75,34 @@ function positiveIntEnv(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/**
- * EditorClient 上属于 gRPC-CONNECT 服务的命名空间。
- * 只有这些需要注入 deadline；`parts`（part-search，HTTP）与 `info`/`sessionId`
- * 等普通字段不在此列。
- */
-const RPC_NAMESPACES = new Set<string>([
-  "discovery",
-  "capability",
-  "context",
-  "project",
-  "kernel",
-  "graph",
-  "selection",
-  "canvasOps",
-  "componentPlace",
-  "objPlace",
-  "patternLayout",
-  "interactivePlace",
-  "erc",
-  "edaBom",
-  "netList",
-  "runtime",
-  "transaction",
-  "event",
-  "find",
-  "import",
-  "export",
-]);
-
-/**
- * 给单个服务命名空间套一层代理：每次调用都自动补上 `signal`。
- *
- * 这样调用点无需改动——`client.kernel.getSnapshot({ context })` 依然写得出来，
- * 但底层已经带上了超时。这一点很重要：agent 生成的脚本不可能记得给每个 RPC
- * 手动传 options，必须由外壳兜住。
- */
-function withDeadline<T extends object>(service: T, timeoutMs: number): T {
-  return new Proxy(service, {
-    get(target, prop) {
-      const value = (target as Record<string | symbol, unknown>)[prop];
-      if (typeof value !== "function") return value;
-
-      const fn = value as AnyFn;
-      return (request?: unknown, callOptions?: CallOptions) => {
-        const controller = new AbortController();
-        const timer = setTimeout(() => {
-          controller.abort(new Error(`RPC 超时 ${timeoutMs}ms`));
-        }, timeoutMs);
-        const call = Promise.resolve(
-          fn.call(target, request, { signal: controller.signal, ...(callOptions ?? {}) }),
-        );
-        // 无论成功失败都清掉计时器，避免无谓地挂住事件循环。
-        return call.finally(() => clearTimeout(timer));
-      };
-    },
-  });
-}
-
-/** 客户端级代理：方法绑定回原对象，RPC 命名空间则换成带 deadline 的版本。 */
-function withDeadlineClient(client: EditorClient, timeoutMs: number): EditorClient {
-  return new Proxy(client, {
-    get(target, prop) {
-      const value = Reflect.get(target, prop, target);
-      if (typeof prop === "string" && RPC_NAMESPACES.has(prop) && typeof value === "object" && value !== null) {
-        return withDeadline(value as object, timeoutMs);
-      }
-      return typeof value === "function" ? (value as AnyFn).bind(target) : value;
-    },
-  }) as EditorClient;
-}
-
-/**
- * 退出：先设 exitCode 让 stdout/stderr 有机会冲刷干净；
- * 若仍有句柄吊住事件循环，兜底强杀。绝不让进程"安静地永远活着"。
- */
-function finish(code: number): void {
-  process.exitCode = code;
-  const grace = setTimeout(() => process.exit(code), FLUSH_GRACE_MS);
-  (grace as unknown as { unref?: () => void }).unref?.();
-}
-
-/** 连接 → 执行 → 关闭 → 退出。Scenario B 脚本的唯一入口。 */
+/** 连接 → 执行 → 关闭。Scenario B 脚本的唯一入口。 */
 export async function hqMain(
   fn: (client: EditorClient) => Promise<void>,
   options: HqOptions = {},
 ): Promise<void> {
   const rpcTimeoutMs = options.rpcTimeoutMs ?? positiveIntEnv("HQ_RPC_TIMEOUT_MS", DEFAULT_RPC_TIMEOUT_MS);
-  const hardTimeoutMs = options.hardTimeoutMs ?? positiveIntEnv("HQ_HARD_TIMEOUT_MS", DEFAULT_HARD_TIMEOUT_MS);
   const instanceId = options.instanceId ?? process.env.HQ_INSTANCE_ID;
 
-  // 硬看门狗：故意不 unref——即使 await 永不 settle、且没有任何 ref 住的句柄
-  // （那种情况下 Node 会静默退出、脚本像"成功"一样消失），也要让它变成一次
-  // 响亮的 exit 124。
-  const watchdog = setTimeout(() => {
-    console.error(
-      `\n⏱  硬看门狗触发（${hardTimeoutMs}ms）：强制终止进程。\n` +
-        `   常见原因：某个 RPC 未返回且 deadline 未生效。调大 HQ_HARD_TIMEOUT_MS 只能掩盖问题。`,
-    );
-    process.exit(124);
-  }, hardTimeoutMs);
+  // 只在真的有值时传 instanceId——传 undefined 会绕过自动发现逻辑。
+  // timeoutMs 透传给库；per-RPC 截止由 `@huaqiu/huaqiu-client` 在传输层执行。
+  const connectOptions: { instanceId?: string; grpcEndpoint?: string; timeoutMs: number } = {
+    timeoutMs: rpcTimeoutMs,
+  };
+  if (options.grpcEndpoint) connectOptions.grpcEndpoint = options.grpcEndpoint;
+  else if (instanceId) connectOptions.instanceId = instanceId;
 
   let client: EditorClient | undefined;
   let exitCode = 0;
 
   try {
-    // 只在真的有值时传 instanceId——传 undefined 会绕过自动发现逻辑。
-    const connectOptions: { instanceId?: string; grpcEndpoint?: string } = {};
-    if (options.grpcEndpoint) connectOptions.grpcEndpoint = options.grpcEndpoint;
-    else if (instanceId) connectOptions.instanceId = instanceId;
     client = await connect(connectOptions);
-    await fn(withDeadlineClient(client, rpcTimeoutMs));
+    await fn(client);
   } catch (e) {
     exitCode = 1;
     console.error("❌", e instanceof Error ? e.message : e);
   } finally {
-    clearTimeout(watchdog);
+    // 正常生命周期清理：释放 HTTP/2 连接，让事件循环自然排空。
+    // 不是超时恢复机制 —— 超时已由库的 per-RPC deadline 处理。
     try {
       client?.close();
     } catch {
@@ -197,7 +110,8 @@ export async function hqMain(
     }
   }
 
-  finish(exitCode);
+  // 让 Node 自然退出（冲刷 stdout/stderr 后），不强制 process.exit。
+  process.exitCode = exitCode;
 }
 
 /** `hqMain` + 取活动工程并建好 ProjectContext。Flow A/B/C 绝大多数脚本用这个。 */
