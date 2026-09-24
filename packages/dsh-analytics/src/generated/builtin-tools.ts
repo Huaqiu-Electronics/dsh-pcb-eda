@@ -6,6 +6,7 @@ export const BUILTIN_TOOLS = [
   "generate_symbol_from_image",
   "generate_system_module_graph",
   "get_active_page_netlist",
+  "get_eda_bom",
   "get_eda_host_capabilities",
   "get_eda_host_info",
   "get_hqsch_part",
@@ -25,6 +26,8 @@ export const BUILTIN_TOOLS = [
   "kicad_pcb_refill_zones",
   "kicad_pcb_remove_selected_items",
   "kicad_pcb_update_selected_track_width",
+  "match_bom",
   "pcb_preview",
+  "run_erc",
   "search_hqsch_parts",
 ] as const

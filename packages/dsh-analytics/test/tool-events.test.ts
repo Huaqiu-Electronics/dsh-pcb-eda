@@ -25,6 +25,14 @@ describe('isTrackedTool', () => {
     expect(isTrackedTool('run_code')).toBe(false)
     expect(isTrackedTool('mcp__custom__tool')).toBe(false)
   })
+
+  it('includes the out-of-repo HQ Edge built-in plugin tools', () => {
+    // Registered by hq-edge `apps/server/dsh-plugins/erc` — pinned in
+    // scripts/generate-analytics-tools.mjs, verified against the checkout there.
+    expect(isTrackedTool('get_eda_bom')).toBe(true)
+    expect(isTrackedTool('match_bom')).toBe(true)
+    expect(isTrackedTool('run_erc')).toBe(true)
+  })
 })
 
 describe('toToolAnalyticsEvent', () => {
