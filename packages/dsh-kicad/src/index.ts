@@ -5,19 +5,24 @@
  * This plugin ships TWO things that used to need two installations:
  *
  *   1. ten KiCad tools, registered with `ctx.tools.register(defineTool(...))`
- *   2. the `kicad-ipc` skill, registered with `ctx.skills.register(...)`
+ *   2. every bundled skill under `skills/`, registered with
+ *      `ctx.skills.register(...)` — currently `kicad-ipc` (the reasoning around
+ *      the tools) and `hardware-design-brief` (requirements → design inputs)
  *
  * Installing the Huaqiu DSH PCB/EDA bundle therefore makes KiCad agent
- * capabilities AND the skill that teaches the agent to use them available out of
+ * capabilities AND the skills that teach the agent to use them available out of
  * the box. There is no separate skill installation step, and this plugin adds no
  * second skill-registration mechanism — `ctx.skills.register()` is the DSH
  * runtime's own plugin-bundled skill channel.
  *
+ * The skill set is data, not code: `./skills.ts` owns the registry, so adding a
+ * skill from `kicad-agent` is a copy plus a registry entry.
+ *
  * ── Boundaries ──────────────────────────────────────────────────────────────
  * KiCad IPC is reached through the bundled Python scripts under
- * `skills/kicad-ipc/scripts/` (see `./ipc.ts`). This package holds no HQ Edge
- * dependency of any kind — no runtime, executable, service, port, config or
- * artifact dependency (§3, §21) — and no `@hqedge/*` import.
+ * `skills/<KICAD_SCRIPT_SKILL_ID>/scripts/` (see `./ipc.ts`). This package holds
+ * no HQ Edge dependency of any kind — no runtime, executable, service, port,
+ * config or artifact dependency (§3, §21) — and no `@hqedge/*` import.
  *
  * @module @huaqiu/dsh-kicad
  */
@@ -32,8 +37,8 @@ import {
   type KicadConfig,
   type KicadConfigInput,
 } from './config.js'
-import { requireSkillDir, resolveSkillDir, scriptsDir } from './paths.js'
-import { KICAD_SKILL_NAME } from './scripts.js'
+import { requireSkillDir, resolveSkillDir, scriptsDir, skillsRoot } from './paths.js'
+import { KICAD_SCRIPT_SKILL_ID, KICAD_SKILL_IDS, kicadSkill } from './skills.js'
 import { createKicadTools, kicadToolNames } from './tools.js'
 
 /** Plugin id — matches package.json. */
@@ -43,7 +48,7 @@ export const name = '@huaqiu/dsh-kicad'
  * Cordis services this half depends on.
  *
  * `skills` is REQUIRED: it is the DSH runtime's skill registry, and registering
- * the bundled `kicad-ipc` skill is this plugin's core job. Without the inject,
+ * the bundled skills is this plugin's core job. Without the inject,
  * `apply()`'s `ctx.skills` access would throw
  * `cannot get property "skills" without inject`.
  *
@@ -57,9 +62,16 @@ export const inject = ['skills', 'tools'] as const
 export type { KicadConfig, KicadConfigInput } from './config.js'
 export type { KicadError, KicadErrorKind, ScriptRun } from './ipc.js'
 export type { KicadScript, ScriptEffect } from './scripts.js'
-export { KICAD_SCRIPTS, KICAD_SCRIPT_IDS, KICAD_SKILL_NAME, kicadScript } from './scripts.js'
+export type { KicadBundledSkill } from './skills.js'
+export { KICAD_SCRIPTS, KICAD_SCRIPT_IDS, kicadScript } from './scripts.js'
+export {
+  KICAD_SCRIPT_SKILL_ID,
+  KICAD_SKILL_IDS,
+  KICAD_SKILLS,
+  kicadSkill,
+} from './skills.js'
 export { kicadToolNames } from './tools.js'
-export { resolveSkillDir, requireSkillDir, scriptsDir } from './paths.js'
+export { resolveSkillDir, requireSkillDir, scriptsDir, skillsRoot } from './paths.js'
 export { runKicadScript, classifyRun, invokeKicadScript } from './ipc.js'
 export { createKicadTools } from './tools.js'
 
@@ -111,20 +123,10 @@ const log = getLogger(COMPONENT)
 log.info('dsh-kicad: module loaded (waiting for the skills + tools services)')
 
 /**
- * Used only when the bundled SKILL.md has no parseable `description`
- * frontmatter. The real value always comes from the shipped file, so the skill
- * catalog cannot drift away from the skill body.
- */
-const FALLBACK_SKILL_DESCRIPTION =
-  'Operate a KiCad PCB through the official KiCad IPC API: inspect the live ' +
-  'board and create, modify or delete objects. Use for PCB automation and ' +
-  'autorouter-result import — not for editing .kicad_pcb files directly.'
-
-/**
  * Extract the `description` field from SKILL.md YAML frontmatter.
  *
  * Only the single-line form is supported (quoted or bare), which is what the
- * migrated skill uses. Returns `undefined` when absent so the caller can fall
+ * migrated skills use. Returns `undefined` when absent so the caller can fall
  * back rather than registering a skill with an empty description — DSH ignores
  * frontmatter-less skills entirely, so an empty description would silently
  * break discovery.
@@ -141,31 +143,48 @@ export function skillDescription(markdown: string): string | undefined {
   return unquoted.length > 0 ? unquoted : undefined
 }
 
-/**
- * Read the bundled `kicad-ipc` SKILL.md.
- *
- * Exposed for tests and for callers that want the skill body without loading
- * the plugin (e.g. a packaging check).
- */
-export function readBundledSkill(moduleUrl: string, override?: string): {
-  dir: string
+/** One bundled skill, as read from disk and ready for `ctx.skills.register()`. */
+export interface BundledSkill {
+  /** Skill id — equals the directory name and the DSH-catalogued id. */
   name: string
+  /** Directory holding SKILL.md, `references/` and `scripts/`. */
+  dir: string
+  /** Catalogue description (from SKILL.md frontmatter, else the registry). */
   description: string
+  /** Full SKILL.md body. */
   content: string
-} {
-  const dir = requireSkillDir(moduleUrl, override)
+}
+
+/**
+ * Read one bundled SKILL.md.
+ *
+ * Exposed for tests and for callers that want a skill body without loading the
+ * plugin (e.g. a packaging check).
+ *
+ * @param moduleUrl - `import.meta.url` of the calling module.
+ * @param skillId - bundled skill id (see `./skills.ts`).
+ * @param override - explicit skills root (plugin config or env var).
+ */
+export function readBundledSkill(
+  moduleUrl: string,
+  skillId: string,
+  override?: string,
+): BundledSkill {
+  const dir = requireSkillDir(moduleUrl, skillId, override)
   const content = readFileSync(join(dir, 'SKILL.md'), 'utf8')
   return {
     dir,
-    name: KICAD_SKILL_NAME,
-    description: skillDescription(content) ?? FALLBACK_SKILL_DESCRIPTION,
+    name: skillId,
+    // The shipped frontmatter is authoritative; the registry summary is only a
+    // safety net so the catalog can never drift away from the skill body.
+    description: skillDescription(content) ?? kicadSkill(skillId).summary,
     content,
   }
 }
 
 /**
- * Read the bundled skill, or `null` when the installed package does not carry
- * one.
+ * Read one bundled skill, or `null` when the installed package does not carry
+ * it.
  *
  * ── Why this degrades instead of throwing ──────────────────────────────────
  * A missing `skills/` tree is a PACKAGING failure, and the honest signal for a
@@ -177,25 +196,29 @@ export function readBundledSkill(moduleUrl: string, override?: string): {
  * That actually happened: HQ Edge's builtin-plugin staging copied only
  * `package.json` + `lib/`, so `skills/` never reached the bundle and the
  * server could not start at all. The correct blast radius for "this plugin's
- * skill is missing" is "this plugin is degraded", so we log at error level
- * with the exact path and remedy, skip skill registration, and keep the tools
- * (which fail per-call with a typed `FAILED_PRECONDITION` rather than at load).
+ * skill is missing" is "this skill is unavailable", so we log at error level
+ * with the exact path and remedy and skip that skill — per skill, so a broken
+ * `kicad-ipc` never hides a perfectly good `hardware-design-brief`. The tools
+ * are always kept (they fail per-call with a typed `FAILED_PRECONDITION`
+ * rather than at load).
  *
  * @param moduleUrl - `import.meta.url` of the calling module.
- * @param override - explicit skill directory (plugin config or env var).
+ * @param skillId - bundled skill id (see `./skills.ts`).
+ * @param override - explicit skills root (plugin config or env var).
  */
 export function tryReadBundledSkill(
   moduleUrl: string,
+  skillId: string,
   override?: string,
-): { dir: string; name: string; description: string; content: string } | null {
+): BundledSkill | null {
   try {
-    return readBundledSkill(moduleUrl, override)
+    return readBundledSkill(moduleUrl, skillId, override)
   } catch (err) {
     log.error(
-      'dsh-kicad: bundled skill unavailable — continuing degraded, the KiCad ' +
-        'tools are registered but will fail until the package is reinstalled',
+      `dsh-kicad: bundled skill "${skillId}" unavailable — continuing degraded, ` +
+        'the KiCad tools are registered but will fail until the package is reinstalled',
       {
-        expectedDir: resolveSkillDir(moduleUrl, override),
+        expectedDir: resolveSkillDir(moduleUrl, skillId, override),
         error: String((err as Error)?.message ?? err),
       },
     )
@@ -204,16 +227,16 @@ export function tryReadBundledSkill(
 }
 
 /**
- * Host plugin body — register the `kicad-ipc` skill and the KiCad tools.
+ * Host plugin body — register every bundled skill and the KiCad tools.
  *
- * Both halves are registered here so that one installation delivers both. The
- * skill's `resourceBase` points at the bundled skill directory, which is how
- * the agent reaches `references/ipc-pcb-workflows.md` and `scripts/` as
- * progressive-disclosure resources.
+ * Both halves are registered here so that one installation delivers both. Each
+ * skill's `resourceBase` points at its own bundled directory, which is how the
+ * agent reaches `references/` and `scripts/` as progressive-disclosure
+ * resources.
  *
  * @param ctx - real cordis context (node side).
  * @param config - plugin overlay config (python interpreter, timeouts).
- * @returns disposer — unregisters the skill and the tools on plugin dispose.
+ * @returns disposer — unregisters every skill and tool on plugin dispose.
  */
 export function apply(ctx: Context, config: KicadConfigInput = {}): () => void {
   if (!ctx.tools || typeof ctx.tools.register !== 'function') {
@@ -225,26 +248,35 @@ export function apply(ctx: Context, config: KicadConfigInput = {}): () => void {
 
   const resolved = resolveKicadConfig(config)
 
-  // Degraded rather than fatal: see tryReadBundledSkill. A null skill means
-  // the installed package is incomplete, not that the host is unusable.
-  const skill = tryReadBundledSkill(import.meta.url, config.skillsDir)
-  // Tools resolve their Python scripts under the skill directory, so they use
-  // the same path even when the skill itself is missing — a call then fails
-  // with a typed FAILED_PRECONDITION naming the exact script it needed.
-  const skillDir = skill?.dir ?? resolveSkillDir(import.meta.url, config.skillsDir)
+  // Degraded rather than fatal, per skill: see tryReadBundledSkill.
+  const skills = new Map<string, BundledSkill>()
+  for (const skillId of KICAD_SKILL_IDS) {
+    const skill = tryReadBundledSkill(import.meta.url, skillId, config.skillsDir)
+    if (skill) skills.set(skillId, skill)
+  }
+
+  // The tools resolve their Python scripts under the script-owning skill's
+  // directory, so they use the same path even when that skill itself failed to
+  // load — a call then fails with a typed FAILED_PRECONDITION naming the exact
+  // script it needed.
+  const scriptSkillDir =
+    skills.get(KICAD_SCRIPT_SKILL_ID)?.dir ??
+    resolveSkillDir(import.meta.url, KICAD_SCRIPT_SKILL_ID, config.skillsDir)
 
   log.info('applying dsh-kicad node half', {
     hasConfigHost: hasHostConfig(config),
     pythonPath: resolved.pythonPath,
-    skillDir,
-    skillPresent: skill !== null,
+    skillsRoot: skillsRoot(import.meta.url, config.skillsDir),
+    skillsRegistered: [...skills.keys()],
+    skillsMissing: KICAD_SKILL_IDS.filter((id) => !skills.has(id)),
+    scriptSkillDir,
     timeoutMs: resolved.timeoutMs,
   })
 
   const disposers: Array<() => void> = []
 
-  // ── Skill (bundled, no separate installation) ────────────────────────────
-  if (skill) {
+  // ── Skills (bundled, no separate installation) ───────────────────────────
+  for (const skill of skills.values()) {
     disposers.push(
       ctx.skills.register({
         name: skill.name,
@@ -258,7 +290,7 @@ export function apply(ctx: Context, config: KicadConfigInput = {}): () => void {
 
   // ── Tools ────────────────────────────────────────────────────────────────
   const tools = createKicadTools({
-    scriptsDir: scriptsDir(skillDir),
+    scriptsDir: scriptsDir(scriptSkillDir),
     pythonPath: resolved.pythonPath,
     config: resolved,
   })
@@ -267,8 +299,8 @@ export function apply(ctx: Context, config: KicadConfigInput = {}): () => void {
   }
 
   log.info('dsh-kicad node half ready', {
-    skill: skill?.name ?? null,
-    degraded: skill === null,
+    skills: [...skills.keys()],
+    degraded: skills.size < KICAD_SKILL_IDS.length,
     tools: tools.length,
     expectedTools: kicadToolNames().length,
   })
