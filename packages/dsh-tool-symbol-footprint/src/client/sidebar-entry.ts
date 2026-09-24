@@ -21,13 +21,13 @@ const PLUGIN_ID = 'huaqiu-component-gen'
 /**
  * Inline icons (footprint.svg / symbol.svg from the repo root). Both viewBoxes
  * are cropped to the artwork's ink so the glyph fills the icon slot instead of
- * canvas padding: footprint renders 18×18 (matches the shell's square nav
- * glyphs); the symbol is a wide component glyph (≈1.29:1) rendered ~18×14,
- * falling right in the range of the sidebar's narrow siblings. Both use
- * `currentColor` so they inherit the sidebar text/theme color.
+ * canvas padding. The rendered size is pinned by CSS to 16×16 (the shell's
+ * wide nav-glyph size — same as the official Plugins entry) and grows to 18×18
+ * on the collapsed rail. Both use `currentColor` so they inherit the sidebar
+ * text/theme color.
  */
 export const FOOTPRINT_ICON =
-  '<svg viewBox="160 160 704 704" width="18" height="18" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<svg viewBox="160 160 704 704" width="16" height="16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   '<rect x="262" y="262" width="500" height="500" rx="26" fill="none" stroke="currentColor" stroke-width="40"/>' +
   '<line x1="346" y1="180" x2="346" y2="262" stroke="currentColor" stroke-width="32"/>' +
   '<line x1="429" y1="180" x2="429" y2="262" stroke="currentColor" stroke-width="32"/>' +
@@ -53,7 +53,7 @@ export const FOOTPRINT_ICON =
   '</svg>'
 
 export const SYMBOL_ICON =
-  '<svg viewBox="3 5 18 14" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<svg viewBox="3 5 18 14" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
   '<rect x="7" y="6" width="10" height="12" rx="1.5"/>' +
   '<path d="M4 9h3"/>' +
   '<path d="M4 12h3"/>' +
@@ -71,7 +71,12 @@ const ENTRY_CSS: Record<string, string> = {
   entryLabel: 'hqcg-sidebar-entry__label',
 }
 
-/** Sidebar entry styles — ported from dsh-web task-board's `.entry` block. */
+/**
+ * Sidebar entry styles — matched to the official `sidebar.panellist` rows
+ * (ui-sidebar `.panelRow`): same 2px inset, 7px/8px padding, 8px gap, 12px
+ * radius and 16px glyph, so 封装生成 / Symbol 生成 sit flush with the shell's
+ * own Plugins entry instead of drifting right of it.
+ */
 const ENTRY_CSS_TEXT = `
 .hqcg-sidebar-entry {
   box-sizing: border-box;
@@ -79,51 +84,55 @@ const ENTRY_CSS_TEXT = `
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 36px;
-  padding: 0 10px;
+  margin: 0 2px;
+  min-height: 36px;
+  padding: 7px 8px;
   background: transparent;
   border: none;
-  border-radius: 8px;
-  color: var(--dsw-alias-label-secondary);
+  border-radius: 12px;
+  color: var(--dsw-alias-label-primary);
   cursor: pointer;
-  font-size: 13px;
+  font: inherit;
+  line-height: 22px;
+  text-align: left;
   white-space: nowrap;
 }
 .hqcg-sidebar-entry:hover {
   background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
 }
 .hqcg-sidebar-entry[data-active] {
-  background: var(--dsw-alias-interactive-bg-active);
+  background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
-  font-weight: 600;
 }
 .hqcg-sidebar-entry__icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
   flex: none;
 }
 .hqcg-sidebar-entry__icon svg {
   display: block;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 .hqcg-sidebar-entry__label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Collapsed rail: icon-only, centered, matching the shell's 56px rail. */
+/* Collapsed rail: icon-only, centered — same 36px square the shell uses. */
 [data-dsh-frame][data-sidebar-collapsed] .hqcg-sidebar-entry,
 [data-sidebar-collapsed] .hqcg-sidebar-entry {
   justify-content: center;
-  padding: 0;
   width: 36px;
   height: 36px;
-  margin: 0 auto 12px;
-  border-radius: 50%;
+  margin: 0;
+  padding: 0;
+}
+[data-dsh-frame][data-sidebar-collapsed] .hqcg-sidebar-entry__icon svg,
+[data-sidebar-collapsed] .hqcg-sidebar-entry__icon svg {
+  width: 18px;
+  height: 18px;
 }
 [data-dsh-frame][data-sidebar-collapsed] .hqcg-sidebar-entry__label,
 [data-sidebar-collapsed] .hqcg-sidebar-entry__label {
