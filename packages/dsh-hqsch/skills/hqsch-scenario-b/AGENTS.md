@@ -39,6 +39,7 @@
   - **`netName`** = 写入实例 **"Name"** 用户属性的网络名；传空则 Name 沿用 `symbolName` —— **勿把图形名和网络名混为一谈**
   - `autoConnect` 时电源符号引脚用 pin **0**
 - **先 pattern 后 hand-wire**；`connections[].routed=true` 的 net 不要重连
+- **选 anchor 看整页**：`get-page-occupancy` 读 `page_box` + 全部 bbox + 已有 `occupied_box`，在空位里放下该 pattern 的 `typical_size`（按 `anchor_semantics` 换算枢纽四周伸出）。禁止写死「某电路下方 N 格」或固定坐标；禁止为靠近 host 引脚而挤缝。`ignoreAreaConflict=false`
 - **每条 net 先跑 routing gate**：量距离 → 短（≤300 ext、交叉<3）用 `autoConnect`；长/拥挤用双端 `placePinStubWireAndNetAlias`（同一 `netName`）
 - 字母引脚（CC1、A5）：用 `pinName` / `pinNumber` **字符串**，禁止 `Number("A5")`
 - **pattern 的 host 电源引脚必须用 `pinName` 绑定**（如 `pinName:"VIN"`）；用 `pinNum` 会返回 `PIN_RESOLVE_FAILED`
