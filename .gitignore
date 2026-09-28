@@ -9,3 +9,4 @@ coverage/
 *.log
 # scratch DSH_HOME used by the stock-DSH smoke test (docs/tasks/start-p0.md)
 .smoke/
+!packages/dsh-hqsch/skills/hqsch-scenario-b/template/scripts/lib

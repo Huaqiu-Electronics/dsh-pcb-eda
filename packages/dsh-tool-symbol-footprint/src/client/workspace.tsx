@@ -135,6 +135,7 @@ function startLocaleObserver(): () => void {
 export function createWorkspacePorts(
   auth: HuaqiuAuthClientService['auth'] | undefined,
   getHqEdge?: () => HqEdgePlaceLike | undefined,
+  track?: ComponentGenPorts['track'],
 ): ComponentGenPorts {
   const authPort: ComponentGenAuthPort = {
     isAuthenticated: async () => auth?.isAuthenticated() ?? false,
@@ -160,12 +161,13 @@ export function createWorkspacePorts(
         },
       }
     : undefined
-  return createHttpPorts({
+  const ports = createHttpPorts({
     base: '/api/v1/huaqiu/component-gen',
     artifactsBase: '/api/v1/huaqiu/artifacts',
     auth: authPort,
     ...(place ? { place } : {}),
   })
+  return track ? { ...ports, track } : ports
 }
 
 /** Full-viewport overlay panel hosting the app. */
@@ -250,7 +252,8 @@ export function installWorkspace(
   const disposers: Array<() => void> = []
   const getHqEdge = (): HqEdgePlaceLike | undefined =>
     (typeof ctx.get === 'function' ? ctx.get('hqEdge') : undefined) as HqEdgePlaceLike | undefined
-  const ports = createWorkspacePorts(auth, getHqEdge)
+  const getAnalytics = () => typeof ctx.get === 'function' ? ctx.get('huaqiuAnalytics') as { track?(event: string, properties?: Record<string, unknown>): void } | undefined : undefined
+  const ports = createWorkspacePorts(auth, getHqEdge, (event, properties) => getAnalytics()?.track?.(event, properties))
   disposers.push(startLocaleObserver())
 
   // Two task-board-style sidebar rows (between New Session and the workspace
@@ -265,7 +268,11 @@ export function installWorkspace(
       label: () => translateFor(currentLang)('app.footprintTitle'),
       tooltip: () => translateFor(currentLang)('app.footprintTooltip'),
       position: 'before',
-      onToggle: () => togglePage('footprint'),
+      onToggle: () => {
+        togglePage('footprint')
+        // 神策埋点：点击封装生成
+        getAnalytics()?.track?.('click_generate_footprint')
+      },
       isOpen: () => state.open && state.page === 'footprint',
     },
     {
@@ -275,7 +282,11 @@ export function installWorkspace(
       label: () => translateFor(currentLang)('app.symbolTitle'),
       tooltip: () => translateFor(currentLang)('app.symbolTooltip'),
       position: 'after',
-      onToggle: () => togglePage('symbol'),
+      onToggle: () => {
+        togglePage('symbol')
+        // 神策埋点：点击符号生成
+        getAnalytics()?.track?.('click_generate_symbol')
+      },
       isOpen: () => state.open && state.page === 'symbol',
     },
   ], subscribeWorkspace))

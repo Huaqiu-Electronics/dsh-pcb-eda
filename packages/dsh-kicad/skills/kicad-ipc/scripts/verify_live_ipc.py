@@ -23,7 +23,7 @@ def main() -> None:
     try:
         nets = {net.name: net for net in board.get_nets()}
         if "GND" not in nets:
-            raise RuntimeError("烟测要求当前板已有 GND 网络。")
+            raise RuntimeError("The smoke test requires the current board to already have a GND net.")
         source = board.get_footprints()[0]
         before = (len(board.get_tracks()), len(board.get_vias()), len(board.get_zones()), len(board.get_footprints()))
 
@@ -79,7 +79,7 @@ def main() -> None:
 
         after = (len(board.get_tracks()), len(board.get_vias()), len(board.get_zones()), len(board.get_footprints()))
         if after != before:
-            raise RuntimeError(f"drop_commit 后对象数量不匹配：before={before}, after={after}")
+            raise RuntimeError(f"object count mismatch after drop_commit: before={before}, after={after}")
         print("IPC live smoke test passed; all temporary changes were dropped and not saved.")
     finally:
         if commit is not None:

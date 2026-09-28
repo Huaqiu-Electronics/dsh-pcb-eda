@@ -2,20 +2,28 @@
  * Plugin loading + skill discovery (task §23).
  *
  *   dsh-kicad -> plugin loads successfully
- *   dsh-kicad -> kicad-ipc skill is discoverable
+ *   dsh-kicad -> every bundled skill is discoverable
  *
  * These tests drive `apply()` with a Cordis-shaped fake context, because the
  * plugin only ever touches two services: `skills` and `tools`.
  */
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
 import { apply, inject, name, readBundledSkill, skillDescription } from '../src/index.js'
+import { KICAD_SCRIPT_SKILL_ID, KICAD_SKILL_IDS } from '../src/skills.js'
 import { kicadToolNames } from '../src/tools.js'
+
+const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
 interface RegisteredSkill {
   name: string
   description: string
   content: string
+  source: 'runtime'
   resourceBase: { kind: string; path: string }
 }
 
@@ -54,11 +62,11 @@ describe('dsh-kicad plugin contract', () => {
 })
 
 describe('apply() — plugin loading', () => {
-  it('loads and registers exactly one skill and every KiCad tool', () => {
+  it('loads and registers every bundled skill plus every KiCad tool', () => {
     const { ctx, skills, tools } = fakeCtx()
     const dispose = apply(ctx as never)
 
-    expect(skills).toHaveLength(1)
+    expect(skills.map((s) => s.name)).toEqual([...KICAD_SKILL_IDS])
     expect(tools.map((t) => t.name)).toEqual(kicadToolNames())
     expect(typeof dispose).toBe('function')
     dispose()
@@ -69,11 +77,13 @@ describe('apply() — plugin loading', () => {
     const dispose = apply(ctx as never)
     dispose()
 
-    expect(unregistered).toContain('skill:kicad-ipc')
+    for (const id of KICAD_SKILL_IDS) {
+      expect(unregistered).toContain(`skill:${id}`)
+    }
     for (const toolName of kicadToolNames()) {
       expect(unregistered).toContain(`tool:${toolName}`)
     }
-    expect(unregistered).toHaveLength(kicadToolNames().length + 1)
+    expect(unregistered).toHaveLength(kicadToolNames().length + KICAD_SKILL_IDS.length)
   })
 
   it('throws loudly when the skills service is absent', () => {
@@ -92,10 +102,10 @@ describe('apply() — plugin loading', () => {
   // HQ Edge's builtin-plugin staging used to copy only package.json + lib/, so
   // skills/ never reached the bundle. Because apply() threw, that single
   // missing asset aborted the whole DSH plugin tree and the server could not
-  // start at all. The blast radius of "this plugin's skill is missing" must be
-  // "this plugin is degraded" — never "DSH exits".
-  describe('degraded when the bundled skill is missing', () => {
-    const MISSING = '/nonexistent/dsh-kicad/skills/kicad-ipc'
+  // start at all. The blast radius of "this plugin's skills are missing" must
+  // be "this plugin is degraded" — never "DSH exits".
+  describe('degraded when a bundled skill is missing', () => {
+    const MISSING = '/nonexistent/dsh-kicad/skills'
 
     it('loads anyway and still registers every KiCad tool', () => {
       const { ctx, skills, tools } = fakeCtx()
@@ -114,54 +124,94 @@ describe('apply() — plugin loading', () => {
       expect(unregistered).toHaveLength(kicadToolNames().length)
     })
 
+    it('degrades per skill — one missing skill never hides the others', () => {
+      // A skills root holding only one of the two skills: the present one must
+      // still register. Built in a temp dir (copying the real SKILL.md) so the
+      // fixture cannot drift out of sync with the shipped skill.
+      const root = mkdtempSync(join(tmpdir(), 'dsh-kicad-skills-'))
+      try {
+        mkdirSync(join(root, KICAD_SCRIPT_SKILL_ID), { recursive: true })
+        copyFileSync(
+          join(packageRoot, 'skills', KICAD_SCRIPT_SKILL_ID, 'SKILL.md'),
+          join(root, KICAD_SCRIPT_SKILL_ID, 'SKILL.md'),
+        )
+
+        const { ctx, skills, tools } = fakeCtx()
+        apply(ctx as never, { skillsDir: root })
+
+        expect(skills.map((s) => s.name)).toEqual([KICAD_SCRIPT_SKILL_ID])
+        // The tools survive a partially-missing skill set.
+        expect(tools.map((t) => t.name)).toEqual(kicadToolNames())
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+
     it('keeps readBundledSkill() fatal — packaging checks must still fail loud', () => {
       // The degradation above is about not killing the HOST. An explicit
       // packaging assertion (tests, `dsh-doctor`) should still throw.
-      expect(() => readBundledSkill(import.meta.url, MISSING)).toThrow(/bundled skill missing/)
+      expect(() => readBundledSkill(import.meta.url, KICAD_SCRIPT_SKILL_ID, MISSING))
+        .toThrow(/bundled skill missing/)
     })
   })
 })
 
 describe('apply() — bundled skill discovery (§15)', () => {
-  it('registers the kicad-ipc skill with a valid DSH skill id', () => {
+  it('registers each skill under its bundled id, with a valid DSH skill source', () => {
     const { ctx, skills } = fakeCtx()
     apply(ctx as never)
 
-    const skill = skills[0]!
-    // DSH ignores skills whose id does not match /^[a-z0-9]+(?:-[a-z0-9]+)*$/.
-    expect(skill.name).toBe('kicad-ipc')
-    expect(skill.name).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    for (const skill of skills) {
+      // DSH ignores skills whose id does not match /^[a-z0-9]+(?:-[a-z0-9]+)*$/.
+      expect(skill.name).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+      // DSH rejects skills without a string source at load time ("source must be
+      // a string"); plugin-bundled skills must carry the runtime source.
+      expect(skill.source).toBe('runtime')
+    }
+    expect(skills.map((s) => s.name)).toContain('kicad-ipc')
+    expect(skills.map((s) => s.name)).toContain('hardware-design-brief')
   })
 
   it('registers a non-empty description and the full SKILL.md body', () => {
     const { ctx, skills } = fakeCtx()
     apply(ctx as never)
 
-    const skill = skills[0]!
-    expect(skill.description.length).toBeGreaterThan(20)
-    expect(skill.content).toContain('# KiCad IPC PCB')
+    for (const skill of skills) {
+      expect(skill.description.length).toBeGreaterThan(20)
+      expect(skill.content).toContain('#')
+    }
+
+    const ipc = skills.find((s) => s.name === 'kicad-ipc')!
     // The body must still carry the operating principles, not just a stub.
-    expect(skill.content).toContain('读取 → 校验 → 变更 → 验证 → 保存')
+    expect(ipc.content).toContain('读取 → 校验 → 变更 → 验证 → 保存')
+
+    const brief = skills.find((s) => s.name === 'hardware-design-brief')!
+    expect(brief.content).toContain('文档位置与关系')
   })
 
-  it('points resourceBase at the bundled skill directory', () => {
+  it('points each resourceBase at that skill\'s own bundled directory', () => {
     const { ctx, skills } = fakeCtx()
     apply(ctx as never)
 
-    const skill = skills[0]!
-    expect(skill.resourceBase.kind).toBe('directory')
-    expect(skill.resourceBase.path).toMatch(/skills[/\\]kicad-ipc$/)
-    // Progressive-disclosure resources must sit beside SKILL.md. Both separators
-    // are matched so the assertion holds on Windows (`\`) and POSIX (`/`).
-    expect(skill.resourceBase.path).toMatch(/[/\\]packages[/\\]dsh-kicad[/\\]skills[/\\]kicad-ipc$/)
+    for (const skill of skills) {
+      expect(skill.resourceBase.kind).toBe('directory')
+      // Progressive-disclosure resources must sit beside SKILL.md. Both
+      // separators are matched so the assertion holds on Windows (`\`) and
+      // POSIX (`/`).
+      expect(skill.resourceBase.path).toMatch(
+        new RegExp(`[/\\\\]packages[/\\\\]dsh-kicad[/\\\\]skills[/\\\\]${skill.name}$`),
+      )
+    }
   })
 
-  it('resolves the skill relative to the package, not the source checkout', () => {
+  it('resolves skills relative to the package, not the source checkout', () => {
     // This is the property that makes the built artifact work: the resolver
     // must not depend on a repository layout or an absolute path (§16, §17).
-    const skill = readBundledSkill(import.meta.url)
-    expect(skill.dir).toMatch(/[/\\]skills[/\\]kicad-ipc$/)
-    expect(skill.dir).not.toContain('/Users/admin/code/kicad-agent')
+    for (const id of KICAD_SKILL_IDS) {
+      const skill = readBundledSkill(import.meta.url, id)
+      expect(skill.dir).toMatch(new RegExp(`[/\\\\]skills[/\\\\]${id}$`))
+      expect(skill.dir).not.toContain('/Users/admin/code/kicad-agent')
+    }
   })
 })
 

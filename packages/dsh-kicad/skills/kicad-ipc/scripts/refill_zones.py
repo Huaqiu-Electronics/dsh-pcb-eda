@@ -10,21 +10,21 @@ from kipy_common import close_kicad, connect_board
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--save", action="store_true", help="填充完成后通过 IPC 保存 PCB")
+    parser.add_argument("--save", action="store_true", help="save the PCB over IPC after filling")
     args = parser.parse_args()
 
     kicad, board = connect_board(timeout_ms=30000)
     try:
         zones = list(board.get_zones())
         if not zones:
-            print("当前 PCB 没有区域，无需填充。")
+            print("The current PCB has no zones; nothing to fill.")
             return
 
         board.refill_zones(block=True, max_poll_seconds=120.0)
-        print(f"已请求并等待 {len(zones)} 个区域填充完成。")
+        print(f"Requested and waited for {len(zones)} zones to finish filling.")
         if args.save:
             board.save()
-            print("已通过 IPC 保存 PCB。")
+            print("Saved PCB over IPC.")
     finally:
         close_kicad(kicad)
 

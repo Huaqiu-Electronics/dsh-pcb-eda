@@ -24,7 +24,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { EdaHostClient, EdaHostRequestOptions } from './client.js'
-import { NetlistError, type EdaHostCapability, type EdaHostInfo, type PcbSelection, type SchematicNetlist } from './types.js'
+import { NetlistError, type EdaHostCapability, type EdaHostInfo, type PcbSnapshot, type SchematicNetlist } from './types.js'
 
 /** Structural alias of the DSH `JsonValue`. */
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
@@ -63,7 +63,11 @@ type HostCapabilitiesResult =
   | { ok: false; error: { kind: string; message: string } }
 
 type PcbSelectionResult =
-  | { ok: true; selection: PcbSelection }
+  | { ok: true; selection: PcbSnapshot }
+  | { ok: false; error: { kind: string; message: string } }
+
+type PcbBoardResult =
+  | { ok: true; snapshot: PcbSnapshot }
   | { ok: false; error: { kind: string; message: string } }
 
 /**
@@ -179,6 +183,9 @@ export function createNetListTools(env: NetlistToolEnv) {
          `Use it when you need factual information about the current EDA environment, such as ` +
          `"what EDA host am I connected to", "what version is it", "where is it installed", ` +
          `or "where is kicad-cli". ` +
+         `When the host is KiCad, the executable list also carries "kicad-python" — the ` +
+         `interpreter bundled with KiCad that owns the official kicad-python package ` +
+         `(kipy); the dsh-kicad skills already run with it automatically. ` +
          `The returned information is authoritative host-provided ground truth. ` +
          ERROR_SEMANTICS,
        parameters: {},
@@ -222,6 +229,37 @@ export function createNetListTools(env: NetlistToolEnv) {
            return asJson<PcbSelectionResult>({ ok: true, selection })
          } catch (err) {
            return asJson<PcbSelectionResult>({ ok: false, error: failureOf(err) })
+         }
+       },
+     }),
+
+     defineTool({
+       name: 'get_pcb_board',
+       description:
+         `Read the COMPLETE semantic PCB board from the current PCB editor through hq-edge ` +
+         `(DSH → dsh-eda-host → hq-edge → EDA host). Returns { ok, snapshot: { footprints[], ` +
+         `pads[], tracks[], arcs[], vias[], zones[], shapes[], texts[], dimensions[], groups[], ` +
+         `nets[] } } — the same shape as get_pcb_selection, but covering every object on the ` +
+         `board regardless of selection. ` +
+         `Each footprint has reference, value, footprint, position {x,y} in mm, rotationDeg and ` +
+         `pads[] (pin, type, shape, position, widthMm, heightMm, rotationDeg, layer, net{name, ` +
+         `code}); tracks have layer, start/end in mm, widthMm, lengthMm and net; vias have ` +
+         `layers[], drillMm, viaType and start/end; zones have layer, net and outline segments. ` +
+         `Every object carries id — the EDA-host native object identity. ` +
+         `IMPORTANT: ok:true with all-empty arrays is a VALID empty board — do not treat it as ` +
+         `a failure. ` +
+         ERROR_SEMANTICS,
+       parameters: {},
+       output: { schema: { type: 'json' }, render: renderJson },
+       async execute(_args: unknown, exec: ToolExecLike): Promise<Json> {
+         try {
+           const options: EdaHostRequestOptions = exec?.signal
+             ? { signal: exec.signal }
+             : {}
+           const snapshot = await env.client.getPcbBoard(options)
+           return asJson<PcbBoardResult>({ ok: true, snapshot })
+         } catch (err) {
+           return asJson<PcbBoardResult>({ ok: false, error: failureOf(err) })
          }
        },
      }),

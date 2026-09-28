@@ -86,6 +86,27 @@ importers:
         specifier: ^4.1.0
         version: 4.1.11(@types/node@24.13.3)(jsdom@26.1.0)(vite@8.2.2(@types/node@24.13.3))
 
+  packages/dsh-analytics:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.1
+        version: 4.0.2
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: ^0.1.0-rc.0
+        version: 0.1.0-rc.8(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.2))
+      '@deepseek-ai/dsh-tools':
+        specifier: ^0.1.0-rc.0
+        version: 0.1.0-rc.8(60a5acffe69dfec1022871fdb15fdfc9)
+      '@huaqiu/dsh-auth':
+        specifier: workspace:*
+        version: link:../dsh-auth
+      '@huaqiu/dsh-plugin-log':
+        specifier: workspace:*
+        version: link:../dsh-plugin-log
+      sa-sdk-javascript:
+        specifier: 1.16.16
+        version: 1.16.16
+
   packages/dsh-artifacts:
     dependencies:
       '@deepseek-ai/cordis':
@@ -140,6 +161,45 @@ importers:
       '@huaqiu/dsh-plugin-log':
         specifier: workspace:*
         version: link:../dsh-plugin-log
+
+  packages/dsh-hqsch:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.1
+        version: 4.0.2
+      '@huaqiu/dsh-plugin-log':
+        specifier: workspace:*
+        version: link:../dsh-plugin-log
+
+  packages/dsh-huaqiu-about:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.2
+        version: 4.0.2
+      '@deepseek-ai/dsh-client-locale':
+        specifier: ^0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: ^0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-client-ui-settings':
+        specifier: ^0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: ^0.1.5-rc.2
+        version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: ^0.1.0-rc.0
+        version: 0.1.0-rc.8(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.0-rc.8(@deepseek-ai/cordis@4.0.2))
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
 
   packages/dsh-kicad:
     dependencies:
@@ -458,8 +518,18 @@ packages:
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
 
+  '@deepseek-ai/dsh-client-ui-primitives@0.1.5-rc.2':
+    resolution: {integrity: sha512-APWho69VlEmbLGqzBLiybTtjun93tEbxMMJlm+Q129Cx7ZGJak3DNfQtW3OPzBCf3Gzs2PGEz8fKbunTpea2jQ==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.2
+
   '@deepseek-ai/dsh-client-ui-renderer@0.1.5-rc.2':
     resolution: {integrity: sha512-otUJ72f1UfL8b/UL+tMdSE+FHqJWErPmHs2AWbad9nHXghNoZjL2bxumOhI3b+Hb1eezhhM+KanlWzIulTIkvw==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.2
+
+  '@deepseek-ai/dsh-client-ui-settings@0.1.5-rc.2':
+    resolution: {integrity: sha512-NsnZLRI2ZDzJJylx9KATuDwrTdJ0FSP93dU5SL5k2G2W4FLUspNvlAmk7bha5Miopfzmfd+h5/NvMdWe8PVVjQ==}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.2
 
@@ -1285,6 +1355,9 @@ packages:
   rrweb-cssom@0.8.0:
     resolution: {integrity: sha512-guoltQEx+9aMf2gDZ0s62EcV8lsXR+0w8915TC3ITdn2YueuNjdAYh/levpU9nFaoChh9RUS5ZdQMrKfVEN9tw==}
 
+  sa-sdk-javascript@1.16.16:
+    resolution: {integrity: sha512-71PlyYLao1bdsiieoxWjz7/lZ2+GTe+nRkieuZaqX6WhrBSsyI/JuG6z/sEacCDYkMxuukhLPDOA1sHO5nnjVQ==}
+
   safe-buffer@5.1.2:
     resolution: {integrity: sha512-Gd2UZBJDkXlY7GbJxfsE8/nvKkUEU1G38c1siN6QP6a9PT9MmHB8GnpscSmMJSoF8LOIrt8ud/wPtojys4G6+g==}
 
@@ -1628,7 +1701,15 @@ snapshots:
       '@deepseek-ai/cordis': 4.0.2
       '@deepseek-ai/schemastery': 3.18.2
 
+  '@deepseek-ai/dsh-client-ui-primitives@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.2
+
   '@deepseek-ai/dsh-client-ui-renderer@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.2
+
+  '@deepseek-ai/dsh-client-ui-settings@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.2
 
@@ -2299,6 +2380,8 @@ snapshots:
       '@rolldown/binding-win32-x64-msvc': 1.2.8
 
   rrweb-cssom@0.8.0: {}
+
+  sa-sdk-javascript@1.16.16: {}
 
   safe-buffer@5.1.2: {}
 

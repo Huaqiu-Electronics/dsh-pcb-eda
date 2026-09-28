@@ -1,0 +1,13 @@
+{
+  "$schema": "https://schema.huaqiu.com/skills/v1/skill.schema.json",
+  "id": "hqsch-scenario-b",
+  "name": "HQ EDA Scenario B — Coding Agent + Local Scripts",
+  "vendor": "Huaqiu Electronics",
+  "version": "0.1.0",
+  "description": "Self-contained skill for Work Buddy, Codex, and Claude: schematic placement, circuit patterns, routing, netlist check, zoom-all. Agent auto-runs TypeScript via @huaqiu/huaqiu-client.",
+  "skillMarkdown": "./SKILL.md",
+  "resources": {
+    "guides": "./docs",
+    "prompts": "./SYSTEM-PROMPT.md"
+  }
+}

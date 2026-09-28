@@ -16,12 +16,12 @@ def connect_board(timeout_ms: int = 5000):
 
     if not kicad.check_version():
         raise RuntimeError(
-            "kicad-python 与已连接 KiCad 的 API 版本不匹配；请使用匹配的官方包。"
+            "kicad-python does not match the connected KiCad's API version; use the matching official package."
         )
 
     board = kicad.get_board()
     if board is None:
-        raise RuntimeError("没有打开的 PCB；请先在 PCB Editor 中打开 .kicad_pcb。")
+        raise RuntimeError("No PCB is open; please open a .kicad_pcb in PCB Editor first.")
 
     return kicad, board
 
@@ -38,7 +38,7 @@ def get_required_net(board, name: str):
     for net in board.get_nets():
         if net.name == name:
             return net
-    raise ValueError(f"PCB 中不存在网络 {name!r}；请先从原理图同步网络。")
+    raise ValueError(f"Net {name!r} does not exist in the PCB; please sync nets from the schematic first.")
 
 
 def resolve_copper_layer(board, name: str):
@@ -48,7 +48,7 @@ def resolve_copper_layer(board, name: str):
         if layer != BoardLayer.BL_UNDEFINED:
             if layer in board.get_enabled_layers():
                 return layer
-            raise ValueError(f"层 {name!r} 未在当前 PCB 中启用。")
+            raise ValueError(f"Layer {name!r} is not enabled in the current PCB.")
 
     standard_layers = {
         "F.Cu": BoardLayer.BL_F_Cu,
@@ -58,11 +58,11 @@ def resolve_copper_layer(board, name: str):
         layer = standard_layers[name]
     except KeyError as exc:
         raise ValueError(
-            f"无法在此 KiCad 版本解析层 {name!r}；请使用 F.Cu/B.Cu 或升级。"
+            f"Cannot resolve layer {name!r} in this KiCad version; use F.Cu/B.Cu or upgrade."
         ) from exc
 
     if hasattr(board, "get_enabled_layers") and layer not in board.get_enabled_layers():
-        raise ValueError(f"层 {name!r} 未在当前 PCB 中启用。")
+        raise ValueError(f"Layer {name!r} is not enabled in the current PCB.")
     return layer
 
 

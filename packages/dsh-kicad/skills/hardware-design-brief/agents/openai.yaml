@@ -1,0 +1,4 @@
+interface:
+  display_name: "硬件需求与设计输入"
+  short_description: "通过提问生成市场 MRD、硬件 PRD 与电路板设计输入"
+  default_prompt: "使用 $hardware-design-brief 帮我梳理市场需求、硬件产品需求和电路板设计输入。"

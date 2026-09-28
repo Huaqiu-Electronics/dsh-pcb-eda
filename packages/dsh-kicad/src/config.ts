@@ -18,7 +18,12 @@ export interface KicadConfig {
    * official `kicad-python` package (`kipy`) installed.
    */
   pythonPath: string
-  /** Scripts directory override (defaults to the bundled skill's `scripts/`). */
+  /**
+   * Skills root override — the directory that CONTAINS the bundled skill
+   * directories (`<root>/kicad-ipc`, `<root>/hardware-design-brief`). Defaults
+   * to the package's own `skills/`. Relocates the whole skill set at once; the
+   * per-skill layout below it never changes.
+   */
   skillsDir?: string
   /** Per-script timeout in milliseconds. */
   timeoutMs: number

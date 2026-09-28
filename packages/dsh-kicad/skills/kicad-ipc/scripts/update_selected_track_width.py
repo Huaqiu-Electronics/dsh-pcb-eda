@@ -13,17 +13,17 @@ from kipy_common import close_kicad, commit_or_drop, connect_board
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--width-mm", type=float, required=True, help="目标线宽，单位 mm")
-    parser.add_argument("--save", action="store_true", help="验证成功后通过 IPC 保存 PCB")
+    parser.add_argument("--width-mm", type=float, required=True, help="target track width, in mm")
+    parser.add_argument("--save", action="store_true", help="save the PCB over IPC after successful validation")
     args = parser.parse_args()
     if args.width_mm <= 0:
-        parser.error("--width-mm 必须大于 0")
+        parser.error("--width-mm must be greater than 0")
 
     kicad, board = connect_board()
     try:
         targets = [item for item in board.get_selection() if isinstance(item, (Track, ArcTrack))]
         if not targets:
-            raise RuntimeError("当前 KiCad 选择中没有直线或圆弧走线；未做任何修改。")
+            raise RuntimeError("The current KiCad selection has no straight or arc tracks; no changes made.")
 
         requested_width = from_mm(args.width_mm)
         for target in targets:
@@ -31,9 +31,9 @@ def main() -> None:
 
         def validate(updated):
             if len(updated) != len(targets):
-                raise RuntimeError("KiCad 未更新全部目标走线。")
+                raise RuntimeError("KiCad did not update all target tracks.")
             if any(item.width != requested_width for item in updated):
-                raise RuntimeError("KiCad 未接受全部目标线宽。")
+                raise RuntimeError("KiCad did not accept all target widths.")
 
         updated = commit_or_drop(
             board,
@@ -42,10 +42,10 @@ def main() -> None:
             validate,
         )
 
-        print(f"已更新 {len(updated)} 条选中走线。")
+        print(f"Updated {len(updated)} selected tracks.")
         if args.save:
             board.save()
-            print("已通过 IPC 保存 PCB。")
+            print("Saved PCB over IPC.")
     finally:
         close_kicad(kicad)
 

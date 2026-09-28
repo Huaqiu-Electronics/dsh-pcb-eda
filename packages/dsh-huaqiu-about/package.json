@@ -1,0 +1,62 @@
+{
+  "name": "@huaqiu/dsh-huaqiu-about",
+  "version": "0.4.13",
+  "description": "HuaQiu About section in the DSH settings page: original DSH mark, bundled DSH version and the Powered-by-DSH claim.",
+  "type": "module",
+  "main": "./lib/index.mjs",
+  "types": "./lib/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.mts",
+      "default": "./lib/index.mjs"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-primitives",
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.0"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown",
+    "test": "vitest run",
+    "prepack": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-client-locale": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.5-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.0",
+    "@types/react": "~18.3.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

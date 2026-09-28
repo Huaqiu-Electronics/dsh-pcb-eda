@@ -2,9 +2,10 @@
  * Registry of the KiCad IPC script templates bundled with this package.
  *
  * The scripts are the migrated `kicad-agent` executable surface. They live
- * under `skills/kicad-ipc/scripts/` and are shipped verbatim — this module only
- * describes them so the DSH tools and the skill stay in sync. Nothing here
- * reimplements KiCad IPC: the scripts own it (see `./ipc.ts`).
+ * under `skills/<KICAD_SCRIPT_SKILL_ID>/scripts/` — the `kicad-ipc` skill (see
+ * `./skills.ts`, which owns the skill ids) — and are shipped verbatim: this
+ * module only describes them so the DSH tools and the skill stay in sync.
+ * Nothing here reimplements KiCad IPC: the scripts own it (see `./ipc.ts`).
  *
  * @module
  */
@@ -126,6 +127,3 @@ export function kicadScript(id: string): KicadScript {
   }
   return script
 }
-
-/** The canonical skill directory name shipped by this package. */
-export const KICAD_SKILL_NAME = 'kicad-ipc'

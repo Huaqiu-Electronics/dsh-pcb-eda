@@ -14,16 +14,16 @@ from kipy_common import close_kicad, commit_or_drop, connect_board, get_required
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--net", required=True, help="已存在的 PCB 网络名")
-    parser.add_argument("--x-mm", type=float, required=True, help="X 坐标，单位 mm")
-    parser.add_argument("--y-mm", type=float, required=True, help="Y 坐标，单位 mm")
-    parser.add_argument("--diameter-mm", type=float, required=True, help="外径，单位 mm")
-    parser.add_argument("--drill-mm", type=float, required=True, help="钻孔直径，单位 mm")
-    parser.add_argument("--save", action="store_true", help="验证成功后通过 IPC 保存 PCB")
+    parser.add_argument("--net", required=True, help="name of an existing PCB net")
+    parser.add_argument("--x-mm", type=float, required=True, help="X coordinate, in mm")
+    parser.add_argument("--y-mm", type=float, required=True, help="Y coordinate, in mm")
+    parser.add_argument("--diameter-mm", type=float, required=True, help="outer diameter, in mm")
+    parser.add_argument("--drill-mm", type=float, required=True, help="drill diameter, in mm")
+    parser.add_argument("--save", action="store_true", help="save the PCB over IPC after successful validation")
     args = parser.parse_args()
 
     if args.drill_mm <= 0 or args.diameter_mm <= args.drill_mm:
-        parser.error("必须满足 0 < --drill-mm < --diameter-mm")
+        parser.error("must satisfy 0 < --drill-mm < --diameter-mm")
 
     kicad, board = connect_board()
     try:
@@ -35,9 +35,9 @@ def main() -> None:
 
         def validate(created):
             if len(created) != 1:
-                raise RuntimeError("KiCad 未创建恰好一个过孔。")
+                raise RuntimeError("KiCad did not create exactly one via.")
             if created[0].net.name != args.net:
-                raise RuntimeError("KiCad 返回的创建结果与请求不一致。")
+                raise RuntimeError("KiCad returned a result that does not match the request.")
 
         created_via, = commit_or_drop(
             board,
@@ -46,10 +46,10 @@ def main() -> None:
             validate,
         )
 
-        print(f"已创建 via: {created_via.id}")
+        print(f"Created via: {created_via.id}")
         if args.save:
             board.save()
-            print("已通过 IPC 保存 PCB。")
+            print("Saved PCB over IPC.")
     finally:
         close_kicad(kicad)
 

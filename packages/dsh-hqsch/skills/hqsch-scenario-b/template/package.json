@@ -1,0 +1,18 @@
+{
+  "name": "hqsch-scenario-b",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "hello": "tsx scripts/hello.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@huaqiu/huaqiu-client": "^0.1.9",
+    "@huaqiu/hqeda": "^0.2.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

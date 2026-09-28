@@ -30,10 +30,10 @@ def polygon(value: str) -> PolygonWithHoles:
             x_mm, y_mm = (float(part.strip()) for part in token.split(",", 1))
             points.append((x_mm, y_mm))
     except ValueError as exc:
-        raise argparse.ArgumentTypeError("--points 格式应为 x,y;x,y;x,y，单位 mm") from exc
+        raise argparse.ArgumentTypeError("--points format should be x,y;x,y;x,y, in mm") from exc
 
     if len(points) < 3:
-        raise argparse.ArgumentTypeError("铺铜外形至少需要三个不同顶点")
+        raise argparse.ArgumentTypeError("copper zone outline needs at least three distinct vertices")
     if points[0] != points[-1]:
         points.append(points[0])
 
@@ -47,10 +47,10 @@ def polygon(value: str) -> PolygonWithHoles:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--net", required=True, help="已存在的 PCB 网络名")
-    parser.add_argument("--layer", default="F.Cu", help="目标铜层，默认 F.Cu")
-    parser.add_argument("--points", type=polygon, required=True, help="外形顶点 x,y;x,y;...，单位 mm")
-    parser.add_argument("--save", action="store_true", help="验证成功后通过 IPC 保存 PCB")
+    parser.add_argument("--net", required=True, help="name of an existing PCB net")
+    parser.add_argument("--layer", default="F.Cu", help="target copper layer, default F.Cu")
+    parser.add_argument("--points", type=polygon, required=True, help="outline vertices x,y;x,y;..., in mm")
+    parser.add_argument("--save", action="store_true", help="save the PCB over IPC after successful validation")
     args = parser.parse_args()
 
     kicad, board = connect_board()
@@ -62,9 +62,9 @@ def main() -> None:
 
         def validate(created):
             if len(created) != 1:
-                raise RuntimeError("KiCad 未创建恰好一个区域。")
+                raise RuntimeError("KiCad did not create exactly one zone.")
             if created[0].net is None or created[0].net.name != args.net:
-                raise RuntimeError("KiCad 返回的区域网络与请求不一致。")
+                raise RuntimeError("KiCad returned a zone net that does not match the request.")
 
         created_zone, = commit_or_drop(
             board,
@@ -72,11 +72,11 @@ def main() -> None:
             lambda: board.create_items(zone),
             validate,
         )
-        print(f"已创建未填充的铺铜区域: {created_zone.id}")
-        print("审阅外形后，再运行 refill_zones.py 填充区域。")
+        print(f"Created an unfilled copper zone: {created_zone.id}")
+        print("After reviewing the outline, run refill_zones.py to fill the zone.")
         if args.save:
             board.save()
-            print("已通过 IPC 保存 PCB。")
+            print("Saved PCB over IPC.")
     finally:
         close_kicad(kicad)
 

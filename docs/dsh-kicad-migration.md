@@ -252,3 +252,146 @@ dsh-kicad node half ready     skill=kicad-ipc  degraded=false  tools=10  expecte
 | No HQ Edge runtime dependency | ✓ |
 | Clean build from `dsh-pcb-eda`; artifact installs without the source checkout | ✓ |
 | Live KiCad IPC read + mutation | ✗ **unverified** — no KiCad in this environment |
+
+## 9. Subsequent sync — `hardware-design-brief` (2026-09-24)
+
+`kicad-agent` @ `ecd27b1` *feat(skill): add MRD, hardware PRD, and PCB design requirements
+workflow* added a **second** skill to the same repository, so this document's premise ("the
+entire repository is one skill directory") now covers two:
+
+```
+kicad-agent/skills/
+├── kicad-ipc-pcb/            -> skills/kicad-ipc/            (already migrated, §2)
+└── hardware-design-brief/    -> skills/hardware-design-brief/ (this sync)
+```
+
+### What was synced
+
+| Source | Destination | Transform |
+|---|---|---|
+| `skills/hardware-design-brief/SKILL.md` | `skills/hardware-design-brief/SKILL.md` | dsh wrapper section added |
+| `references/{mrd,hardware-prd,design-brief}-guide.md` | same | verbatim |
+| `agents/openai.yaml` | same | verbatim |
+
+No scripts: this skill is knowledge-only (staged questioning + document structure), so
+unlike `kicad-ipc` there was nothing to translate. The name needed no normalization — the
+upstream id was already a valid DSH skill id, and the directory keeps it, so id and
+directory agree by construction.
+
+The dsh wrapper here is the section **`## 本技能与同包能力的配合`**, inserted after the
+introduction. It states what upstream cannot know: that the skill ships inside
+`@huaqiu/dsh-kicad` with no separate install, that it registers no tools, that
+`kicad-ipc` + the `kicad_pcb_*` tools are the implementation half of the
+`docs/03-design-brief.md` handoff, and that `references/` is read on demand. This mirrors
+the `## 本技能与工具的配合` section added to `kicad-ipc` in the original migration.
+
+### Wrapper refactor: one skill → a registry
+
+`apply()` was hardcoded to a single skill (`KICAD_SKILL_NAME`, one `resolveSkillDir` call,
+one `ctx.skills.register`). Adding a second skill to that shape would have meant a second
+hardcoded branch, so the skill set became data:
+
+- **`src/skills.ts`** (new) — the bundled-skill registry: id, catalogue fallback summary,
+  and `ownsScripts`. It is the single source of truth for the ids, and the bundling tests
+  assert registry ↔ disk in *both* directions (nothing registered is missing, nothing
+  shipped is unregistered).
+- **`src/paths.ts`** — `skillsRoot()` replaces the old skill-directory resolver;
+  `resolveSkillDir(moduleUrl, skillId, override?)` now takes an id. The
+  `skillsDir` / `$DSH_KICAD_SKILLS_DIR` override is redefined as the **skills root** (it
+  used to be the `kicad-ipc` directory), so one override relocates the whole set.
+- **`src/index.ts`** — `apply()` loops over the registry. `readBundledSkill()` /
+  `tryReadBundledSkill()` take a skill id; the fallback description now comes from the
+  registry entry instead of a module-level constant.
+- Degradation is now **per skill** rather than all-or-nothing: a missing
+  `hardware-design-brief` is logged and skipped while `kicad-ipc` and all ten tools still
+  load. The tools keep resolving their scripts through the `kicad-ipc` directory
+  (`KICAD_SCRIPT_SKILL_ID`) even when that skill fails to load, so a call still fails with a
+  typed `FAILED_PRECONDITION` naming the exact script.
+
+`KICAD_SKILL_NAME` is gone (replaced by `KICAD_SCRIPT_SKILL_ID` in the registry);
+`src/scripts.ts` now only describes scripts.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| Source copy fidelity | `diff -r` upstream vs synced → identical |
+| `pnpm --filter @huaqiu/dsh-kicad test` | **58 passed / 3 files** (was 46) |
+| `pnpm --filter @huaqiu/dsh-kicad typecheck` | 0 errors |
+| Skill ↔ registry ↔ disk consistency | asserted both directions in `test/bundling.test.ts` |
+| Per-skill degradation | asserted in `test/plugin.test.ts` |
+
+Known limitation: `hardware-design-brief` is a requirements/design-input workflow — it has
+no executable surface, so there are no tools to exercise end to end. The tests therefore
+assert packaging, registration and content integrity, not behaviour.
+
+## 10. Reverse sync — upstream adopts the package's canonical tree (2026-09-24)
+
+Sections §2 and §9 both describe a one-way transformation: copy from `kicad-agent`, then
+translate the Python scripts' user-facing strings zh → en, rename the IPC skill's directory,
+and insert a dsh wrapper section into each `SKILL.md`. That works exactly once. The second
+time upstream edits a script, the translated copy has to be re-merged by hand — the
+translation is a *diff* against upstream, not a property of the package.
+
+This section removes the divergence instead of re-deriving it. `kicad-agent` now carries
+the package's version of both skills:
+
+| Upstream change (`kicad-agent` @ `4286a2e`) | Reason |
+|---|---|
+| `skills/kicad-ipc-pcb/` → `skills/kicad-ipc/` (+ `name:` frontmatter) | directory, skill id and this package now agree; no rename to remember |
+| 11 scripts: remaining user-facing strings zh → en | these strings are returned to the agent as tool output, so English is the correct language for them; comments and docstrings were already English upstream |
+| `## 本技能与工具的配合` added to `kicad-ipc/SKILL.md` | upstream now owns the wrapper section §2 inserted below |
+| `## 本技能与同包能力的配合` added to `hardware-design-brief/SKILL.md` | same, for the §9 sync |
+| `__pycache__/kipy_common.cpython-314.pyc` untracked + `.gitignore` | it was committed junk, and the bundling test asserts it never ships |
+
+Nothing was lost: both `SKILL.md` deltas were verified **purely additive** (the only removed
+line was the old `name:`), and the script deltas were verified **string-only** — no changed
+line outside a string literal in any of the 11 files.
+
+### The sync is now a copy
+
+```bash
+# upstream -> this package; both trees are byte-identical, so this is a no-op
+# until upstream actually changes something
+cp -r /path/to/kicad-agent/skills/kicad-ipc/.            packages/dsh-kicad/skills/kicad-ipc/
+cp -r /path/to/kicad-agent/skills/hardware-design-brief/. packages/dsh-kicad/skills/hardware-design-brief/
+```
+
+No translation, no rename, no wrapper re-insertion. A skill added upstream still needs one
+registry entry in `src/skills.ts` — that is the only manual step left, and the guard below
+fails until it is done.
+
+### Drift guard
+
+`test/bundling.test.ts` gained an `upstream lockstep` block:
+
+- **Byte-identity** — `diff -r` of each bundled skill against the upstream checkout must be
+  empty, with the failing message naming the skill and telling you to re-run the sync.
+- **Coverage** — every upstream skill directory must exist downstream, so a newly added
+  upstream skill cannot silently fail to ship.
+
+It is `skipIf(!hasUpstream)` by necessity: CI clones `dsh-pcb-eda` alone
+(`.github/workflows/ci.yml`), so there is nothing to compare against there. The checkout is
+resolved from `$KICAD_AGENT_ROOT`, else a sibling `../kicad-agent` — the same convention
+`scripts/generate-analytics-tools.mjs` uses for `$HQ_EDGE_ROOT`. This is a *local* alarm for
+whoever runs `pnpm --filter @huaqiu/dsh-kicad test` after an upstream pull.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| Upstream vs package, both skills | `diff -r` → **identical** (both directions) |
+| Simulated future sync (`cp -r` upstream → package) | tree hash unchanged → **no-op** |
+| Script deltas vs pre-sync `HEAD` | string-only, 0 non-string changed lines |
+| `python3 -m py_compile` on all 11 scripts | all OK |
+| `pnpm --filter @huaqiu/dsh-kicad test` | **60 passed** (58 + 2 lockstep) |
+| Guard with no checkout (CI case) | 2 skipped, suite green |
+| Guard against fabricated drift / undeployed skill | **fails** with a named message |
+| `pnpm --filter @huaqiu/dsh-kicad typecheck` | 0 errors |
+
+The upstream commit is local: `kicad-agent` has `origin` =
+`github.com/Huaqiu-Electronics/kicad-agent.git` and **has not been pushed**.
+
+Note that §9's statement "dsh wrapper section added" is now historical — upstream carries
+those sections itself, so a future copy brings them along rather than needing them
+re-inserted.
