@@ -22,7 +22,22 @@ inputSchema:
 
 # Place Pin Stub Wire And Net Alias
 
-Pin stub wire + net alias: detect existing wire, extend stub with collision avoidance, place alias; single undo step.
+Places a short stub wire and NetAlias at a **specific part pin**, or adds an alias on a wire **already terminated at that pin**. One undo step.
+
+## Behavior
+
+| Pin state | Engine action | Response |
+| --- | --- | --- |
+| No wire endpoint at **this** pin's `ex/ey` | New stub (default 30 ext; **+10** if stub **end** touches a **perpendicular** wire body; parallel neighbor stubs ignored; extends until clear) + NetAlias at stub end | `wireObjectId > 0`, `usedExistingWire=false` |
+| Wire segment endpoint at **this** pin (±`PIN_CONNECT_OFFSET`) | No new stub; alias **`initialStubLength` ext** (default 30) along that wire from pin | `wireObjectId=0`, `usedExistingWire=true` |
+
+**Strict pin match:** `usedExistingWire` is **not** set when a wire merely belongs to an adjacent pin on the same symbol edge (e.g. MCU PA4–PA7, tight spacing). Each pin must have its **own** endpoint at its connection point.
+
+## Agent notes
+
+- **Same-side multi-pin:** call once per `pinNum`; do not pre-draw a shared bus with `placeWire` before labeling. If stubs collide, increase `initialStubLength` per pin or use `placeNetAliasAt` with explicit `attachObjectId`.
+- **Verify success:** check `netAliasObjectId` and netlist membership — **not** `wireSegments[].netName` alone (physical wire name ≠ NetAlias label until refresh).
+- **Dual-end nets:** same `netName` at pin A and pin B; do not `autoConnect` between them afterward.
 
 ## Overview
 
@@ -99,7 +114,13 @@ const skill = getSkill("obj-place-place-pin-stub-wire-and-net-alias");
 const result = await skill.execute({ client }, {
   context: "<ProjectContext via client.createProjectContext('my-project')>",
   objectId: "123456789",
-  pinNum: 0,
+  pinNum: 1,
+  pinName: "",
+  netName: "VCC",
+  snapToGrid: true,
+  initialStubLength: 30n,
+  stubExtendStep: 10n,
+  maxStubLength: 300n,
 });
 console.log(toJsonString(result, { prettySpaces: 2 }));
 ```

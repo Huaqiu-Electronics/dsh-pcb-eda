@@ -23,7 +23,7 @@ top-left origin, Y down. See [placement-conventions.md](placement-conventions.md
 | MCU reset (pull-up + cap + optional button) | Simple single-pin pull-up only (use `pull_resistor`) |
 | I2C (master + slaves + SDA/SCL pull-ups) | Long-distance leftover nets (stub + NetAlias) |
 | SPI (master + slaves, CS lanes) | Parts that must stay exactly where the user put them |
-| Crystal + load caps (+ feedback R) |  |
+| Passive 2-pin crystal + load caps (+ feedback R) | Active oscillator (4+ pins: VDD/GND/OUT/OE) — **hand layout**, do **not** apply `crystal` |
 
 ## Mixed-circuit decomposition
 
@@ -84,7 +84,8 @@ applies, as long as each apply targets a **different pin or role terminal**
 | One power pin → bulk (+ optional bypass) → GND | `decoupling_cap` | See bulk/bypass bind table below |
 | Master + slaves + SDA/SCL pull-ups | `i2c_bus` | Prefer over separate pull_resistor applies for the I2C cluster |
 | Master + slaves + SPI lanes | `spi_bus` | Apply with **`route_mode=NONE`** (layout only); AI routes each `connections[]` entry |
-| MCU xin/xout + crystal + load caps | `crystal` | |
+| MCU xin/xout + **2-pin** crystal + load caps | `crystal` | Passive Pierce only |
+| 4-pin / active oscillator (VDD, GND, OUT, OE) | **Hand** | Do **not** apply `crystal`. Place and wire by hand (routing gate). |
 | MCU reset + pull-up + filter cap (+ button) | `reset_circuit` | Host stub+`reset_net`; internal autoconnect |
 | R between **two signal pins** (termination, series) | **Hand** | Not `pull_resistor` (that pattern is signal → R → rail) |
 | Two control pins shorted (e.g. RE + DE) | **Hand** | `autoConnect` + NetAlias |
@@ -104,8 +105,8 @@ shortcut; the RPC is the source of truth for roles / terminals / options.
 | `CIRCUIT_PATTERN_PULL_RESISTOR` | `pull_resistor` | `signal_host`(sig), `resistor[]`(a/b) | both 1..8 | `rail` | `polarity=up\|down`, `pitch=6`, `lane_gap=4`, `rail_gap=4` |
 | `CIRCUIT_PATTERN_I2C_BUS` | `i2c_bus` | `master`(sda/scl), `r_pullup_sda`, `r_pullup_scl` | `slave` 0..8 | `vcc` | `lane_gap=3`, `device_gap=10`, `pull_gap=4`, `pull_offset=4`, `sda_net=SDA`, `scl_net=SCL`, `lane_above=true` |
 | `CIRCUIT_PATTERN_SPI_BUS` | `spi_bus` | `master`(sck/mosi/miso/cs), `slave[]` | `slave` 1..8 | — | `lane_gap=3`, `device_gap=10`, `share_cs=false`; **default `PATTERN_ROUTE_NONE`** — response `connections[]` lists pending nets (`note=pending AI routing`); agent chooses `autoConnect` vs dual-end `placePinStubWireAndNetAlias` per [placement-conventions.md](placement-conventions.md) |
-| `CIRCUIT_PATTERN_CRYSTAL` | `crystal` | `host`(xin/xout), `xtal`(a/b), `cap_load_1`, `cap_load_2` | — | `r_feedback`, `gnd` | `cap_gap=4`, `xtal_offset=6`, `cap_spread=4` |
-| `CIRCUIT_PATTERN_RESET_CIRCUIT` | `reset_circuit` | `host`(rst), `pull_up`(a/b), `filter_cap`(a/b) | — | `reset_sw`, `vcc`, `gnd` | `reset_net=RESET`, `pitch=6`, `branch_offset=4`, `branch_gap=4`, `sw_outward_gap=4`, `vcc_gap=4`, `gnd_gap=4`, `stub_length=3` |
+| `CIRCUIT_PATTERN_CRYSTAL` | `crystal` | `host`(xin/xout), `xtal`(a/b), `cap_load_1`, `cap_load_2` | — | `r_feedback`, `gnd` | **Passive 2-pin only** — never bind a 4-pin / active oscillator. `layout_origin=host\|anchor`, `osc_in_net=OSC_IN`, `osc_out_net=OSC_OUT`, `host_stub_length=3`, `circuit_stub_length=3`, `cap_gap=4`, `xtal_offset=4`, `cap_spread=2` |
+| `CIRCUIT_PATTERN_RESET_CIRCUIT` | `reset_circuit` | `host`(rst), `pull_up`(a/b), `filter_cap`(a/b) | — | `reset_sw`, `vcc`, `gnd` | `layout_origin=host\|anchor`, `reset_net=RESET`, `stub_length=3`, `circuit_stub_length=3`, `pitch=6`, `branch_offset=4`, … |
 
 `host` / `signal_host` are **not moved** (`movable=false`). Power symbols can be
 bound (`power_mode=BOUND_ONLY`) or auto-created (`AUTO_PLACE`, default).
@@ -178,26 +179,76 @@ the host edge (left/right/top/bottom). Multiple pins on the same edge use
 After apply, hand-finish only `response.connections` entries with `routed=false`;
 do not re-wire segments already routed.
 
+### Crystal / reset: anchor layout and NetAlias host link
+
+`crystal` is **passive Pierce only**: MCU `xin`/`xout` + a **2-pin** crystal + two
+load caps (optional feedback R). A 4-pin / **active** oscillator (VDD, GND, OUT,
+OE) is **not** a catalog match — do **not** call `ApplyCircuitPattern` with
+`crystal`; hand-place and hand-wire (routing gate).
+
+MCU and the discrete cluster are **never** joined by host↔circuit autoconnect — only
+matching **stub + NetAlias** on both sides (avoids long wires and overlap).
+
+| Option | `crystal` (passive 2-pin) | `reset_circuit` |
+| --- | --- | --- |
+| `layout_origin=anchor` | **xtal pin A** at `anchor`. | **pull_up pin A** (reset hub) at `anchor`. |
+| `layout_origin=host` | Cluster extends outward from `host.xin/xout`. | Junction `pitch` grids outward from `host.rst`. |
+| Host link (fixed) | `host.xin/xout` + **xtal legs**: stub + NetAlias (`osc_in_net` / `osc_out_net`). | `host.rst` + **pull_up.a**: stub + NetAlias (`reset_net`). |
+
+**Recommended AI flow:** `get-page-occupancy` of the **whole page** → pick an
+`anchor` in empty space (see [Pick an anchor from the whole page](#pick-an-anchor-from-the-whole-page)) →
+`plan_only=true` → `route_mode=FULL`. For `layout_origin=anchor` on **crystal**,
+`orientation` rotates the cluster around `anchor`.
+
+Cluster-internal wiring (xtal↔load caps↔GND, reset R/C/SW) stays **autoconnect**.
+
 ### Reset circuit
 
-Topology: **VCC → pull-up → reset net → (switch ∥ filter cap) → GND**. Layout extends
-outward from the bound MCU `host.rst` pin, then stacks **pull-up → optional switch →
-cap → GND** on one trunk column (avoids side loops). The reset button body is placed
-**further outward** than the trunk (`sw_outward_gap`, default 4 grids) and clamped
-clear of the host bbox so 4-pin switch pins do not overlap the MCU or trunk wires.
-Optional `reset_sw` binds a momentary button to GND via the cap bottom node.
+Topology: **VCC → pull-up → reset net → (switch ∥ filter cap) → GND**. The cluster
+is always a compact **vertical textbook stack** (host is stub+NetAlias only, so
+the cluster is not rotated to chase the MCU pin):
 
-Debug log: `%TEMP%\pattern_layout.log` tags `[PL:reset]` and `[PL:stub]`.
+```
+        VCC / +3V3
+             |
+            [R]          pull-up, pin B up / pin A = hub
+             |
+      NRST --+----[SW]   optional button immediately beside the hub
+             |      |
+            [C]     |
+             |      |
+            GND ----+
+```
+
+With `layout_origin=host`, the hub sits `pitch` grids outward from `host.rst`.
+With `anchor`, the hub is at `anchor`. The button uses `sw_outward_gap` as a
+**short side branch** — it is never shoved past the MCU bbox.
+
+Reset footprint relative to the hub (so a candidate box can be tested, not a
+fixed offset from some other circuit): VCC ≈8 grids **up**, cap+GND ≈12 grids
+**down**, switch ≈12 grids **right** (`typical_size≈160×160`). Pick the hub
+with [whole-page occupancy](#pick-an-anchor-from-the-whole-page) — do not
+hard-code “N grids below the crystal” or a constant `(x,y)`.
+
+`power_symbol` is the **library graphic** (default `VCC`). `power_net` is the
+label (`+3V3`, `3V3`, …). A voltage-like `power_symbol` (`+3V3`) is treated as a
+net; the engine places the VCC graphic and still writes that net name.
+
+Debug log: `%TEMP%\pattern_layout.log` tags `[PL:reset]`, `[PL:crystal]`, `[PL:stub]`.
 
 | Wiring | Mechanism |
 | --- | --- |
-| Host reset pin | Engine places **short stub + net alias** (`reset_net`, default `RESET`) |
+| Host reset pin | Stub + NetAlias on `reset_net` |
+| Pull-up pin A | Stub + NetAlias on same `reset_net` |
 | Pull-up, cap, switch, rails | **autoconnect** inside the pattern |
-| Host ↔ pull-up | autoconnect on `RESET` after host stub |
 
-Bind `reset_sw` only when the design includes a reset button; omit the role for
-cap-only RC debounce. Use `power_net` / bound `vcc` for the MCU rail name (`3V3`,
-`VCC_3V3`, …). Do not hand-place a second stub on `host.rst` after apply.
+Bind `reset_sw` only when the design includes a reset button. Do not hand-place a
+second stub on `host.rst` after apply when stubs were routed.
+
+**4-pin tact switch** (TS-1187A, 6×6 mm, …): pins 1–2 and 3–4 are internally
+shorted (常通). The engine binds a **crossing pair** (`1-3` / `1-4` / `2-3` /
+`2-4`) so the button actually opens/closes NRST→GND. Leave `pins: []` — do
+**not** hand-bind `a=1, b=2`. A 2-pin SPST keeps `a=1, b=2`.
 
 ### I2C / SPI bus: autoconnect + spacing
 
@@ -245,6 +296,7 @@ Rules:
 - `plan_only=true` never mutates the canvas. Use it to test anchors.
 - `ignore_area_conflict=false` (default) returns `AREA_OCCUPIED` plus
   `conflicting_object_ids` when the planned box hits existing parts.
+  **Forbidden** to set `true` just to squeeze a cluster next to another pattern.
 - `PATTERN_STATUS_PARTIAL` means layout was kept but some wires failed. Do not
   undo; finish those nets with PlaceWire / stub+alias.
 - `PATTERN_STATUS_LAYOUT_FAILED` aborted the undo group — the page is unchanged.
@@ -294,6 +346,26 @@ Type-C CC pins: bind with `pinNumber: "A5"` / `"B5"` or `pinName: "CC1"` /
 3. After apply, merge `occupied_box` into the agent's reserved-rect list.
 
 Empty `area` (all zeros) means the whole page.
+
+### Pick an anchor from the whole page
+
+The agent **reads the entire sheet** and picks a free rectangle. It does **not**
+encode “always N grids below circuit X” or a constant `(x,y)`.
+
+1. `get-page-occupancy` with empty `area` (whole `page_box`).
+2. **Reserved** = every `items[].bbox` except parts this apply will **move**,
+   plus every `occupied_box` already returned by earlier applies.
+3. From `list-circuit-patterns`, take `typical_size` and
+   `anchor_semantics` (where the hub sits inside that box — e.g. reset hub has
+   VCC above and the switch to the right).
+4. Scan `page_box` for a rectangle that covers that footprint and does not
+   overlap reserved. The empty region may be left / right / above / below /
+   elsewhere — whatever the current sheet has free.
+5. Host-linked patterns (`crystal`, `reset_circuit`) use stub+NetAlias: **do
+   not** prefer “next to the MCU pin”. A tight leftover gap between two
+   existing clusters is not a valid slot if the footprint does not fit.
+6. `plan_only=true` to confirm. On `AREA_OCCUPIED`, take the next candidate
+   from the same scan. `ignore_area_conflict=false`.
 
 ## Capability skill IDs
 

@@ -7,7 +7,7 @@ description: >-
   read/understand existing designs (GetSnapshot + netList), and surgical local edits
   (Flow C: property / rewire / replace). Invoke when drawing, reading, editing,
   or automating Huaqiu/KiCad schematics without Cursor.
-version: 0.1.0
+version: 0.2.0
 vendor: Huaqiu Electronics
 tags:
   - eda
@@ -48,8 +48,9 @@ Follow [SYSTEM-PROMPT.md](./SYSTEM-PROMPT.md) in full. The agent **must auto-run
 | 7 | [docs/editing-a-circuit.md](./docs/editing-a-circuit.md) | **Local edit (Flow C)** — diff, blast radius, verify |
 | 8 | [docs/rpc-availability.md](./docs/rpc-availability.md) | Which RPCs work / ban list / timing baselines |
 | 9 | [docs/serialization.md](./docs/serialization.md) | `toJsonString` + BigInt replacer |
-| 10 | [docs/script-lifetime.md](./docs/script-lifetime.md) | **Process lifetime — must use `hqMain`, or node processes leak** |
-| 11 | [docs/rpc/](./docs/rpc/) | RPC field reference |
+| 11 | [docs/modular-layout.md](./docs/modular-layout.md) | **模块化布局 P0–P4**（最小系统 / 模块框） |
+| 12 | [docs/layout-quality-audit.md](./docs/layout-quality-audit.md) | 布局审计指标（勿用 union 占比糊弄） |
+| 13 | [docs/script-lifetime.md](./docs/script-lifetime.md) | **Process lifetime — must use `hqMain`, or node processes leak** |
 
 **Runtime (agent executes on user's machine):**
 
