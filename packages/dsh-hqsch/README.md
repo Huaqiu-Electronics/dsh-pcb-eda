@@ -41,3 +41,15 @@ skill from the published artifact.
 The skill's own instructions apply: HQ EDA desktop must be running with a
 schematic project open, and the agent runs generated TypeScript scripts from the
 bundled `template/` directory.
+
+## Refreshing the bundled skill (maintainers)
+
+Source of truth lives in the **hq-edge** monorepo (`skills/hqeda/onboarding/scenario-b/`
++ guides + modular-placement docs). From `hq-edge/skills/hqeda`:
+
+```bash
+pnpm run build:scenario-b:dsh
+```
+
+This rebuilds `skills/hqeda/scenario-b/` and copies it into
+`packages/dsh-hqsch/skills/hqsch-scenario-b/` (SKILL frontmatter `name: hqsch-scenario-b`).

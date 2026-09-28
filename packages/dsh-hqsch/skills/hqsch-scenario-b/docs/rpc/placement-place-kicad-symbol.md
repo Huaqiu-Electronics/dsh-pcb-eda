@@ -43,9 +43,39 @@ This skill provides access to the **`ComponentPlaceService.PlaceKicadSymbol`** R
 | Name | Type | Required | Repeated | Description |
 | --- | --- | --- | --- | --- |
 | `context` | `ProjectContext` | no | no | — |
-| `component` | `ComponentResource` | no | no | — |
-| `localPos` | `Vector2i64` | no | no | — |
-| `sectionPlacements` | `SectionPlacement[]` | no | yes | — |
+| `component` | `ComponentResource` | no | no | Online KiCad symbol resource (symbol URI from part-search) |
+| `localPos` | `Vector2i64` | no | no | External display coordinates for section 0 when `sectionPlacements` is empty |
+| `sectionPlacements` | `SectionPlacement[]` | no | yes | Per-section placement; each entry triggers one PlacePart (same as UI comboSection) |
+
+### SectionPlacement
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `sectionIndex` | `int32` | 0-based section index (matches `LibraryPartInfo.sectionCount`) |
+| `localPos` | `Vector2i64` | External display coordinates for this section |
+
+**Compatibility:** When `sectionPlacements` is empty, places section 0 at `localPos` (legacy single-section behavior).
+
+## Multi-section workflow (Agent)
+
+1. Obtain `section_count` from part-search / `LibraryPartInfo` (homogeneous: PhysicalPart count; heterogeneous: unit count).
+2. Compute `(extX, extY)` for each section the design needs (e.g. offset by symbol bbox width + gap).
+3. Send one `PlaceKicadSymbol` with `sectionPlacements` sorted by `sectionIndex` ascending.
+4. Engine downloads/converts the symbol once, then loops `SCH_Backend_PlacePart` per entry (same Reference, section suffix A/B/…).
+
+Example (dual op-amp, two units):
+
+```json
+{
+  "context": { "...": "..." },
+  "component": { "symbolResource": { "uri": "https://..." } },
+  "localPos": { "x": 400, "y": 300 },
+  "sectionPlacements": [
+    { "sectionIndex": 0, "localPos": { "x": 400, "y": 300 } },
+    { "sectionIndex": 1, "localPos": { "x": 800, "y": 300 } }
+  ]
+}
+```
 
 ## Response
 
@@ -90,7 +120,11 @@ const skill = getSkill("placement-place-kicad-symbol");
 const result = await skill.execute({ client }, {
   context: "<ProjectContext via client.createProjectContext('my-project')>",
   component: {},
-  localPos: {"x":0,"y":0},
+  localPos: { x: 400n, y: 300n },
+  sectionPlacements: [
+    { sectionIndex: 0, localPos: { x: 400n, y: 300n } },
+    { sectionIndex: 1, localPos: { x: 800n, y: 300n } },
+  ],
 });
 console.log(toJsonString(result, { prettySpaces: 2 }));
 ```

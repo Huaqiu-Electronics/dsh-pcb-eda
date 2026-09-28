@@ -17,9 +17,17 @@
 `docs/` 与 `template/` 直接在此维护；`@huaqiu/dsh-hqsch` 在加载时通过
 `ctx.skills.register` 把整个目录注册为 DSH 内建 skill（`resourceBase = <本目录>`）。
 
-> 旧版本 INSTALL 提到的 `cd skills/hqeda && pnpm run build:scenario-b` **已不存在**：
-> 仓库中没有 `skills/hqeda` 目录，也没有任何 `package.json` 定义该 script。
-> 改动 `docs/`、`SYSTEM-PROMPT.md` 后请同步 `AGENTS.md` / `CLAUDE.md`（三者内容一致）。
+```
+
+`build:scenario-b` 会从 monorepo 拷贝 guides + RPC 文档（含 **set-page-size / place-rect / place-text** 等模块化 RPC）、`modular-placement` 长文，再合并 `onboarding/scenario-b/docs/`（含 **modular-layout**、**layout-quality-audit**）与 `onboarding/scenario-b/template/`（含 `modular-lib.ts`、`layout-audit.ts`）。
+
+同步到 DSH 插件：
+
+```bash
+cd skills/hqeda && pnpm run build:scenario-b:dsh
+```
+
+目标目录：`dsh-pcb-eda/packages/dsh-hqsch/skills/hqsch-scenario-b/`（SKILL 名改为 `hqsch-scenario-b`）。
 
 ---
 

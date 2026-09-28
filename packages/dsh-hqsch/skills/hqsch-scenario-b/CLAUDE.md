@@ -23,8 +23,9 @@
 7. `docs/editing-a-circuit.md` — **局部改电路（Flow C）** / 确认 diff / 修改集 / 验收
 8. `docs/rpc-availability.md` — 接口可用性、禁建列表、耗时基线
 9. `docs/serialization.md` — toJsonString 与 BigInt
-10. `docs/script-lifetime.md` — **进程生命周期：必须用 `hqMain`，否则泄漏 node 进程**（写任何脚本前先读）
-11. `docs/rpc/*.md` — 仅当需要某个 RPC 的精确字段名时查阅
+11. `docs/modular-layout.md` — **模块化布局 P0–P4**（用户要模块框/最小系统时必读）
+12. `docs/layout-quality-audit.md` — 填充率、最大空白矩形、网格对齐（P4b 跑 `layout-audit.ts`）
+13. `docs/script-lifetime.md` — **进程生命周期：必须用 `hqMain`，否则泄漏 node 进程**（写任何脚本前先读）
 
 ## 硬性规则
 
@@ -42,6 +43,9 @@
 - 字母引脚（CC1、A5）：用 `pinName` / `pinNumber` **字符串**，禁止 `Number("A5")`
 - **pattern 的 host 电源引脚必须用 `pinName` 绑定**（如 `pinName:"VIN"`）；用 `pinNum` 会返回 `PIN_RESOLVE_FAILED`
 - **放置后必须等对象注册再 apply**：轮询 `client.patternLayout.getPageOccupancy`（**不是 canvasOps**；响应字段是 `items[].objectId`，**没有** `objectIds`）直到所有新 id 出现，否则 apply 报 `OBJECT_NOT_FOUND` 或假 `PARTIAL`。推荐直接调用 `waitForRegistered(client, ctx, ids)`（`scripts/lib/hq.ts`）。
+- **模块化布局**：用户要分区/模块框/中文标题时走 **P0→P4**（见 `modular-layout.md`）；P1 坐标 **吸附 20/50 ext 网格**；P4a **之后**再画框；**禁止**用 union 外接矩形占比代替 `layout-audit.ts`
+- **活动页 netlist**：`getActivePageNetList` → `result.value.nets[]`；引脚在 `pinReferences[]`（勿读顶层 `nets`）
+- **活动页引脚坐标**：`getObjectJsonById` + `PortInstScalar`；`PAGE_TOP = page_box.max.y`（ext Y 向下）
 - **读取导线段字段是 `wires`**（`listWireSegments().wires`），**不是** `wireSegments`
 - 打印 protobuf 响应用 `toJsonString`；禁止对 RPC 结果裸 `JSON.stringify()`。遍历快照 `position.x/y`（bigint）时见 `docs/serialization.md` replacer
 - 耗时基线（区间，非 SLA）：快照约 **1.6–3.2s**；单次 pattern/放置脚本约 **15–20s**（抖动正常）。勿用超时反推「未实现」
@@ -72,7 +76,10 @@
    | 复位电路 / reset 按键 | `reset_circuit` | 一次 |
    | I2C + 上拉 | `i2c_bus` | 一次 |
    | SPI 主从 | `spi_bus` | 一次（route_mode=NONE） |
-   | 晶振 + 负载电容 | `crystal` | 一次 |
+   | 无源晶振 + 负载电容（2 脚） | `crystal` | 一次 |
+   | 有源晶振 / 4 脚振荡器 | **不走 pattern**（手布） | — |
+
+   **模块化整页（可选）**：用户要模块框/中文标题时，在放置前做 **P0** `setPageSize` + 模块规划表；顺序 **P0→P1→P2→P3→P4a 框/标题→P4b**（见 `modular-layout.md`）。公共库：`template/scripts/modular-lib.ts`。
 
 3. **生成脚本**（脚本内电路步骤顺序固定）：
    ```
@@ -93,7 +100,8 @@
 
 6. **验收**（脚本成功后必做）：
    - 检查每个 pattern 的 `status` / `connections`（是否 `routed=true`）。
-   - 用 `netList.getActivePageNetList` 核对关键 net（**注意访问器是 `netList`，大写 L**）。
+   - 用 `netList.getActivePageNetList` 核对关键 net（响应：`result.value.nets[]`，成员 `pinReferences[]`）。
+   - 模块化任务：运行 `npx tsx scripts/layout-audit.ts`（可选 `FRAME_RECTS=` 模块框 id）。
    - 用 `canvasOps.listWireSegments` 统计导线段 —— **字段是 `wires`**，`wireSegments` 会恒为 undefined。
    - 调用 `client.canvasOps.zoomAll({ context: ctx })` 便于用户目视检查。
    - ERC 在部分构建中未实现（`RunChecks not implemented`），不要把它当验收依赖。
