@@ -82,6 +82,7 @@ applies, as long as each apply targets a **different pin or role terminal**
 | One signal pin → one R → VCC | `pull_resistor` `polarity=up` | Bind `signal_host` + `resistor`; optional `rail` or auto-place VCC |
 | One signal pin → one R → GND | `pull_resistor` `polarity=down` | Same; optional `rail` = GND |
 | One power pin → bulk (+ optional bypass) → GND | `decoupling_cap` | See bulk/bypass bind table below |
+| **Dedicated decap module**: N caps in a row, **one** +rail + **one** GND, parallel | **Hand only** (P1 grid + autoConnect) | **Do not** use `decoupling_cap` at all in this submodule — see scenario-b `modular-layout.md` §去耦两种拓扑 |
 | Master + slaves + SDA/SCL pull-ups | `i2c_bus` | Prefer over separate pull_resistor applies for the I2C cluster |
 | Master + slaves + SPI lanes | `spi_bus` | Apply with **`route_mode=NONE`** (layout only); AI routes each `connections[]` entry |
 | MCU xin/xout + **2-pin** crystal + load caps | `crystal` | Passive Pierce only |
@@ -136,10 +137,26 @@ After `ApplyCircuitPattern`, read `response.message`:
 - `ok; bulk+bypass caps parallel outward …` — bypass was bound and laid out
 - `ok; bulk filter cap only …` — no bypass role bound
 
-Do **not** hand-wire between bulk and bypass after apply; autoconnect covers
-`host.vcc → cap[0].a`, `cap.a → rail` (every cap), and `cap.b → GND` — one wire
-per pin. Never wire `host.vcc → each cap.a` or `host.vcc → rail` by hand: the
-first duplicates the cap pin and the second has to detour around the cap bodies.
+After apply, the engine autoconnects `host.vcc → cap[0].a`, `cap.a → rail` (every
+cap), and `cap.b → GND`. **Do not duplicate** those nets by hand (e.g. wiring
+`host.vcc → each cap.a` or `host.vcc → rail` around the cap bodies).
+
+**Fixing mistakes is OK:** if **check-power-shorts** (below) shows **+rail and GND
+share a geometric path**, or a decap **chain layout** shorted rails, you may
+**delete the wrong wire segment**, **re-apply** the pattern, or **adjust local
+segments** — that is not the same as re-routing nets already marked
+`connections[].routed=true` inside a successful apply.
+
+#### check-power-shorts (after each `decoupling_cap` apply)
+
+1. Read `response.connections` and `occupiedBox`.
+2. If the cap column is **≥3 caps tall** or `occupiedBox` is **tall and narrow**
+   (chain topology), call `listWireSegments` and verify **+rail and GND** are not
+   on one reachable path (no cross-rail short).
+3. Optional: when engine stdout shows `[PL:route]`, sanity-check wire count vs
+   `connections` / `wireObjectIds`; if no log, use snapshot + `wires` only.
+
+See also `docs/troubleshooting-power-nets.md` in the scenario-b skill package.
 
 ### Power rail: let the pattern place it
 

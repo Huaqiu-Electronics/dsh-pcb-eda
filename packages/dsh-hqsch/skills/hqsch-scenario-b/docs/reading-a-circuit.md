@@ -23,9 +23,33 @@ page-scoped** — you do not need to walk pages.
 | `nets` | 181 | `name`, `netClass`, `pinInstanceIds[]` |
 | `symbolDefinitions` | 58 | `name`, **`pins[]` with `number` + `name`** (pin-number → pin-name table) |
 | `wireSegments` | 602 | geometry (rarely needed for semantics) |
-| `labels` | (when used) | NetAlias instances: `text` (= name), `position`, `netId`, `metadata.id` (= canvas dbId when present) |
+| `labels` | (when used) | **NetAlias only** — not `PlaceText` module titles; see `decoration-objects.md` |
+| `graphicTexts` / rects | — | **Not populated** in current engine builds; do not use snapshot to find module frames |
 | `junctions` | (when used) | wire junctions |
 | `noConnects` | (when used) | no-connect markers |
+
+### Pin geometry is **not** inside `symbolInstances`
+
+A common false conclusion: “GetSnapshot has no pin positions.” **`symbolInstances[]`
+only carries the symbol body** (`position`, `rotation`, `mirrored`, properties).
+It does **not** embed per-pin coordinates.
+
+Pin locations live in the **separate top-level table** `pinInstances[]`:
+
+| Field | Use |
+| --- | --- |
+| `position` | Absolute pin point (canvas coords, **Y up**) |
+| `canvasObjectId` | Same as placement `object_id` / `symbolInstances[].canvasObjectId` |
+| `pinDefinitionId` | Join to `symbolDefinitions[].pins[].number` for pin name |
+| `symbolInstanceId` | Join to `symbolInstances[].metadata.id` for designator-centric recipes |
+
+**Activity-page scripts** often prefer `getObjectJsonById` → `PortInstScalar` (see
+`property-conventions.md` § Pin Coordinates) — same geometry, no three-table join.
+
+**If `pinInstances` is empty or stale** right after placement: retry snapshot (see
+§ Kernel Snapshot Lag in `property-conventions.md`), or use `PortInstScalar` /
+definition geometry + instance transform. **Do not** treat “no nested pins under
+symbol” as “snapshot has no pin API.”
 
 ### Enumerating ports / net labels (do not guess names)
 

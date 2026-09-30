@@ -36,6 +36,10 @@ const client = await connect();
 
 `connect()` returns an `EditorClient` with service accessors (`client.project`, `client.edaBom`, `client.canvasOps`, …).
 
+> In the DSH bundle, **do not call bare `connect()` in scripts** — use `hqMain` /
+> `hqMainWithProject` from `scripts/lib/hq.ts` so stalled RPCs cannot leak node
+> processes. See [script-lifetime.md](script-lifetime.md).
+
 ## Step 3 — Build context (when required)
 
 Many RPCs require a `context` field. Build it from the connected client:

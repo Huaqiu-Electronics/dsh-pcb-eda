@@ -20,7 +20,7 @@ Canvas operations for Huaqiu EDA. Invoke when selecting, moving, wiring, or edit
 
 ## Available Capabilities
 
-Total: **47** skills in the **canvas** domain.
+Total: **48** skills in the **canvas** domain.
 
 | Skill | Description | Streaming |
 | --- | --- | --- |
@@ -43,6 +43,7 @@ Total: **47** skills in the **canvas** domain.
 | [`get-objects-json-by-ids`](get-objects-json-by-ids/SKILL.md) | Get Objects Json By Ids via CanvasOpsService.GetObjectsJsonByIds | no |
 | [`get-selected-object-json`](get-selected-object-json/SKILL.md) | Get Selected Object Json via CanvasOpsService.GetSelectedObjectJson | no |
 | [`get-selected-objects-json`](get-selected-objects-json/SKILL.md) | Get Selected Objects Json via CanvasOpsService.GetSelectedObjectsJson | no |
+| [`list-page-decorations`](list-page-decorations/SKILL.md) | List Page Decorations via CanvasOpsService.ListPageDecorations | no |
 | [`list-wire-segments`](list-wire-segments/SKILL.md) | List Wire Segments via CanvasOpsService.ListWireSegments | no |
 | [`mirror-objects`](mirror-objects/SKILL.md) | mode: 1\|2\|3 required; 0=no-op | no |
 | [`mirror-objects-by-ids`](mirror-objects-by-ids/SKILL.md) | mode: 1\|2\|3 required; 0=no-op | no |

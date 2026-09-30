@@ -6,7 +6,8 @@
  *
  * Optional: HQ_INSTANCE_ID=<id> when multiple editors are open (run listEditors first).
  *
- * 进程一定会退出（含 RPC 超时与硬看门狗），见 scripts/lib/hq.ts。
+ * ⚠ 必须走 `hqMain`（`scripts/lib/hq.ts`）：per-RPC 截止时间透传 `connect({ timeoutMs })`
+ *   + `finally { client.close() }`，进程一定会退出。裸 `connect()` 会泄漏 node 进程。
  */
 import { listEditors, toJsonString } from "@huaqiu/huaqiu-client";
 import { hqMain } from "./lib/hq.js";
@@ -26,11 +27,9 @@ hqMain(async (client) => {
   console.log("active project:", active.project?.name, projectId);
 
   const ctx = client.createProjectContext(projectId);
-  // 注意：实体在 `snapshot` 内层（`GetSnapshotResponse.snapshot`），直接读
-  // `snap.symbolInstances` 恒为 undefined，会静默打印 0。
-  const snapshot = (await client.kernel.getSnapshot({ context: ctx })).snapshot;
-  const parts = snapshot?.symbolInstances?.length ?? 0;
-  const wires = snapshot?.wireSegments?.length ?? 0;
+  const snap = await client.kernel.getSnapshot({ context: ctx });
+  const parts = snap.snapshot?.symbolInstances?.length ?? 0;
+  const wires = snap.snapshot?.wireSegments?.length ?? 0;
   console.log(`snapshot: ${parts} symbols, ${wires} wire segments on active page`);
 
   await client.canvasOps.zoomAll({ context: ctx });
