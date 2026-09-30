@@ -47,10 +47,15 @@ Follow [SYSTEM-PROMPT.md](./SYSTEM-PROMPT.md) in full. The agent **must auto-run
 | 6 | [docs/reading-a-circuit.md](./docs/reading-a-circuit.md) | **Read/understand** — snapshot, neighborhood, series traversal |
 | 7 | [docs/editing-a-circuit.md](./docs/editing-a-circuit.md) | **Local edit (Flow C)** — diff, blast radius, verify |
 | 8 | [docs/rpc-availability.md](./docs/rpc-availability.md) | Which RPCs work / ban list / timing baselines |
-| 9 | [docs/serialization.md](./docs/serialization.md) | `toJsonString` + BigInt replacer |
+| 9 | [docs/troubleshooting-power-nets.md](./docs/troubleshooting-power-nets.md) | Power/net anomalies — geometry before semantics |
+| 10 | [docs/serialization.md](./docs/serialization.md) | `toJsonString` + BigInt replacer |
 | 11 | [docs/modular-layout.md](./docs/modular-layout.md) | **模块化布局 P0–P4**（最小系统 / 模块框） |
-| 12 | [docs/layout-quality-audit.md](./docs/layout-quality-audit.md) | 布局审计指标（勿用 union 占比糊弄） |
-| 13 | [docs/script-lifetime.md](./docs/script-lifetime.md) | **Process lifetime — must use `hqMain`, or node processes leak** |
+| 12 | [docs/modular-layout-compact.md](./docs/modular-layout-compact.md) | Page budget / macro zones / density band |
+| 13 | [docs/decoration-objects.md](./docs/decoration-objects.md) | Module rect / PlaceText — record objectId (A); not in snapshot |
+| 14 | [docs/layout-quality-audit.md](./docs/layout-quality-audit.md) | 布局审计指标（勿用 union 占比糊弄） |
+| 15 | [docs/layout-visual-review.md](./docs/layout-visual-review.md) | save → export PDF (P4b visual review) |
+| 16 | [docs/script-lifetime.md](./docs/script-lifetime.md) | **Process lifetime — must use `hqMain` / `hqMainWithProject`, or node processes leak** |
+| 17 | [docs/rpc/](./docs/rpc/) | RPC field reference |
 
 **Runtime (agent executes on user's machine):**
 
@@ -61,9 +66,10 @@ cd template && npm install && npx tsx scripts/hello.ts
 HQ EDA desktop must be running with a schematic project open.
 
 > **Every script must enter through `hqMain` / `hqMainWithProject` in
-> `scripts/lib/hq.ts`** (per-RPC deadline + hard watchdog + guaranteed exit).
-> A stalled RPC pins the Node event loop and makes the process immortal, so each
-> retry leaks another one. See [docs/script-lifetime.md](./docs/script-lifetime.md).
+> `scripts/lib/hq.ts`** (per-RPC deadline passed to `connect({ timeoutMs })` +
+> deterministic `client.close()` + guaranteed exit). A stalled RPC refs the Node
+> event loop and makes the process immortal, so each retry leaks another one.
+> See [docs/script-lifetime.md](./docs/script-lifetime.md).
 
 ## Execution flow (summary)
 
@@ -110,10 +116,5 @@ HQ EDA desktop must be running with a schematic project open.
   `RunChecks`, `GetSelection` and `Export*` are **unimplemented** in this engine
   build — do not build flows on them. Full map: [docs/rpc-availability.md](./docs/rpc-availability.md).
 - Timing baselines (not SLA): snapshot ~1.6–3.2 s; pattern/place script ~15–20 s.
-- Scripts enter via `hqMain` / `hqMainWithProject` (`scripts/lib/hq.ts`) — never a bare
-  `connect()` + `main().catch()`. Otherwise leaked node processes accumulate on retry.
-- `GetPageOccupancy` is on **`patternLayout`**, not `canvasOps`; its response field is
-  `items[].objectId` (there is no `objectIds`).
-- `GetSnapshot` payloads live one level down: `response.snapshot.symbolInstances`.
 
 Full rules: [SYSTEM-PROMPT.md](./SYSTEM-PROMPT.md).

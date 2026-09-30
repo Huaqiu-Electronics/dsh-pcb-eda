@@ -1,12 +1,12 @@
 ---
-name: canvas-list-wire-segments
+name: canvas-list-page-decorations
 metadata:
   category: canvas
   service: CanvasOpsService
-  method: ListWireSegments
+  method: ListPageDecorations
   rpcKind: unary
 description: >-
-  List Wire Segments via CanvasOpsService.ListWireSegments
+  List Page Decorations via CanvasOpsService.ListPageDecorations
 version: 0.1.0
 vendor: Huaqiu Electronics
 tags:
@@ -20,23 +20,23 @@ inputSchema:
   namespace: HqServicesV1CanvasOpsService
 ---
 
-# List Wire Segments
+# List Page Decorations
 
-List Wire Segments via CanvasOpsService.ListWireSegments
+List Page Decorations via CanvasOpsService.ListPageDecorations
 
 ## Overview
 
-This skill provides access to the **`CanvasOpsService.ListWireSegments`** RPC method on the Huaqiu EDA engine. It is part of the **canvas** domain and executes against the `canvasOps` client.
+This skill provides access to the **`CanvasOpsService.ListPageDecorations`** RPC method on the Huaqiu EDA engine. It is part of the **canvas** domain and executes against the `canvasOps` client.
 
 | Property | Value |
 | --- | --- |
-| Skill ID | `canvas-list-wire-segments` |
+| Skill ID | `canvas-list-page-decorations` |
 | Service | `CanvasOpsService` |
-| Method | `ListWireSegments` |
+| Method | `ListPageDecorations` |
 | Transport | Unary (unary) |
 | Domain | canvas |
 | Request type | `CanvasContextRequest` |
-| Response type | `ListWireSegmentsResponse` |
+| Response type | `ListPageDecorationsResponse` |
 
 ## Parameters
 
@@ -44,19 +44,20 @@ This skill provides access to the **`CanvasOpsService.ListWireSegments`** RPC me
 | --- | --- | --- | --- | --- |
 | `context` | `ProjectContext` | no | no | — |
 
-## Agent notes (coordinates and netName)
+## Agent notes
 
-- **Response field:** wire list is **`wires`** (`listWireSegments().wires`), not `wireSegments`.
-- **Coordinates:** segment endpoints use the same **external display** system as `PlaceKicadSymbol` / `placePinStub` when the page is active: **Y increases downward**. Align with snapshot via `PAGE_TOP = page_box.max.y` and `extY = PAGE_TOP - canvasY` (see scenario-b `property-conventions.md`).
-- **`netName` on each wire:** engine-resolved net name after refresh (`WireSegmentInfo.netName`), **not** the NetAlias label alone and **not** authoritative for pin ownership. For semantics use `getActivePageNetList` or snapshot `nets[]`; for pin locations use `PortInstScalar` / `pinInstances` — **do not** infer pin attachment from wire endpoints alone.
+- Lists **module rects** (`STATE_RECT`, not page border) and **free `PlaceText`** on the **active page**; **excludes NetAlias** (still in snapshot `labels[]`).
+- **`box.min` / `box.max`:** external display coords, **Y increases downward** (same as `placeRect` / `placeText`).
+- **Path E:** use when the decoration ledger (path A) is missing or the user drew/edited manually; then `deleteObjectsByIds`. **Do not** use `GetSnapshot` for this.
+- **Path A:** after `placeRect` / `placeText`, still call `recordDecoration` — see scenario-b `docs/decoration-objects.md`.
 
 ## Response
 
-Returns a `ListWireSegmentsResponse` message with the following fields:
+Returns a `ListPageDecorationsResponse` message with the following fields:
 
 | Name | Type | Repeated | Description |
 | --- | --- | --- | --- |
-| `wires` | `WireSegmentInfo[]` | yes | — |
+| `items` | `PageDecorationInfo[]` | yes | — |
 
 ## Response Example
 
@@ -64,7 +65,7 @@ Representative response structure (field values are placeholders):
 
 ```json
 {
-  "wires": [
+  "items": [
     {}
   ]
 }
@@ -83,7 +84,7 @@ Execute via the HQ EDA skill runtime with a connected `EditorClient`. See [quick
 ```typescript
 import { getSkill, toJsonString } from "@huaqiu/hqeda";
 
-const skill = getSkill("canvas-list-wire-segments");
+const skill = getSkill("canvas-list-page-decorations");
 const result = await skill.execute({ client }, {
   context: "<ProjectContext via client.createProjectContext('my-project')>",
 });
@@ -96,5 +97,5 @@ Serialize responses with `toJsonString()` — see [serialization.md](../../refer
 
 - Other **canvas** skills: [`canvas/`](../)
 - Full index: [All EDA skills](../../SKILL.md)
-- Install: `npx skills add Huaqiu-Electronics/skills --path eda/canvas/list-wire-segments`
+- Install: `npx skills add Huaqiu-Electronics/skills --path eda/canvas/list-page-decorations`
 

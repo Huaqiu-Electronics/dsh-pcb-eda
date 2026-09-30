@@ -50,6 +50,12 @@ This skill provides access to the **`ObjPlaceService.PlaceText`** RPC method on 
 | `colorG` | `number` | no | no | — |
 | `colorB` | `number` | no | no | — |
 
+## Agent notes (decoration ledger — path A)
+
+- **Always persist** response **`objectId`** immediately after a successful call (`recordDecoration` in scenario-b `modular-lib.ts`, or a script-local array).
+- **`GetSnapshot` and `getPageOccupancy` do not list** module rects or free `PlaceText` — do not use them to find ids for delete/edit.
+- **Fallback (path E):** when implemented, `listPageDecorations` on the active page — **not** a full snapshot. See scenario-b `docs/decoration-objects.md`.
+
 ## Response
 
 Returns a `ObjectPlaceResponse` message with the following fields:

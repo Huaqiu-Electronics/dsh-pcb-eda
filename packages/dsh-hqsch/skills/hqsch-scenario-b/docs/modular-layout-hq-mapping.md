@@ -134,7 +134,9 @@ KiCad 文档的「整页六区」在 HQ 中用 **外部显示坐标**（ext：`l
 | **`PlaceText`** | 在 **ext 坐标**（Y 向下，与 `PlaceRect` / `PlaceNetAliasAt` 一致）**直接落字** |
 | `PlaceTextFromVirtual` + `HandleTextDrawClick` | UI 交互链；自动化 **禁止** 依赖 |
 
-**建议顺序**：P1 放置器件 → P3 布线 → **P4a** 用 occupancy 算 bbox → 画框和标题。**记录** `placeRect` / `placeText` 返回的 **`objectId`**（occupancy 常不含图元，P4c union 需要）。
+**建议顺序**：P1 放置器件 → P3 布线 → **P4a** 用 occupancy 算 bbox → 画框和标题。
+
+**装饰图元 id（A 主路径，必做）**：每次 `placeRect` / `placeText` 成功后立刻登记响应 **`objectId`**（`modular-lib.recordDecoration` 或脚本内数组）。**禁止**靠 `GetSnapshot` / `getPageOccupancy` 找框/字。会话丢失或手动画框时，等引擎 **`listPageDecorations`（E，轻量列举）** 再删；详见 scenario-b `docs/decoration-objects.md`。
 
 ---
 

@@ -3,7 +3,7 @@
   "id": "hqsch-scenario-b",
   "name": "HQSCH Scenario B — Coding Agent + Local Scripts",
   "vendor": "Huaqiu Electronics",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Self-contained skill for Work Buddy, Codex, and Claude: schematic placement, circuit patterns, routing, netlist check, zoom-all. Agent auto-runs TypeScript via @huaqiu/huaqiu-client.",
   "skillMarkdown": "./SKILL.md",
   "resources": {

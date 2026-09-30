@@ -1,11 +1,8 @@
 /**
  * Flow C 配方：把 REF 的某 pin 接到 TARGET_REF 的 TARGET_PIN（autoConnect）
  * REF=R201 PIN=1 TARGET_REF=U301 TARGET_PIN=14 CONFIRM=1 npx tsx scripts/rewire-pin-by-ref.ts
- *
- * 注意：`pinNum` 只接受纯数字。字母前缀引脚（A5/CC1…）请改用 pinName 路径，
- * 本脚本会显式报错而不是静默传 NaN。
  */
-import { hqMainWithProject, pinNumber } from "./lib/hq.js";
+import { hqMainWithProject } from "./lib/hq.js";
 
 const REF = process.env.REF;
 const PIN = process.env.PIN;
@@ -30,9 +27,9 @@ hqMainWithProject(async ({ client, projectId, projectContext: ctx }) => {
   await client.canvasOps.autoConnectObjectsById({
     context: ctx,
     objectId1: id1,
-    pinNum1: [pinNumber(PIN, "PIN")],
+    pinNum1: [Number(PIN)],
     objectId2: id2,
-    pinNum2: [pinNumber(TARGET_PIN, "TARGET_PIN")],
+    pinNum2: [Number(TARGET_PIN)],
   });
   console.log("✓ autoConnect 完成 — 请 GetSnapshot 验收 pin→net");
 });

@@ -100,7 +100,9 @@ Regular parts use their printed pin numbers.
 
 ### Option 2 — PlaceWire after snapshot pin lookup
 
-Pin positions come from **`kernel-get-snapshot`**, not property RPCs.
+Pin positions come from **`kernel-get-snapshot`** (top-level **`pinInstances[]`**, not
+nested under each `symbolInstances` entry), or from `getObjectJsonById` →
+`PortInstScalar` on the active page — not from property RPCs alone.
 
 **Primary lookup:** `canvas_object_id` — same value as placement
 `object_id`. Do not rely on `designator` or `Name` alone (power symbols have
