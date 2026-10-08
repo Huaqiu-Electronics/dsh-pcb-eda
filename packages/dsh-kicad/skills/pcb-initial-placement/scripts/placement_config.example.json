@@ -1,0 +1,116 @@
+{
+ "_comment": [
+  "Phase-1 placement config for the KiCad 'video' demo board (312x106.7 mm PCI card).",
+  "This is the worked example behind the pcb-initial-placement skill: every number here",
+  "was derived from the board's own geometry (see references/algorithm.md).",
+  "Copy it, replace the modules/anchors/fixed entries with your own board's facts,",
+  "and run: pack.py -> verify_placement.py -> apply_via_ipc.py"
+ ],
+
+ "board": "video.kicad_pcb",
+ "grid_mm": 0.635,
+ "gap_mm": 0.3,
+ "big_part_area_mm2": 40.0,
+ "radius_schedule_mm": [30, 45, 65, 90, 130, 200],
+ "module_order": ["M1", "M4", "M5", "M6", "M3", "M2"],
+
+ "fixed": {
+  "BUS1": {"pad": "A1", "at": [95.25, 160.195], "rot": 0,
+           "_comment": "PCI card-edge fingers: pin A1 sits on the board edge, so the whole connector is derived from the Edge.Cuts geometry"},
+
+  "P1": {"x": 58.0, "y": 63.0, "rot": 180, "_comment": "BNC bracket connector, body overhangs the left edge x=53.594"},
+  "P2": {"x": 58.0, "y": 74.4, "rot": 180},
+  "P3": {"x": 58.0, "y": 85.8, "rot": 180},
+  "P8": {"x": 58.0, "y": 97.2, "rot": 180},
+  "J4": {"x": 68.154, "y": 137.0, "rot": 90,
+         "_comment": "DB9; footprint is EdgePinOffset14.56mm so origin x = 53.594 + 14.56"},
+
+  "U10": {"x": 80.25, "y": 73.0, "rot": 0, "_comment": "video decoder, next to the BNC inputs"},
+  "U8":  {"x": 113.9, "y": 74.3, "rot": 0, "_comment": "RAMDAC"},
+  "U9":  {"x": 111.25, "y": 107.0, "rot": 0, "_comment": "encoder"},
+  "U20": {"x": 69.9, "y": 100.0, "rot": 0, "_comment": "video encoder"},
+
+  "U11": {"x": 116.25, "y": 138.5, "rot": 0, "_comment": "PCI controller, hugging the card edge"},
+  "U24": {"x": 152.25, "y": 138.5, "rot": 0, "_comment": "main FPGA, 47 nets to U11"},
+  "U23": {"x": 184.25, "y": 127.25, "rot": 90},
+  "U22": {"x": 205.8, "y": 124.65, "rot": 0, "_comment": "SIMM controller, 32 nets to every socket"},
+  "U2":  {"x": 179.0, "y": 143.9, "rot": 90},
+
+  "U3": {"x": 221.5, "y": 123.0, "rot": 0, "_comment": "SIMM data-bus buffers, lined up beside the bank"},
+  "U4": {"x": 234.5, "y": 123.0, "rot": 0},
+  "U5": {"x": 247.5, "y": 123.0, "rot": 0},
+  "U6": {"x": 260.5, "y": 123.0, "rot": 0},
+
+  "U12": {"x": 189.494, "y": 61.2,  "rot": 180, "_comment": "SIMM bank: 2 columns x 4 rows, 14.5 mm row pitch (0.571 in)"},
+  "U13": {"x": 189.494, "y": 74.7,  "rot": 180},
+  "U14": {"x": 189.494, "y": 88.2,  "rot": 180},
+  "U15": {"x": 189.494, "y": 101.7, "rot": 180},
+  "U16": {"x": 307.634, "y": 61.2,  "rot": 180},
+  "U17": {"x": 307.634, "y": 74.7,  "rot": 180},
+  "U18": {"x": 307.634, "y": 88.2,  "rot": 180},
+  "U19": {"x": 307.634, "y": 101.7, "rot": 180}
+ },
+
+ "keepouts": [
+  {"rect": [131.594, 105.1, 247.494, 115.8],
+   "why": "SIMM modules lean towards +y once inserted and cover the space below row 4; keep the tilt volume clear of copper-side parts"},
+  {"rect": [249.734, 105.1, 365.634, 115.8],
+   "why": "same for the second SIMM column"}
+ ],
+
+ "priority": ["RR1", "RR2", "RR3", "RR4", "RR5", "RR6", "RR7", "RR8",
+              "X1", "X2", "U1", "U7", "U21", "CV1", "POT1", "U20"],
+
+ "modules": {
+  "M1": {
+   "title": "板边连接器 bracket connectors",
+   "anchors": [[79.0, 137.0], [58.0, 62.0], [58.0, 80.0], [58.0, 99.0]],
+   "members": ["J4", "P1", "P2", "P3", "P8",
+               "R22", "R23", "R24", "R39", "R40", "R41", "R42", "R43", "R44",
+               "R45", "R46", "R47", "C3", "C4", "C59"]
+  },
+  "M2": {
+   "title": "PCI 总线接口 PCI bus interface",
+   "anchors": [[116.25, 138.5], [158.1, 158.4], [240.0, 123.0]],
+   "members": ["BUS1", "U11", "U1", "U3", "U4", "U5", "U6",
+               "RR1", "RR2", "RR3", "RR4", "RR5", "RR6",
+               "R5", "R6", "R7", "R28", "R29", "C68", "C69",
+               "W1", "W2", "W3", "W4", "W5", "C9", "C11", "C17", "C27", "C31"]
+  },
+  "M3": {
+   "title": "图形逻辑 FPGA",
+   "anchors": [[152.25, 138.5], [179.0, 143.9], [184.25, 127.25],
+               [205.8, 124.65], [177.0, 120.0]],
+   "members": ["U24", "U23", "U22", "U21", "U2", "U7",
+               "RR7", "RR8", "R1", "R13", "R21", "R26", "R30", "R31", "R32",
+               "R33", "R34", "C23", "C49", "C50", "C63", "D6", "P4", "P5",
+               "P9", "P10", "P11", "P12", "X1", "C10", "C15", "C18", "C19",
+               "C20", "C21", "R48"]
+  },
+  "M4": {
+   "title": "视频输入解码 video capture",
+   "anchors": [[80.25, 73.0], [68.0, 100.0]],
+   "members": ["U10", "X2", "C1", "C2", "C5", "C6", "C7", "C8", "C12", "C13",
+               "C14", "C16", "C62", "C65", "C66", "D1", "D2", "D3", "D4",
+               "L1", "L2", "L3", "L4", "L6", "R2", "R3", "R12", "R14", "R19",
+               "R20", "R25", "R27", "R35", "Q1", "Q2", "Q3", "CV1", "POT1",
+               "C47", "C55"]
+  },
+  "M5": {
+   "title": "视频输出 RAMDAC+encoder",
+   "anchors": [[113.9, 74.3], [111.25, 107.0], [69.9, 100.0]],
+   "members": ["U8", "U9", "U20", "X3", "C32", "C33", "C34", "C35", "C36",
+               "C39", "C40", "C41", "C42", "C43", "C44", "C45", "C48", "C51",
+               "C52", "C54", "C58", "C60", "C61", "C64", "L5", "R4", "R8",
+               "R9", "R10", "R11", "R15", "R16", "R17", "R18", "R36", "R37",
+               "R38", "C22", "C24", "C25", "C26", "C28", "C29", "C30", "C37",
+               "C46", "C53"]
+  },
+  "M6": {
+   "title": "帧缓存 frame buffer SIMM",
+   "anchors": [[189.5, 83.0], [307.6, 83.0], [255.0, 125.0]],
+   "members": ["U12", "U13", "U14", "U15", "U16", "U17", "U18", "U19",
+               "C38", "C56", "C57", "C67", "C70", "C71", "C72", "C73"]
+  }
+ }
+}
