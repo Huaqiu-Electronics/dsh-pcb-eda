@@ -27,42 +27,23 @@ const PLUGIN_ID = 'huaqiu-component-gen'
  * text/theme color.
  */
 export const FOOTPRINT_ICON =
-  '<svg viewBox="160 160 704 704" width="16" height="16" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<rect x="262" y="262" width="500" height="500" rx="26" fill="none" stroke="currentColor" stroke-width="40"/>' +
-  '<line x1="346" y1="180" x2="346" y2="262" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="429" y1="180" x2="429" y2="262" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="512" y1="180" x2="512" y2="262" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="595" y1="180" x2="595" y2="262" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="678" y1="180" x2="678" y2="262" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="346" y1="762" x2="346" y2="844" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="429" y1="762" x2="429" y2="844" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="512" y1="762" x2="512" y2="844" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="595" y1="762" x2="595" y2="844" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="678" y1="762" x2="678" y2="844" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="180" y1="346" x2="262" y2="346" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="180" y1="429" x2="262" y2="429" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="180" y1="512" x2="262" y2="512" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="180" y1="595" x2="262" y2="595" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="180" y1="678" x2="262" y2="678" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="762" y1="346" x2="844" y2="346" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="762" y1="429" x2="844" y2="429" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="762" y1="512" x2="844" y2="512" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="762" y1="595" x2="844" y2="595" stroke="currentColor" stroke-width="32"/>' +
-  '<line x1="762" y1="678" x2="844" y2="678" stroke="currentColor" stroke-width="32"/>' +
-  '<circle cx="310" cy="310" r="26" fill="currentColor"/>' +
-  '</svg>'
+`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3.5" y="3.5" width="9" height="9" rx=".8" />
+        <rect x="5.75" y="5.5" width="4.5" height="5" rx=".35" />
+        <path
+            d="M5 1.25V3.5M8 1.25V3.5M11 1.25V3.5M5 12.5v2.25M8 12.5v2.25M11 12.5v2.25M1.25 5H3.5M1.25 8H3.5M1.25 11H3.5M12.5 5h2.25M12.5 8h2.25M12.5 11h2.25" />
+    </g>
+</svg>`
 
 export const SYMBOL_ICON =
-  '<svg viewBox="3 5 18 14" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-  '<rect x="7" y="6" width="10" height="12" rx="1.5"/>' +
-  '<path d="M4 9h3"/>' +
-  '<path d="M4 12h3"/>' +
-  '<path d="M4 15h3"/>' +
-  '<path d="M17 9h3"/>' +
-  '<path d="M17 12h3"/>' +
-  '<path d="M17 15h3"/>' +
-  '<path d="M10 12h4"/>' +
-  '</svg>'
+`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+    <g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 5.5h2.75M1 10.5h2.75M4.75 3.5H7a4.5 4.5 0 0 1 0 9H4.75a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1Z" />
+        <circle cx="12.7" cy="8" r="1.2" />
+        <path d="M13.9 8H15" />
+    </g>
+</svg>`
 
 /** Class names used by the injected rows (defined by `injectSidebarEntryStyles`). */
 const ENTRY_CSS: Record<string, string> = {
