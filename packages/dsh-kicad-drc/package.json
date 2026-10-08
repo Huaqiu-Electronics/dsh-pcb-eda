@@ -16,11 +16,9 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "lib/*.js",
-    "lib/*.d.ts",
-    "cordis.patch.yml",
-    "README.md",
-    "LICENSE"
+    "lib",
+    "src",
+    "cordis.patch.yml"
   ],
   "dsh": {
     "bundle": {
