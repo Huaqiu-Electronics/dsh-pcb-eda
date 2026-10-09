@@ -191,10 +191,12 @@ describe('bundled skill — hardware-design-brief', () => {
 })
 
 describe('upstream lockstep with kicad-agent', () => {
-  // The two trees are meant to be byte-identical: `kicad-agent` was made to
-  // adopt the English scripts, the `kicad-ipc` rename and the dsh wrapper
-  // sections, so an upstream update is a plain `cp -r` instead of a manual
-  // zh->en re-merge. This block is the alarm that says that stopped being true.
+  // The two trees are meant to be byte-identical for every skill that ALSO
+  // lives upstream: `kicad-agent` was made to adopt the English scripts, the
+  // `kicad-ipc` rename and the dsh wrapper sections, so an upstream update is
+  // a plain `cp -r` instead of a manual zh->en re-merge. Skills added locally
+  // that upstream does not have (e.g. `pcb-initial-placement`) are exempt from
+  // the byte-identical guard — there is nothing upstream to diverge from.
   //
   // Optional by necessity: CI clones dsh-pcb-eda alone (`.github/workflows/ci.yml`),
   // so there is nothing to compare against there. Locally the sibling checkout
@@ -204,23 +206,30 @@ describe('upstream lockstep with kicad-agent', () => {
     process.env.KICAD_AGENT_ROOT ??
     resolve(packageRoot, '..', '..', '..', 'kicad-agent', 'skills')
   const hasUpstream = existsSync(upstreamSkills)
+  /** Bundled skills that also exist upstream — the only ones lockstep applies to. */
+  const sharedSkills = hasUpstream
+    ? KICAD_SKILL_IDS.filter((id) => existsSync(join(upstreamSkills, id)))
+    : []
 
-  it.skipIf(!hasUpstream)('is byte-identical to the upstream checkout for every bundled skill', () => {
-    for (const id of KICAD_SKILL_IDS) {
-      expect(existsSync(join(upstreamSkills, id)), `upstream has no skills/${id}`).toBe(true)
+  it.skipIf(!hasUpstream)('is byte-identical to the upstream checkout for every shared skill', () => {
+    expect(sharedSkills.length, 'no bundled skill is present upstream — lockstep has nothing to guard').toBeGreaterThan(0)
+    for (const id of sharedSkills) {
       const diff = diffTrees(join(upstreamSkills, id), join(skillsRoot, id))
       expect(diff, `skills/${id} diverged from upstream — re-run the sync`).toBe('')
     }
   })
 
   it.skipIf(!hasUpstream)('deploys every upstream skill downstream', () => {
-    // A new skill upstream must be registered here (src/skills.ts) and copied
-    // over, or it silently never reaches the published bundle.
+    // Upstream directories must all be registered (or they silently never
+    // reach the published bundle); locally-added skills may exceed the set.
     const upstream = readdirSync(upstreamSkills, { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)
       .sort()
-    expect([...KICAD_SKILL_IDS].sort()).toEqual(upstream)
+    for (const id of upstream) {
+      expect(KICAD_SKILL_IDS, `upstream skill ${id} not registered in src/skills.ts`).toContain(id)
+    }
+    expect([...KICAD_SKILL_IDS].sort()).toEqual([...new Set([...upstream, ...KICAD_SKILL_IDS])].sort())
   })
 })
 
