@@ -40,6 +40,9 @@ export interface AuthStateLike {
  * `login()` in HQ Edge host mode triggers the EDA login dialog through
  * hq-edge (`POST /api/v1/auth/login` → EDA `TriggerLoginDialog`) instead of
  * the auth.eda.cn iframe; `isHostMode()` tells the card which surface to show.
+ * The subscription methods follow the same split: host mode opens the EDA
+ * native dialog via DialogService.OpenUrl, standalone DSH opens an in-app
+ * iframe at the preferred 1400×740 size.
  */
 export interface AuthClientLike {
   auth?: {
@@ -47,6 +50,7 @@ export interface AuthClientLike {
     isHostMode?(): boolean
     login?(options?: { lang?: string; theme?: string }): Promise<void>
     onAuthStateChanged(listener: (info: { nickname?: string } | null) => void): () => void
+    openSubscriptionDialog?(): Promise<void>
   }
 }
 
@@ -291,6 +295,85 @@ function LoginCard({ toolName, authState, t, getAuth }: { toolName: string; auth
   )
 }
 
+// ── needs_subscription card ─────────────────────────────────────────────────
+
+/**
+ * LocalStorage flag: "the subscription dialog was already auto-opened once on
+ * this client". User requirement: never-prompted → auto-open exactly ONCE;
+ * already-prompted → never auto-open again (the button stays for manual
+ * opens). A session-level flag would re-prompt after every reload, so this is
+ * persistent (same spirit as `circuit_agent_subscription` in hq-eda-ai).
+ */
+const SUB_DIALOG_SHOWN_KEY = 'hq_subscription_dialog_shown'
+
+function SubscriptionCard({
+  result,
+  t,
+  getAuth,
+}: {
+  result: SchResult
+  t: Translate
+  getAuth?: () => AuthClientLike | undefined
+}): ReactElement {
+  const authClient = getAuth?.()?.auth
+  const [opened, setOpened] = useState(false)
+
+  // Auto-open ONCE (persistent flag), the very first time a needs_subscription
+  // result lands on this client. Host mode → the EDA host's native dialog via
+  // the auth service; standalone DSH → the in-app 1400×740 iframe.
+  useEffect(() => {
+    if (opened) return
+    let shown = false
+    try {
+      shown = localStorage.getItem(SUB_DIALOG_SHOWN_KEY) === '1'
+    } catch { /* storage unavailable — treat as never shown */ }
+    if (shown) {
+      setOpened(true)
+      return
+    }
+    void authClient?.openSubscriptionDialog?.()
+      .catch(() => { /* no dialog surface (broken install) — button still offered */ })
+      .finally(() => {
+        setOpened(true)
+        try { localStorage.setItem(SUB_DIALOG_SHOWN_KEY, '1') } catch { /* best-effort */ }
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authClient])
+
+  const packageLabel = result.packageName ? t('card.subscription.package', { name: result.packageName }) : ''
+  const quotaLabel = result.currentQuota != null
+    ? t('card.subscription.quota', { count: result.currentQuota })
+    : ''
+
+  return (
+    <div className="hq-sch">
+      <div className="hq-sch__header">
+        <span className="hq-sch__icon">⇶</span>
+        <span className="hq-sch__title">{t('card.subscription.title')}</span>
+      </div>
+      <div className="hq-sch__login">
+        <p className="hq-sch__login-desc">
+          {t('card.subscription.desc')}
+          {packageLabel || quotaLabel ? `（${[packageLabel, quotaLabel].filter(Boolean).join(' · ')}）` : ''}
+        </p>
+        <button
+          type="button"
+          className="hq-sch__login-btn"
+          onClick={() => {
+            void authClient?.openSubscriptionDialog?.()
+              .catch(() => { /* dialog failed — card keeps showing the button */ })
+          }}
+        >
+          {t('card.subscription.subscribe')}
+        </button>
+        <p className="hq-sch__login-status" style={{ color: '#8a94a6' }}>
+          {t('card.subscription.afterSubscribe')}
+        </p>
+      </div>
+    </div>
+  )
+}
+
 // ── main card ──────────────────────────────────────────────────────────────
 
 export const GenHit = memo(function GenHit(props: GenHitProps): ReactElement {
@@ -475,6 +558,12 @@ export const GenHit = memo(function GenHit(props: GenHitProps): ReactElement {
   // needs_auth
   if (state.phase === 'needs_auth') {
     return <LoginCard toolName={props.toolName} authState={props.authState} t={t} getAuth={props.getAuth} />
+  }
+
+  // needs_subscription — no available GEN quota (auto-opens the subscription
+  // dialog once; the subscribe button is always available).
+  if (state.phase === 'needs_subscription') {
+    return <SubscriptionCard result={state.result} t={t} getAuth={props.getAuth} />
   }
 
   const headerKind = result?.kind ?? kindOf(props.toolName)

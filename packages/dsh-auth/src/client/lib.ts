@@ -24,6 +24,117 @@ export const AUTH_ORIGIN = 'https://auth.eda.cn'
 /**「Go to profile」destination: the eda.cn account page. */
 export const PROFILE_URL = 'https://www.eda.cn/account/profile'
 
+// ── Subscription (quota + upgrade dialog) ────────────────────────────────────
+
+/**
+ * Subscription landing page — the same page `hq-eda-ai` serves at
+ * `gen.eda.cn/subscription` (token taken from the URL query; see its
+ * `UserInfoContext`). The preferred window size for BOTH surfaces (KiCad
+ * native dialog via DialogService.OpenUrl and the standalone iframe dialog)
+ * is 1400×740.
+ */
+export const SUBSCRIPTION_ORIGIN = 'https://gen.eda.cn'
+export const SUBSCRIPTION_PATH = '/subscription'
+export const SUBSCRIPTION_PREFERRED_SIZE = { width: 1400, height: 740 } as const
+
+/**
+ * eda.cn subscription product codes.
+ * - GEN (system/schematic design): `auto-design` — the SAME product code
+ *   `hq-eda-ai` uses (`apps/web/src/lib/config/product-code.ts`), i.e. the
+ *   subscription sold on `gen.eda.cn/subscription`.
+ * - ERC: `erc` — the code `hq-edge`'s own quota proxy
+ *   (`apps/server/src/routes/project.ts`) queries with.
+ */
+export const GEN_PRODUCT_CODE = 'auto-design'
+export const ERC_PRODUCT_CODE = 'erc'
+
+/**
+ * Build the subscription landing URL. Mirrors `buildProfileUrl`: the token is
+ * always attached — `gen.eda.cn/subscription` consumes it to establish the
+ * session and hides it itself. `encodeURIComponent` is required (tokens are
+ * base64-ish and may contain `+`, `/` or `=`).
+ */
+export function buildSubscriptionUrl(options: { token: string }): string {
+  return `${SUBSCRIPTION_ORIGIN}${SUBSCRIPTION_PATH}?token=${encodeURIComponent(options.token)}`
+}
+
+/** Normalized active-subscription quota view (whatever the backend sends). */
+export interface SubscriptionQuota {
+  hasSubscription: boolean
+  packageName: string
+  currentQuota: number
+  totalQuota: number
+}
+
+const SUB_API_PREFIX = '/sub-api'
+const SUB_API_SUCCESS_CODES = [200, 200000]
+
+function unwrapSubApiPayload<T>(payload: unknown): T | null {
+  if (payload && typeof payload === 'object' && 'code' in payload) {
+    const p = payload as { code: number; result?: T; data?: T }
+    if (!SUB_API_SUCCESS_CODES.includes(p.code)) return null
+    if (p.result !== undefined) return p.result as T
+    if (p.data !== undefined) return p.data as T
+    return undefined as T
+  }
+  return payload as T
+}
+
+function quotaOf(subscription: Record<string, unknown> | null | undefined): SubscriptionQuota {
+  if (!subscription || (typeof subscription === 'object' && Object.keys(subscription).length === 0)) {
+    return { hasSubscription: false, packageName: '', currentQuota: 0, totalQuota: 0 }
+  }
+  const currentQuota = Number(subscription.currentQuota) || 0
+  return {
+    hasSubscription: currentQuota > 0,
+    packageName: typeof subscription.packageName === 'string' ? subscription.packageName : '',
+    currentQuota,
+    totalQuota: Number(subscription.totalQuota) || 0,
+  }
+}
+
+/**
+ * Fetch the active subscription quota DIRECTLY from eda.cn
+ * (`GET {baseUrl}/sub-api/subscriptions/active?userId&productCode` with
+ * `x-token` + `X-User-Id` headers) — the same API `hq-eda-ai`'s
+ * `getActiveSubscription` and `hq-edge`'s ERC quota proxy call, so displaying
+ * the available quota never depends on an hq-edge hop.
+ *
+ * Returns null when the fetch/unwrap fails (callers decide fail-open vs
+ * fail-closed); a well-formed response always yields a `SubscriptionQuota`
+ * (possibly with `hasSubscription: false`).
+ */
+export async function fetchSubscriptionQuota(options: {
+  userId: string | number
+  token: string
+  productCode: string
+  baseUrl?: string
+  fetchImpl?: typeof fetch
+}): Promise<SubscriptionQuota | null> {
+  const { userId, token, productCode, baseUrl = 'https://www.eda.cn' } = options
+  const fetchImpl = options.fetchImpl ?? fetch
+  const url = `${baseUrl}${SUB_API_PREFIX}/subscriptions/active?${new URLSearchParams({
+    userId: String(userId),
+    productCode,
+  }).toString()}`
+  try {
+    const res = await fetchImpl(url, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        'Content-Type': 'application/json',
+        'x-token': token,
+        'X-User-Id': String(userId),
+      },
+    })
+    if (!res || !res.ok) return null
+    const json = (await res.json()) as unknown
+    return quotaOf(unwrapSubApiPayload<Record<string, unknown>>(json))
+  } catch {
+    return null
+  }
+}
+
 /**
  * Build the「Go to profile」URL: the eda.cn account page WITH the access token
  * in the query, mirroring `hq-eda-ai`'s `UserMenu`

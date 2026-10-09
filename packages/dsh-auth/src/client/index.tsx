@@ -73,6 +73,21 @@ export function apply(ctx: ClientContext): () => void {
     transport: createWebServerAuthTransport(),
     windowLike: window,
     documentLike: document,
+    // Host mode subscription dialog: the EDA host owns the UI. Open its
+    // native window through the hqEdge service's DialogService.OpenUrl
+    // bridge (fire-and-forget); absent hqEdge → no-op, the caller's
+    // subscribe button stays usable and reports the limitation.
+    openHostDialog: async (url, options) => {
+      const hqEdge = ctx.get?.<{
+        openUrl?(url: string, opts?: Record<string, unknown>): Promise<unknown>
+      } | undefined>('hqEdge')
+      if (!hqEdge || typeof hqEdge.openUrl !== 'function') return
+      await hqEdge.openUrl(url, {
+        ...(options.title ? { title: options.title } : {}),
+        ...(options.size ? { size: options.size } : {}),
+        ...(options.key ? { key: options.key } : {}),
+      })
+    },
   })
 
   // The sidebar needs the host identity (targetHost) to decide whether the

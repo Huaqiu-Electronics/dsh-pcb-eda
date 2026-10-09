@@ -210,7 +210,8 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     click(trigger(container))
     const style = menu()?.style
     // DSH token first, explicit dark fallback second — both must be dark-aware.
-    expect(style?.background).toBe('var(--dsw-alias-bg-overlay, #20242c)')
+    // The fallback surface follows the redesigned prototype (#1e1b24).
+    expect(style?.background).toBe('var(--dsw-alias-bg-overlay, #1e1b24)')
     expect(style?.boxShadow).toContain('rgba(0, 0, 0')
 
     // And light again.

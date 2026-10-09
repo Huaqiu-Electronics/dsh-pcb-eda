@@ -164,6 +164,11 @@ describe('runGenerateSchematic', () => {
       deps: {
         fetchImpl: async (url: string | URL | Request) => {
           const href = String(url)
+          // Quota pre-check: answered BEFORE the copilotkit/zip handling so the
+          // SSRF flag below only ever counts zip downloads.
+          if (href.includes('/sub-api/subscriptions/active')) {
+            return new Response(JSON.stringify({ code: 200, result: { currentQuota: 5 } }), { status: 200 })
+          }
           if (href.includes('copilotkit')) {
             return sseResponse([
               { type: 'STATE_SNAPSHOT', snapshot: {
@@ -301,6 +306,71 @@ describe('runGenerateSystem', () => {
     const env = makeEnv({ auth: stubAuth('', '') })
     const result = await runGenerateSystem({ description: 'x' }, undefined, env)
     expect(result.status).toBe('needs_auth')
+    expect(result.kind).toBe('system')
+  })
+})
+
+describe('GEN subscription quota pre-check', () => {
+  /** Quota URL → `quotaResponse`; copilotkit → a valid generated run. */
+  function quotaEnv(quotaResponse: unknown, quotaThrows = false): SchematicGenEnv {
+    return makeEnv({
+      deps: {
+        fetchImpl: async (url: string | URL | Request) => {
+          const u = String(url)
+          if (u.includes('/sub-api/subscriptions/active')) {
+            if (quotaThrows) throw new Error('quota api down')
+            return new Response(JSON.stringify(quotaResponse), { status: 200, headers: { 'Content-Type': 'application/json' } })
+          }
+          if (u.includes('copilotkit')) {
+            return sseResponse([
+              { type: 'STATE_SNAPSHOT', snapshot: {
+                outProject: 'PSU',
+                design_name: 'PSU',
+                module_graph: { modules: [{ name: 'MCU' }, { name: 'LDO' }], connections: [1, 2, 3] },
+                connection_count: 3,
+                project_achieve_url: 'https://datastream.eda.cn/proj.zip',
+                schFiles: [{ filename: 'PSU.kicad_sch', content: '(kicad)' }],
+              } },
+              { type: 'RUN_FINISHED' },
+            ])
+          }
+          if (u.includes('export-zip')) {
+            return zipResponse(new TextEncoder().encode('PK\x03\x04 fake zip'))
+          }
+          return new Response('nope', { status: 404 })
+        },
+      },
+    })
+  }
+
+  it('returns needs_subscription (not a throw) when the GEN quota is exhausted', async () => {
+    const env = quotaEnv({ code: 200, result: { packageName: 'Pro', currentQuota: 0, totalQuota: 10 } })
+    const result = await runGenerateSchematic({ description: 'x' }, undefined, env)
+    expect(result.status).toBe('needs_subscription')
+    expect(result.kind).toBe('schematic')
+    expect(result.packageName).toBe('Pro')
+    expect(result.currentQuota).toBe(0)
+    // The model MUST be told every time (this is the every-call notice).
+    expect(String(result.hint)).toMatch(/no available GEN generation quota/)
+  })
+
+  it('fails OPEN when the quota API is unreachable (a flaky check never blocks a run)', async () => {
+    const env = quotaEnv(null, true)
+    const result = await runGenerateSystem({ description: 'x' }, undefined, env)
+    expect(result.status).not.toBe('needs_subscription')
+    expect(result.status).toBe('generated')
+  })
+
+  it('lets the run proceed when quota is available', async () => {
+    const env = quotaEnv({ code: 200, result: { packageName: 'Pro', currentQuota: 5, totalQuota: 10 } })
+    const result = await runGenerateSchematic({ description: 'x' }, undefined, env)
+    expect(result.status).toBe('generated')
+  })
+
+  it('reports an unsubscribed account as needs_subscription too', async () => {
+    const env = quotaEnv({ code: 200, result: null })
+    const result = await runGenerateSystem({ description: 'x' }, undefined, env)
+    expect(result.status).toBe('needs_subscription')
     expect(result.kind).toBe('system')
   })
 })

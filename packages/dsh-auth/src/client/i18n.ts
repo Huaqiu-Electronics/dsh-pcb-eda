@@ -26,6 +26,25 @@ const zh = {
   'menu.profile': '个人中心',
   'menu.logout': '退出登录',
 
+  // Subscription quota + upgrade (sidebar account menu / HIT cards).
+  'subscription.title': '订阅',
+  'subscription.dialogTitle': '华秋 EDA 订阅',
+  'subscription.gen': '系统设计（GEN）',
+  'subscription.erc': '电路检查（ERC）',
+  'subscription.package': '套餐：{name}',
+  'subscription.quota': '可用次数：{count}',
+  'subscription.quotaCount': '{used} / {total}次',
+  'subscription.noQuota': '无可用次数',
+  'subscription.unsubscribed': '未订阅',
+  'subscription.subscribe': '订阅 / 升级',
+  'subscription.subscribing': '正在打开订阅…',
+  'subscription.desc': '当前账号没有可用的 GEN 生成次数，请订阅或升级套餐后重试。',
+  'subscription.hostUnavailable': '无法打开订阅页面（宿主未提供对话框服务）。',
+  // Avatar popup (redesigned sidebar account menu).
+  'subscription.quotaHeader': '套餐与使用额度',
+  'subscription.upgrade': '订阅 / 升级套餐',
+  'subscription.online': '在线',
+
   'card.title': '华秋 EDA AI（eda.cn）登录',
   'card.desc': '工具「{tool}」需要登录华秋 EDA AI 账号才能继续。请在下方的登录框完成登录（或点击左侧「华秋EDA AI登录」按钮）；登录完成后，回复助手「已登录，请重试」，助手会自动重新调用该工具。',
   'card.loggedIn': '✓ 已登录{nickname} —— 现在可以回复助手「已登录，请重试」，助手会重新调用工具。',
@@ -51,6 +70,24 @@ const en: Record<AuthCopyKey, string> = {
 
   'menu.profile': 'Go to profile',
   'menu.logout': 'Log out',
+
+  'subscription.title': 'Subscription',
+  'subscription.dialogTitle': 'Huaqiu EDA subscription',
+  'subscription.gen': 'System design (GEN)',
+  'subscription.erc': 'Circuit check (ERC)',
+  'subscription.package': 'Plan: {name}',
+  'subscription.quota': 'Available: {count}',
+  'subscription.quotaCount': '{used} / {total}',
+  'subscription.noQuota': 'No quota left',
+  'subscription.unsubscribed': 'Not subscribed',
+  'subscription.subscribe': 'Subscribe / Upgrade',
+  'subscription.subscribing': 'Opening subscription…',
+  'subscription.desc': 'This account has no GEN generation quota left. Subscribe or upgrade to continue.',
+  'subscription.hostUnavailable': 'Cannot open the subscription page (the host provides no dialog service).',
+  // Avatar popup (redesigned sidebar account menu).
+  'subscription.quotaHeader': 'Plan & usage quota',
+  'subscription.upgrade': 'Subscribe / Upgrade plan',
+  'subscription.online': 'Online',
 
   'card.title': 'Huaqiu EDA AI (eda.cn) login',
   // The reply phrase used to be hardcoded to the Chinese "已登录，请重试" even
