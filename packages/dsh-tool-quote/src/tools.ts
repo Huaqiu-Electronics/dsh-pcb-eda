@@ -105,15 +105,17 @@ export function createQuoteTools(env: QuoteToolEnv) {
         'wants to change (e.g. color, blayer, board_tg), and re-query with the corrected form ' +
         'rather than guessing values. Progressive usage: quote_pcb for PCB fabrication, quote_smt ' +
         'for assembly, then the user places the order in the EDA host. This is a quote-only ' +
-        'query — no order is created. All regions are anonymous-queryable (no login required).',
+        'query — no order is created. All regions are anonymous-queryable (no login required). ' +
+        'The pricing region is auto-detected by hq-edge from the trusted request context (CN / JP / ' +
+        'INTERNATIONAL) — do NOT force a region unless the user explicitly asks for one.',
       parameters: {
         region: {
           type: 'string',
           enum: ['cn', 'eu_us', 'jp'],
-          required: true,
           description:
-            'Pricing region. "cn" = Huaqiu China (eda.cn, ¥), "eu_us" = NextPCB EU/US, ' +
-            '"jp" = NextPCB Japan (both ￥).',
+            'Optional explicit override. When omitted, hq-edge auto-detects the pricing region from ' +
+            'the trusted request context (CN / JP / INTERNATIONAL). "cn" = Huaqiu China (eda.cn, ¥), ' +
+            '"eu_us" = NextPCB EU/US, "jp" = NextPCB Japan (both ￥).',
         },
         bcount: {
           type: 'integer',
@@ -178,15 +180,16 @@ export function createQuoteTools(env: QuoteToolEnv) {
         'derive_board_stackup is set, the response carries the effective form: EDA-extracted board facts ' +
         '(panel size, embedded PCB length/width/layers/thickness) merged with the caller overrides — ' +
         'inspect "form" and re-query with corrected parameters instead of guessing. Quote-only — no ' +
-        'order is created.',
+        'order is created. The pricing region is auto-detected by hq-edge from the trusted request ' +
+        'context (CN / JP / INTERNATIONAL) — do NOT force a region unless the user explicitly asks.',
       parameters: {
         region: {
           type: 'string',
           enum: ['cn', 'eu_us', 'jp'],
-          required: true,
           description:
-            'Pricing region. "cn" = Huaqiu China (eda.cn, ¥), "eu_us" = NextPCB EU/US, ' +
-            '"jp" = NextPCB Japan (both ￥).',
+            'Optional explicit override. When omitted, hq-edge auto-detects the pricing region from ' +
+            'the trusted request context (CN / JP / INTERNATIONAL). "cn" = Huaqiu China (eda.cn, ¥), ' +
+            '"eu_us" = NextPCB EU/US, "jp" = NextPCB Japan (both ￥).',
         },
         number: {
           type: 'string',
