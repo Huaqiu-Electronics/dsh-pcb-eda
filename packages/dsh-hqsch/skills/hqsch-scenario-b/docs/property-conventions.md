@@ -57,8 +57,8 @@ Use that id for wiring — not designator strings alone.
 
 | Priority | Skill | When to use |
 | --- | --- | --- |
-| **1 (preferred)** | `canvas-auto-connect-objects-by-id` | You have both placement `object_id`s (works for C1 ↔ VCC/GND power symbols). |
-| **2** | `obj-place-place-wire` | After `kernel-get-snapshot` pin lookup via `canvas_object_id`. |
+| **1 (preferred)** | `obj-place-place-wire` | Resolve pin ext via `pinsOf` / snapshot; agent plans orthogonal segments (scenario-b: `connectPinsPlaceWire`). |
+| **2** | `canvas-auto-connect-objects-by-id` | **Not for scenario-b hand-wiring** — engine router, path not AI-controlled. |
 | **3** | `canvas-auto-connect-by-part-reference` | Both endpoints are regular parts with stable `Reference` designators (R/C/U). |
 | **Avoid** | Estimated coords (placement Y ± offset) | Never guess pin positions — wires will miss pins. |
 
@@ -66,39 +66,39 @@ For nets with **three or more nodes**, also read
 [`placement-conventions.md` — Schematic wire routing (avoid overlap)](placement-conventions.md#schematic-wire-routing-avoid-overlap):
 separate branch lanes at placement and chain-connect (do not hub from one anchor).
 
-### Option 1 — AutoConnect by object id (recommended)
+### Option 1 — PlaceWire (recommended for agents)
 
-Uses the same `object_id` returned by placement RPCs directly — no snapshot
-lookup required:
+Resolve pin positions, then place **explicit** wire segments. Power / GND /
+port / off-page symbols use pin **`0`** on that side.
 
 ```typescript
+import { connectPinsPlaceWire } from "./modular-lib.js";
 // After placing C1, VCC_5V, GND — save each object_id
-await getSkill("canvas-auto-connect-objects-by-id")!.execute(ctx, {
-  context: projectCtx,
-  objectId1: c1ObjectId,
-  pinNum1: [1],
-  objectId2: vccObjectId,
-  pinNum2: [0],   // power / GND / port / off-page symbol → always 0
-});
+await connectPinsPlaceWire(client, projectCtx, c1ObjectId, 1, vccObjectId, 0);
+await connectPinsPlaceWire(client, projectCtx, c1ObjectId, 2, gndObjectId, 0);
+```
 
-await getSkill("canvas-auto-connect-objects-by-id")!.execute(ctx, {
+For L-shaped routes, call `wireOrthogonalLExt` or two `placeWire` endpoints
+yourself — pick the corner with fewer crossings (`listWireSegments`).
+
+**Symbol pin numbers:** when either endpoint is a **power / GND / hierarchical
+port / off-page** symbol (`PlaceSymbolFromLibrary`), use pin **`0`** for that
+side. Regular parts use their printed pin numbers.
+
+### Option 2 — AutoConnect by object id (not for scenario-b hand-wiring)
+
+Engine-owned router — do **not** use for leftover nets in scenario-b scripts.
+Kept for legacy tooling only:
+
+```typescript
+await client.canvasOps.autoConnectObjectsById({
   context: projectCtx,
-  objectId1: c1ObjectId,
-  pinNum1: [2],
-  objectId2: gndObjectId,
-  pinNum2: [0],   // power / GND / port / off-page symbol → always 0
+  objectId1: c1ObjectId, pinNum1: [1],
+  objectId2: vccObjectId, pinNum2: [0],
 });
 ```
 
-Proto fields: `object_id_1`, `pin_num_1` (repeated int32), `object_id_2`,
-`pin_num_2`.
-
-**Symbol pin numbers:** when either endpoint is a **power / GND / hierarchical
-port / off-page** symbol (`PlaceSymbolFromLibrary`), pass **`pinNum: [0]`** for
-that side. Do not use `1` — the engine treats symbol connection points as pin `0`.
-Regular parts use their printed pin numbers.
-
-### Option 2 — PlaceWire after snapshot pin lookup
+### Pin lookup (PlaceWire)
 
 Pin positions come from **`kernel-get-snapshot`** (top-level **`pinInstances[]`**, not
 nested under each `symbolInstances` entry), or from `getObjectJsonById` →

@@ -14,7 +14,7 @@
 
 ## 必读文档（按顺序，路径相对本 skill 包根目录）
 
-1. `docs/placement-conventions.md` — 坐标、布局、**routing mode gate**（短→autoConnect，长→stub+alias）
+1. `docs/placement-conventions.md` — 坐标、布局、**routing mode gate**（短→**PlaceWire**，长→stub+alias；**禁止**手布用 autoConnect）
 2. `docs/circuit-pattern-layout.md` — 优先用 pattern（pull_resistor、reset_circuit、decoupling_cap）
 3. `docs/part-search.md` — searchParts → getEdaModels → PlaceKicadSymbol
 4. `docs/quickstart.md` — connect、createProjectContext
@@ -25,7 +25,7 @@
 9. `docs/troubleshooting-power-nets.md` — **电源/网络异常**（GND「消失」、短接、先几何后语义）
 10. `docs/serialization.md` — toJsonString 与 BigInt
 11. `docs/modular-layout.md` — **模块化布局 P0–P4**（用户要模块框/最小系统时必读）
-12. `docs/modular-layout-compact.md` — **页面预算 / 宏观区位 / 密度带 / 标签走廊**（模块化任务必读，治「模块太散、排布不规则」）
+12. `docs/modular-layout-compact.md` — **网格版式 / 两遍收拢 / 网格拉框 / 密度带 / 标签走廊**（模块化任务必读，治「模块太散、排布不规则」）
 13. `docs/decoration-objects.md` — **模块框/PlaceText**：place 时记 `objectId`（A）；勿用 snapshot 找装饰
 14. `docs/layout-quality-audit.md` — 密度带、导线穿框、最大空白矩形、网格对齐（P4b 跑 `layout-audit.ts`）
 15. `docs/layout-visual-review.md` — **save → export PDF**（P4b 视觉验收，`export-layout-pdf.ts`）
@@ -41,24 +41,35 @@
   - `kind`：电源/地用 **`LibrarySymbolKind.GLOBAL`（=1）**；`OFF_PAGE=2`，`PORT=3`
   - **`symbolName`** = 库里的**图形符号名**（模糊匹配库符号）
   - **`netName`** = 写入实例 **"Name"** 用户属性的网络名；传空则 Name 沿用 `symbolName` —— **勿把图形名和网络名混为一谈**
-  - `autoConnect` 时电源符号引脚用 pin **0**
-  - **禁止** `autoConnectObjectsById` 连接 **两个不同 rail** 的全局电源符号（如 +3V3↔GND）；各 symbol 连器件/电容脚，同 rail 靠 **相同 Name**，不是 symbol↔symbol 直连
+  - 手布用 **`connectPinsPlaceWire` / `placeWire`**；电源符号引脚号 **0**
+  - **禁止** `autoConnectObjectsById` 作为手布默认（路径不可控）；**禁止**用 PlaceWire/autoConnect 连接 **两个不同 rail** 的全局电源符号（如 +3V3↔GND）；各 symbol 连器件/电容脚，同 rail 靠 **相同 Name**
 - **网络异常排查：先几何后语义** — 先 `listWireSegments().wires` + 引脚坐标，再 `getActivePageNetList` / snapshot；详见 `docs/troubleshooting-power-nets.md`
-- **写操作后**（删线、autoConnect、apply pattern、改属性）调用 `waitForNetlistStable`（`template/scripts/modular-lib.ts`），**至少稳定一轮** 再下 net 存在/消失结论
+- **写操作后**（删线、PlaceWire、apply pattern、改属性）调用 `waitForNetlistStable`（`template/scripts/modular-lib.ts`），**至少稳定一轮** 再下 net 存在/消失结论
+- **逐阶段网表检查点**：生成脚本里在「电源符号放完 / 每个 pattern 后 / 模块内连线后 / repack 后 / 跨模块 stub 后」各调一次 `checkpointNets(client, ctx, "<阶段名>")`。它在 **出问题的那一步** 就报出哪两个命名网络被并到一起、混入了哪些脚 —— 不要等全图画完再整体排查
+- **连线冲突检查**：`connectPinsPlaceWire` / `wireOrthogonalLExt` / `placeWireSegmentExt` 下线前会检查与 **异网导线** 的共线重叠、平行间距 < 8 ext、T 接点；L 形首选拐角冲突时自动换另一个拐角，两个都冲突才抛错。看到这个错误 **挪器件或改短 stub+NetAlias**，不要传 `check:false` 硬下线；确属同一网络（如沿已有 GND 母线 T 接）传 `{ net: "GND" }`。电源符号引脚线不要与另一 rail 的母线同 x / 同 y 共线
 - **调试纪律**：每个实验写一句 **falsifier**；**同一假设类** 连续 **3 次** 失败 → **必须换假设类**（如从命名错误换到物理短路），禁止第 4 次同思路 patch
 - **先 pattern 后 hand-wire**；`connections[].routed=true` 的 net 不要重连
 - **选 anchor 看整页**：`get-page-occupancy` 读 `page_box` + 全部 bbox + 已有 `occupied_box`，在空位里放下该 pattern 的 `typical_size`（按 `anchor_semantics` 换算枢纽四周伸出）。禁止写死「某电路下方 N 格」或固定坐标；禁止为靠近 host 引脚而挤缝。`ignoreAreaConflict=false`
-- **每条 net 先跑 routing gate**：量距离 → 短（≤300 ext、交叉<3）用 `autoConnect`；长/拥挤用双端 `placePinStubWireAndNetAlias`（同一 `netName`）
+- **每条 net 先跑 routing gate**：量距离、看交叉 → 短（≤300 ext、交叉<3）用 **`PlaceWire`**（1–2 段正交，`connectPinsPlaceWire`）；长/拥挤用双端 `placePinStubWireAndNetAlias`（同一 `netName`）。**手布禁止 autoConnect**
 - 字母引脚（CC1、A5）：用 `pinName` / `pinNumber` **字符串**，禁止 `Number("A5")`
 - **pattern 的 host 电源引脚必须用 `pinName` 绑定**（如 `pinName:"VIN"`）；用 `pinNum` 会返回 `PIN_RESOLVE_FAILED`
 - **放置后必须等对象注册再 apply**：轮询 `getPageOccupancy` 直到所有新 id 出现，否则 apply 报 `OBJECT_NOT_FOUND` 或假 `PARTIAL`
-- **模块化布局**：用户要分区/模块框/中文标题时走 **P0→P4**（见 `modular-layout.md` + `modular-layout-compact.md`）；P1 坐标 **吸附 20 ext 网格**；P4a **之后**再画框；**禁止**用 union 外接矩形占比代替 `layout-audit.ts`
-- **页面预算**：P0 用 **`planCompactZones(模块清单)`** 反推 `pageW/pageH` 与槽位；**禁止**默认 1800×1400 + 固定 500×400 槽（模块相距过远的主因）。每模块须给 **`band`**（top/left/center/right/bottom），主控 `center` 且最大
-- **标签走廊**：模块框之间留 **60 ext**（40～120）；**模块内**短线 `autoConnect`，**跨模块一律双端 `placePinStubWireAndNetAlias`（同名 netName）**；**导线禁止穿过模块框**（`layout-audit.ts` ❌ 项）
-- **密度带当松紧旋钮**：单模块框内密度 **35%～70%**、六分区 **≤72%**、最大空白矩形 **≤10%**、页边距 **max/min ≤2**；过空 → 缩框或合并模块（晶振+负载、复位+按键、SWD+BOOT），过挤才加大页面
+- **模块化布局**：用户要分区/模块框/中文标题时走 **P0→P4**（见 `modular-layout.md` + `modular-layout-compact.md`）；P1 坐标 **吸附 20 ext 网格**；P3.5 收拢 **之后**才在 P4a 画框；**禁止**用 union 外接矩形占比代替 `layout-audit.ts`
+- **网格版式**：P0 用 **`planCompactZones(模块清单)`**（默认 grid）反推页面与单元；**禁止**默认 1800×1400 + 固定 500×400 槽，**禁止**把外围模块平铺成一长行。每模块给 **`col`**（列号）+ `order`（列内顺序），同列小模块用同一 `group` **并排**，底部汇总模块可 `span` 跨列。**主控所在列不限**；外围模块按相连的 MCU 引脚就近选列、按引脚高度排序。所有列顶底对齐，整页外轮廓为矩形
+- **两遍收拢（必做）**：放完器件、pattern、模块内连线后 **`repackModules`**（按电气连通收集器件 + 导线 + 电源符号 + NetAlias → 重算网格 → setPageExt → 整批平移 → 前后网表对比，掉网自动补、并网抛错），**必须在跨模块标签之前**；之后一律用返回的新 plan。抛错时停下处理，**不要**接着画框
+- **移动模块 ≠ 移动器件**：导线、电源符号、NetAlias 是独立对象。**禁止**自己拿器件 id 调 `moveExtBatch` 搬模块（线被拖歪 → 并网；符号/标签留原地 → 掉网）
+- **坐标系**：ext.y = `PAGE_TOP` − 画布原始 y；`PAGE_TOP` 是页面上边的画布 y（空页锚点 1400），**不是** `page_box.max.y`（被归一化，差一个页高）。用 `calibratePageTop` 标定；改页只用 **`setPageExt`**（保持上边），**禁止** `setPageSize({ ltY: 0, rbY: pageH })`
+- **页尺寸持久化**：`setPageExt` / `repackModules` 改的是当前页框；**关页再开读 `VxPage.m_pageSizeInfo`**。模块化脚本 **P4b 结束前必须 `persistProject`（saveProject）**；用户关工程未保存仍会丢。Custom RPC 须 HQ 引擎同步 VxPage（否则当时对、重开回旧尺寸）
+- **跨模块 stub 必须短**：用 **`placeShortStubAlias`**（stub ≤ 40 ext，小于 60 ext 走廊）；直接调 `placePinStubWireAndNetAlias` 默认可伸到 300 ext，会跨走廊抓到隔壁模块并网。小器件补网只用短 stub，不在按键相邻脚之间拉器件内连线；每次补网后复核目标网没有混入别的脚，混入就回滚
+- **按功能电路分模块**：只有 **两三个器件**（≤ `MERGE_MAX_PARTS`=3）的电路块（复位、BOOT、指示灯、CC 下拉、单颗 ESD、稳压输入输出电容…）**不单独成模块**，在规划表里用 `attachTo` 并入电气相连、功能上服务的模块，再 `mergeSmallModules(MODULES)`；合并后标题写功能名（如「主控 ESP32-S3（含复位/BOOT）」）。并入的小电路在同一框内贴近目标引脚，用 PlaceWire 直连，不走跨模块标签
+- **模块标题与说明在框内**：`title` 画在 **框内左上角**，`note`（一行必要说明：关键取值/接法/注意事项）画在 **框内左下角**；`planCompactZones` 已为二者预留标题带/说明带，**禁止**把标题放到框外走廊
+- **网格拉框**：整页 P4a 用 **`placeGridFrames`**（框 = 网格单元，同层同顶同底、同列同左同右）；密度 < 35% 的模块自动退回紧框并报警 → 合并、并排或换列。4 件左右的独立小模块不按密度退回，**不要**为它们传 `minDensity: 0`
+- **模块内同网直连**：同一模块框内同一网络的引脚一律用 `connectPinsPlaceWire` 连成一棵树，**不只小电路**——MCU 引脚与并入主控的上拉/按键/电容/LED（如 `IO0`–R5–SW2 的 BOOT）、按键+上拉、LED+限流、稳压芯片与其电容都一样。P1 就把外围器件摆在对应引脚同侧、正对引脚高度，小电路同列上下相邻（间距 80～120 ext）；电源/地用电源符号贴在引脚端。**禁止**模块内用同名 NetAlias 拼接器件；同一网络在同一模块内 **最多一个** NetAlias，且只挂在连到框外的那一端（见 `modular-layout-compact.md` §模块内同网直连）
+- **标签走廊**：模块框之间统一 **60 ext**；**模块内**用 **PlaceWire** 正交布线，**跨模块一律双端 `placeShortStubAlias` / stub+NetAlias（同名 netName）**；**导线禁止穿过模块框**，去耦排与 MCU 电源脚也不例外（`layout-audit.ts` ❌ 项）
+- **密度带当松紧旋钮**：单模块框内密度 **35%～70%**、六分区 **≤72%**、最大空白矩形 **≤10%**、页边距 **max/min ≤2**、网格对齐与相邻间距统一 ✅；过空 → 合并模块（晶振+负载、复位+按键、SWD+BOOT）或并排，过挤才加大页面
 - **装饰图元（框/自由字）**：`placeRect` / `placeText` 后 **必须 `recordDecoration`（A）**，脚本结束前 `saveDecorationLedger()`、下次开头 `loadDecorationLedger()`（跨进程才删得掉）；**禁止**用 `GetSnapshot` 或 `getPageOccupancy` 找框/字。无账本或用户手动画 → **`canvasOps.listPageDecorations`（E）**（见 `decoration-objects.md`）
 - **活动页 netlist**：`getActivePageNetList` → `result.value.nets[]`；引脚在 `pinReferences[]`（勿读顶层 `nets`）
-- **活动页引脚坐标**：优先 `getObjectJsonById` + `PortInstScalar`；`PAGE_TOP = page_box.max.y`（ext Y 向下）。读快照时引脚在 **顶层 `pinInstances[]`**（含 `position`、`canvasObjectId`），**不在** `symbolInstances` 内嵌 — 勿因 symbol 无 pin 字段判定「GetSnapshot 无引脚位置」（见 `reading-a-circuit.md`）
+- **活动页引脚坐标**：优先 `pinsOf`（`getObjectJsonById` + `PortInstScalar`）；`PAGE_TOP` 由 `calibratePageTop` 标定（ext Y 向下），勿取 `page_box.max.y`。读快照时引脚在 **顶层 `pinInstances[]`**（含 `position`、`canvasObjectId`），**不在** `symbolInstances` 内嵌 — 勿因 symbol 无 pin 字段判定「GetSnapshot 无引脚位置」（见 `reading-a-circuit.md`）
 - **读取导线段字段是 `wires`**（`listWireSegments().wires`），**不是** `wireSegments`
 - 打印 protobuf 响应用 `toJsonString`；禁止对 RPC 结果裸 `JSON.stringify()`。遍历快照 `position.x/y`（bigint）时见 `docs/serialization.md` replacer
 - 耗时基线（区间，非 SLA）：快照约 **1.6–3.2s**；单次 pattern/放置脚本约 **15–20s**（抖动正常）。勿用超时反推「未实现」
@@ -69,7 +80,7 @@
 - **画电路** → 按「流程 A」执行；不可跳过 pattern 规划直接写放置/接线代码。
 - **读电路 / 理解已有设计**（如"VR201 有什么作用"、"这个网络为什么叫 +3.3V"）→ 按「流程 B」，**只读不改**。
 - **改部分电路**（如"把 C201 改成 1µF"、"把 R5 改接到 +3.3V"、"换掉 U3"）→ 按「流程 C」，**外科手术式**；禁止清页重画。
-- **已有模块化分区，只修某一模块**（如「复位模块有问题」「电源区改一下」）→ 仍是 **流程 C**，读 `modular-layout.md` §单模块修补 + `editing-a-circuit.md` § Modular designs。**修一块 ≠ 重画整页**；禁止整页重建脚本 / `clearActivePageFull` / 无确认整页删除；禁止 `prepareP4aDecorations`（会删掉全页框/字）。只需重画框时：只删该 `moduleKey` 的装饰再 `unionModuleBBox` → `placeModuleFrameAndTitle`。
+- **已有模块化分区，只修某一模块**（如「复位模块有问题」「电源区改一下」）→ 仍是 **流程 C**，读 `modular-layout.md` §单模块修补 + `editing-a-circuit.md` § Modular designs。**修一块 ≠ 重画整页**；禁止整页重建脚本 / `clearActivePageFull` / 无确认整页删除；禁止 `prepareP4aDecorations`（会删掉全页框/字）。只需重画框时：只删该 `moduleKey` 的装饰再 `unionModuleBBox` → `frameAroundContent` → `placeModuleFrameAndTitle`（带 `note`）。
 
 ### 流程 A — 画电路
 
@@ -86,7 +97,7 @@
    | 需求特征 | pattern | apply 次数 |
    | --- | --- | --- |
    | LDO / 稳压 / 输入输出滤波 / 旁路（host 脚 shunt） | `decoupling_cap` | **每颗 cap 一次 apply**（同脚 bulk+bypass 最多 2 颗一次） |
-   | **去耦电容模块**（槽内多颗并联排、共一对 VCC/GND） | **手布 only** | 见 `modular-layout.md` §去耦两种拓扑；**禁止** `decoupling_cap` / `applyCircuitPattern`（含一颗一 apply） |
+   | **去耦电容模块**（多颗并联排、共一对 VCC/GND） | **手布 only：`placeDecapRow`** | 见 `modular-layout.md` §去耦两种拓扑；**禁止** `decoupling_cap` / pattern、电容间 **autoConnect**（已用 PlaceWire 画母线）；符号用 `connectPinsPlaceWire` |
    | 上拉 / 下拉电阻 | `pull_resistor` | 同极性同 rail 合并一次 |
    | 复位电路 / reset 按键 | `reset_circuit` | 一次 |
    | I2C + 上拉 | `i2c_bus` | 一次 |
@@ -94,27 +105,36 @@
    | 无源晶振 + 负载电容（2 脚） | `crystal` | 一次 |
    | 有源晶振 / 4 脚振荡器 | **不走 pattern**（手布） | — |
 
-   **模块化整页（可选）**：用户要模块框/中文标题时，先出 **模块规划表**（key / 中文 title / refs / **band**），再 **P0** `planCompactZones` + `setPageSize`；顺序 **P0→P1→P2→P3→P4a 框/标题→P4b**（见 `modular-layout.md` 与 `modular-layout-compact.md`）。公共库：`template/scripts/modular-lib.ts`。
+   **模块化整页（可选）**：用户要模块框/中文标题时，先出 **模块规划表**（key / 中文功能 title / note / refs / **col / order / group**；≤3 件小块 `attachTo`），再 **P0** `mergeSmallModules` → `planCompactZones` + `setPageExt`；顺序 **P0→P1→P2→P3→P3.5 收拢→P3c 跨模块标签→P4a 网格框/标题→P4b**（见 `modular-layout.md` 与 `modular-layout-compact.md`）。公共库：`template/scripts/modular-lib.ts`。
 
 3. **生成脚本**（脚本内电路步骤顺序固定）：
    ```
    connect → getActiveProject → createProjectContext
-   → 【模块化】P0：planCompactZones(模块清单) → setPageSize(Custom) → 读 page_box
+   → 【模块化】P0：MODULES = mergeSmallModules(模块清单) → planCompactZones(MODULES) → setPageExt(client, ctx, plan.pageW, plan.pageH)
    → 放置 host / 独立器件（part-search → placeKicadSymbol；电源符号 → PlaceSymbolFromLibrary）
    → 【等待注册】轮询 getPageOccupancy 直到所有新 id 出现（关键！否则 apply 失败）
    → 规范位号 / 容值（覆盖引擎自动分配的 C1..C4）
    → applyCircuitPattern（每个适用 pattern 一次；先 planOnly 可选，再正式 apply）
-   → 仅对 pattern 未覆盖的 net 做 hand-wire（每条 net 先跑 routing gate）
-   → 【模块化】P4a：`prepareP4aDecorations` → union 器件 bbox 略放大 → placeRect + placeText + recordDecoration（禁止整槽位空框）
-   → 验收：netlist + listWireSegments().wires；模块化再加 layout-audit（密度带/导线穿框）→ save → export PDF（见 modular-layout.md P4b）
+   → 仅对 pattern 未覆盖的 **模块内** net 做 hand-wire（每条 net 先跑 routing gate；去耦排用 placeDecapRow）
+   → 【模块化】P3.5：`plan = (await repackModules(client, ctx, MODULES, plan)).plan`（电气连通收集 → 重算网格 → setPageExt → 整批平移 → 网表复核）
+   → 跨模块 net：双端 placeShortStubAlias（stub ≤ 40 ext；必须在 P3.5 之后）
+   → 【模块化】P4a：`placeGridFrames(client, ctx, MODULES, plan)`（按网格单元拉框 + 框内左上标题 + 框内左下 note + recordDecoration；密度 < 35% 自动退回紧框）
+   → 验收：netlist + listWireSegments().wires；模块化再加 layout-audit（密度带/网格对齐/导线穿框）→ **persistProject** → export PDF（见 modular-layout.md P4b）
    → zoomAll
    ```
    写入 `template/scripts/<名称>.ts`（或用户指定的 scripts 目录）。
-   **禁止**跳过 `applyCircuitPattern` 直接 `autoConnect` 全图；**禁止**重连 `connections[].routed=true` 的 net。
+   **禁止**跳过 `applyCircuitPattern` 用 autoConnect 糊全图；手布余网用 **PlaceWire**；**禁止**重连 `connections[].routed=true` 的 net。
 
 4. **自动执行**：立即在脚本所在目录运行 `npx tsx scripts/<名称>.ts`，读取 stdout/stderr。
+   - **PowerShell 下判成败只看退出码**：`npx tsx scripts/x.ts; echo "exit=$LASTEXITCODE"`。Node 往 stderr 写的告警在 PowerShell 5 里会显示成红色 `NativeCommandError`，**不等于失败**；`exit=0` 且 stdout 有 `✓` 即成功。PowerShell 5 不支持 `&&`，用 `;`。
 
 5. **失败重试**：若脚本报错，根据 stderr 修正后重试，**最多 3 次**。
+
+5.5 **首次完整出图后的微调纪律**（避免在微调上空耗）：
+   - 第一次整页画完且网表无并网/断网后，**先停下向用户汇报**：模块清单、网表验收结论、layout-audit 结论、PDF / 截图路径，请用户确认方向，再进入微调。
+   - 微调 **只修出问题的模块**：`moduleBlastRadius` 看范围 → `deleteModuleBlastRadius` 删该模块器件+导线 → 在原框内重放重连 → `checkpointNets` + `waitForNetlistStable` 复核；**禁止**为改一个模块整页清空重画（见 `modular-layout.md` §单模块修补）。
+   - 确需整页重跑时，**每次只验证一个假设**（一次只改一处坐标规则 / 一个间距常量），并在运行前写下预期变化；不允许一次改多处再「看看效果」。
+   - 只是好不好看的问题（对齐、间距、走线拐角），**连续 3 轮** 还没收敛 → 停下，把现状截图和剩余问题列给用户，问是否接受或给出方向；**电气问题**（并网、断网、悬空脚）不受此限，必须修到通过。
 
 6. **验收**（脚本成功后必做）：
    - 检查每个 pattern 的 `status` / `connections`（是否 `routed=true`）。
@@ -159,7 +179,7 @@
 4. **向用户复述 diff**，待确认后再写（脚本可用 `CONFIRM=1` 跳过交互）。
 5. **最小 RPC 执行**：
    - 改属性 → `FindObjectByProperty` + `SetObjectProperty`（位号用 `Part Reference`）
-   - 改接脚 → `autoConnectObjectsById` 或 `placePinStubWireAndNetAlias`（routing gate）
+   - 改接脚 → `connectPinsPlaceWire` 或 `placePinStubWireAndNetAlias`（routing gate）
    - 换器件 → 快照坐标 → `deleteObjectsByIds` → `placeKicadSymbol` → 按 pin 重连
 6. **双源验收**：再 `GetSnapshot`（pin→net）+ `netList` + 一致性复查。
 
@@ -186,7 +206,7 @@
  * subnet 分解:
  *   [<子电路 A>] → <pattern id> (host=..., terminal=...)
  *   [<子电路 B>] → <pattern id> (host=..., terminal=...)
- *   [<leftover>] → hand (routing gate: 短 autoConnect / 长 stub+alias)
+ *   [<leftover>] → hand (routing gate: 短 PlaceWire / 长 stub+alias)
  * =====================================
  */
 import { toJsonString } from "@huaqiu/huaqiu-client";

@@ -8,6 +8,8 @@
 
 KiCad 完整版（含审计规则 ID）：[modular-placement.md](../../../../modular-placement.md)。
 
+> **scenario-b 以 `modular-layout.md` + `modular-layout-compact.md` 为准**：网格版式（列/层/并排）、**P3.5 `repackModules` 两遍收拢**（必须在跨模块标签之前）、P4a **`placeGridFrames`** 按网格拉框。下文 P4c 裁边已被 P3.5 取代，仅在不走模块化库的手工流程中参考。
+
 ---
 
 ## 概念与适用范围
@@ -29,7 +31,9 @@ KiCad 完整版（含审计规则 ID）：[modular-placement.md](../../../../mod
 P0  规划表 + 复杂度档(S/M/L) → 估 Custom 页 → setPageSize → 读 page_box
 P1  在 page_box 内：occupancy 扫描 + 放置器件（勿写死整页 magic 坐标）
 P2  统一电源与功能网络名，放 GND/VCC/标签
-P3  applyCircuitPattern + routing gate 补线
+P3  applyCircuitPattern + routing gate 补线（模块内）
+P3.5 repackModules：按电气连通收集（器件+导线+电源符号+NetAlias）→ 重算网格 → setPageExt → 整批平移 → 网表复核（scenario-b 必做）
+P3c 跨模块 stub + 同名 NetAlias（必须在 P3.5 之后）
 P4a 模块框 + 中文标题 + 清理孤儿线/悬空 stub（记录 rect/text objectId）
 P4b 验电：snapshot / netlist / 连通性 + saveProject + zoomAll
 P4c 【可选】fitPageToContent：union 实际 bbox 微调 Custom 页（仅估页偏差或用户要求裁边）
@@ -147,7 +151,7 @@ STM32F103 最小系统（电源、MCU 双 section、8MHz、复位、BOOT、去�
 1. `get-page-occupancy` 收集本模块所有 `Reference` 的 bbox；  
 2. union 后扩展 margin（建议 **40 ext** 起）；  
 3. `obj-place-place-rect`；  
-4. `obj-place-place-text` 写中文标题（框顶上方 **20–40 ext**）；  
+4. `obj-place-place-text` 写中文功能标题（**框内左上角**，距上边 ~24 ext）；需要时在 **框内左下角** 写一行设计说明；  
 5. **记录** 每次返回的 `objectId`（occupancy 常不含 rect/text，P4c 需要）。
 
 框应 **完整包住** 本模块器件与标题，且 **不穿过** 器件本体（人工预览）。

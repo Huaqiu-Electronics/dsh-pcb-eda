@@ -20,7 +20,7 @@
 cd skills/hqeda && pnpm run build:scenario-b
 ```
 
-`build:scenario-b` 会从 monorepo 拷贝 guides + RPC 文档（含 **set-page-size / place-rect / place-text** 等模块化 RPC）、`modular-placement` 长文，再合并 `onboarding/scenario-b/docs/`（含 **modular-layout**、**layout-quality-audit**）与 `onboarding/scenario-b/template/`（含 `modular-lib.ts`、`layout-audit.ts`）。
+`build:scenario-b` 会从 monorepo 拷贝 guides + RPC 文档（含 **set-page-size / place-rect / place-text** 等模块化 RPC）、`modular-placement` 长文，再合并 `onboarding/scenario-b/docs/`（含 **modular-layout**、**modular-layout-compact**、**layout-quality-audit**）与 `onboarding/scenario-b/template/`（含 `modular-lib.ts`、`layout-audit.ts`）。**SKILL.md / INSTALL.md / SYSTEM-PROMPT.md** 在发布目录内直接维护，构建时不会被覆盖。
 
 同步到 DSH 插件：
 
@@ -30,9 +30,18 @@ cd skills/hqeda && pnpm run build:scenario-b:dsh
 
 目标目录：`dsh-pcb-eda/packages/dsh-hqsch/skills/hqsch-scenario-b/`（SKILL 名改为 `hqsch-scenario-b`）。
 
-> **DSH 侧额外层**：`docs/script-lifetime.md` 与 `template/scripts/lib/hq.ts` 由 DSH 插件维护，
-> 不在 hq-edge 的 `build:scenario-b --dsh` 产物里。上游同步（该命令会清空目标目录）之后必须
-> 重新补回，并把模板脚本入口改回 `hqMain` / `hqMainWithProject`。
+> **DSH 侧额外层**（上游 `pnpm run build:scenario-b:dsh` 会清空目标目录，同步后必须补回）：
+>
+> 1. `docs/script-lifetime.md` 与 `template/scripts/lib/hq.ts`（`hqMain` / `hqMainWithProject`
+>    运行时外壳）—— 上游不提供。
+> 2. 模板脚本入口 —— 改回 `hqMain` / `hqMainWithProject`（上游是裸 `connect()` + `main().catch()`）。
+>    `layout-audit.ts` 走外壳后不再调用 `openCtx()`，改为在入口显式 `refreshPageTop(client, ctx)`。
+> 3. `SKILL.md` / `SYSTEM-PROMPT.md`（→ `AGENTS.md`、`CLAUDE.md`）—— 补回 `hqMain` 硬性规则、
+>    `docs/script-lifetime.md` 阅读清单条目与 `^0.1.9` 客户端版本要求。
+> 4. `template/package.json` —— 保留 `name: hqsch-scenario-b`、`typecheck` 脚本与 `^0.1.9` 依赖钉版。
+>
+> `refreshPageTop(client, ctx)` 自 2026-10-08 起已由上游 `modular-lib.ts` 导出
+> （`calibratePageTop` 的兼容别名），不再需要单独补丁。
 
 ---
 

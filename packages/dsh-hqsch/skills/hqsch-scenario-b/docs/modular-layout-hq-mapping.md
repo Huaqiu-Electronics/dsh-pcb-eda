@@ -2,6 +2,8 @@
 
 本文档说明如何把 [modular-placement.md](../../../../modular-placement.md) 里的概念落到 HQ EDA skill / RPC 上。**HQ 试跑以本文为准**；KiCad 的 `audit_schematic.py`、S 表达式解析在 hq-edge 仓库中**不存在**，不要调用。
 
+> **scenario-b 以 `modular-layout.md` 为准**：P3 之后插入 **P3.5 `repackModules`**（按电气连通两遍收拢 + `setPageExt`，取代 P4c 裁边；改页保持上边 `rbY = PAGE_TOP`，勿写 `ltY=0/rbY=pageH`）与 P3c 跨模块标签；P4a 用 **`placeGridFrames`**。
+
 > **维护说明**：`skills/hqeda/modular-placement/` 下文档为人工编写，**不会被** `pnpm capability:generate` 覆盖（生成器目标为 `skills/hqeda/generated/` 与 `skills/eda/**` 等）。
 
 ## 阶段对照（Gate → Phase）
@@ -12,11 +14,12 @@
 | Gate 1 放置 | **P1 布局** | 器件实例、Reference/Value | `placement-place-kicad-symbol`、`pattern-layout-get-page-occupancy` |
 | Gate 2 网络名 | **P2 命名** | 电源符号、GND、功能 **NetAlias** | `placement-place-symbol-from-library`、`obj-place-place-net-alias-at` |
 | Gate 3 布线 | **P3 连接** | 模块内短线；模块间标签 | `pattern-layout-apply-circuit-pattern`；余网 [routing mode gate](../../guides/placement-conventions.md) |
+| （收拢） | **P3.5 收拢** | 模块整体平移 + 改页 | `repackModules`（`moveExtBatch` + `canvas-set-page-size`）；跨模块标签在此之后 |
 | 收尾 | **P4a 框/标题** | 模块矩形、中文标题、清理孤儿线 | `obj-place-place-rect`、`obj-place-place-text`、`canvas-delete-objects-by-ids` |
 | ERC / 网络表 | **P4b 验电** | 只读 + 保存 + 视图 | `kernel-get-snapshot`、`netlist-get-*`、`canvas-zoom-all`、`project-save-project` |
 | （可选） | **P4c 裁边** | 微调 Custom 页矩形 | `canvas-set-page-size`（Custom，union 实际内容） |
 
-**规则（与 KiCad 一致）**：器件与模块框位置未稳定前，**不要**大量 `PlaceWire` / 长距离 `autoConnect`。
+**规则（与 KiCad 一致）**：器件与模块框位置未稳定前，**不要**大量布线；P3 之后 agent 手布用 **`PlaceWire`**（scenario-b 禁用 `autoConnect` 作默认）。
 
 P1 允许「零网络」或未连接引脚；进入 P3 后电源脚、NRST 等不应长期悬空。
 
@@ -29,6 +32,7 @@ P1 允许「零网络」或未连接引脚；进入 P3 后电源脚、NRST 等�
 | **P4c** | 在 **P4b 验电通过后** 可选裁边；**不能**替代 P1 的 occupancy 放置 |
 | 标准纸型 | `pageSizeLabel: "A4"` 等，**勿手猜** lt/rb（见 [canvas-set-page-size](../../eda/canvas/set-page-size/SKILL.md)） |
 | Custom | `pageSizeLabel: "Custom"` + **`ltX, ltY, rbX, rbY`**（与页面尺寸对话框同一矩形语义） |
+| **关页再开** | 尺寸来自工程 **`VxPage.m_pageSizeInfo`**；Custom RPC 须引擎写回该字段 + 脚本 **`project.saveProject`**，否则「当时对、重开回旧尺寸」 |
 
 ---
 

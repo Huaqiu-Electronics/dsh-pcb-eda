@@ -61,7 +61,11 @@ This rebuilds `skills/hqeda/scenario-b/` and copies it into
 > 1. `docs/script-lifetime.md` and `template/scripts/lib/hq.ts` (the `hqMain` /
 >    `hqMainWithProject` runtime shell) — keep them, upstream does not ship them.
 > 2. Template script entrypoints — re-wrap them in `hqMain` / `hqMainWithProject`
->    instead of upstream's bare `connect()` + `main().catch()`.
+>    instead of upstream's bare `connect()` + `main().catch()`. `layout-audit.ts`
+>    then cannot rely on `openCtx()` to set `PAGE_TOP`, so it calls
+>    `refreshPageTop(client, ctx)` first; since 2026-10-08 upstream
+>    `modular-lib.ts` itself exports `calibratePageTop` + `refreshPageTop`, so no
+>    library patch is required any more.
 > 3. `SKILL.md` / `SYSTEM-PROMPT.md` (→ `AGENTS.md`, `CLAUDE.md`) — re-add the
 >    `hqMain` hard rule, the `docs/script-lifetime.md` reading-list entry and the
 >    `@huaqiu/huaqiu-client` `^0.1.9` requirement.
@@ -70,3 +74,21 @@ This rebuilds `skills/hqeda/scenario-b/` and copies it into
 >
 > `INSTALL.md` carries the same checklist. `pnpm --filter @huaqiu/dsh-hqsch test`
 > guards the identity and the prompt content.
+
+### Reproducing a refresh
+
+Outside this repo, the refresh is scripted and self-checking:
+
+| Step | Script | What it proves |
+| --- | --- | --- |
+| 1 | `build-merged.mjs` | rebuilds the merged skill from the upstream folder + the layer above; every anchor is asserted, so a moved upstream heading fails loudly |
+| 2 | `sync.mjs` | mirrors the merged tree into the live DSH bundle, both HQ Edge install sources and this package, backing each target up first |
+| 3 | `verify.mjs` | proves all four copies are byte-identical to the merged tree |
+
+```bash
+node build-merged.mjs && node sync.mjs && node verify.mjs
+```
+
+The live DSH bundle re-reads `SKILL.md` when the plugin loads, so restart the
+session (or HQ Edge) before expecting the refreshed skill text.
+

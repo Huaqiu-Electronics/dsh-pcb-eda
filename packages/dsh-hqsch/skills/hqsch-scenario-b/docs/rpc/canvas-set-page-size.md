@@ -99,6 +99,8 @@ console.log(toJsonString(result, { prettySpaces: 2 }));
 
 For `Custom`: either pass a canvas rect (`ltX/ltY/rbX/rbY`), or pass width/height in mm as `ltX`/`ltY` with `rbX=rbY=0` (e.g. `ltX: 297, ltY: 210`).
 
+**Persistence:** The call updates the **live canvas** page border immediately. After closing and reopening the schematic page, size comes from the design’s stored **`VxPage.m_pageSizeInfo`**, not from the last RPC alone. Scenario-B scripts should call **`project.saveProject`** after layout is final. Custom geometry via RPC must also sync that page-size metadata in the HQ engine (Jupiter_2 `SCH_Backend_SetPageSize`); otherwise reopening the page can revert to the previous size even though the canvas looked correct before close.
+
 Serialize responses with `toJsonString()` — see [serialization.md](../../references/serialization.md).
 
 ## Related Skills

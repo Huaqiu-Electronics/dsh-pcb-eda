@@ -237,9 +237,13 @@ Wire using the saved ids — do not look up power symbols by designator string.
 
 ### Routing mode gate (mandatory before every net)
 
-**Agents forget to measure** — they either `autoConnect` everything (long ugly
-wires) or stub+alias everything (missing real wires when pins are adjacent).
-Run this gate **per net**, after patterns, **before** picking a mode.
+**Scenario-B / agent policy:** hand-wiring is **`PlaceWire` only** — the agent
+plans orthogonal paths (straight segment or L-shape with **two** `placeWire`
+calls), picks corners to reduce crossings, and chains adjacent nodes on buses.
+**Do not** use `AutoConnectObjectsById` for leftover nets (pattern engine may
+still autoconnect **inside** an applied pattern; that is not agent hand-wiring).
+
+Run this gate **per net**, after patterns, **before** placing segments.
 
 ```
 For each net to wire (pinA on partA ↔ pinB on partB):
@@ -247,42 +251,44 @@ For each net to wire (pinA on partA ↔ pinB on partB):
   ├─ Already routed inside a pattern (connections[] routed=true)?
   │     → STOP — do not hand-wire
   │
-  ├─ Measure: Manhattan ext, L-route length, wire crossing count
-  │     (cross-part is OK if pins are close — same gate as same-part)
+  ├─ Resolve pin ext coords (pinsOf / snapshot pinInstances → ext)
   │
-  ├─ Short hop?  aligned (same X or Y), Manhattan ≤ 300 ext,
-  │               L-route ≤ 500 ext, crossings < 3, not a ≥4-node hub net
-  │     → autoConnect (preferred — real wire, clean sheet)
-  │        e.g. cap→GND beside host, EN→C_EN, nearby LDO.VOUT→MCU.VDD
+  ├─ Same row or column? → one PlaceWire between pin coords
   │
-  └─ Long / crowded / off-page / ≥4 nodes on net
+  ├─ Orthogonal L needed? → corner (pinA.x, pinB.y) or (pinB.x, pinA.y);
+  │     pick variant with fewer crossings (listWireSegments); two PlaceWire calls
+  │
+  ├─ Multi-node net (≥3 taps)? → chain PlaceWire adjacent pairs (A→B→C), not hub
+  │
+  └─ Long / crowded / cross-module corridor / L-route > 500 / crossings ≥ 3
         → dual-end placePinStubWireAndNetAlias (same netName)
-           NO autoConnect between these two pins afterward
+           OR explicit multi-segment PlaceWire through the 60 ext label corridor
+           (modular sheets — see scenario-b modular-layout.md)
+        → do not AutoConnect between those two pins afterward
 ```
 
 | Situation | Mode | Example |
 | --- | --- | --- |
-| Two pins close (gate passes short-hop checks) | **autoConnect** | Decap→GND, EN→reset cap, LDO→MCU when placed adjacent |
-| Two pins far apart or L-route > 500 / ≥3 crossings | **stub+alias** | Type-C ↔ LDO ↔ ESP when blocks are spaced out |
-| Pattern already wired one end | **stub+alias on the other end only** | GPIO9 after `pull_resistor` → SW |
+| Two pins close, aligned or simple L | **`PlaceWire`** (1–2 segments) | Cap→GND drop, EN→reset cap, LDO→MCU when adjacent |
+| Two pins far apart or L-route > 500 / ≥3 crossings | **stub+alias** or **PlaceWire** corridor plan | Cross-block signals; modular default stub+alias |
+| Pattern already wired one end | **PlaceWire or stub+alias on the open end only** | GPIO after `pull_resistor` → SW |
 | Replacing a whole pull/reset/decoupling cluster | **pattern** — not stub instead of pattern | CC→R→GND, NRST reset |
 
 **Forbidden (common script bugs):**
 
-- `autoConnect` **without measuring** — the usual mistake on cross-block power nets
+- `AutoConnectObjectsById` on agent hand-wiring paths (uncontrolled router)
+- Guessing pin coords instead of `pinsOf` / snapshot
+- Hub: one pin `autoConnect` or many PlaceWire stars from one anchor
 - `autoConnect` between far pins, then alias on **one** side only — long wire + duplicate labels
 - Skipping `pull_resistor` / `reset_circuit` and using stub+alias for the **whole** R→rail chain
-- `autoConnect` as fallback when stub fails — fix pin_name / pinNumber instead
-- Hub: one pin `autoConnect` to many targets on the same net
 
-**Script helper:** implement `routeNet(a, pinA, b, pinB, netName)` that **measures
-first**, then calls `autoConnectObjectsById` or dual-end stub+alias (`tieFarNet`).
-Reserve `tieFarNet()` for nets the gate classifies as long — do not call it blindly
-for every cross-part net when placement already put the pins next to each other.
+**Script helpers (scenario-b `modular-lib.ts`):** `connectPinsPlaceWire`,
+`placeWireSegmentExt`, `wireOrthogonalLExt`. Implement `routeNet(...)` that
+**measures first**, then PlaceWire or dual-end stub+alias — not `autoConnect`.
 
 ### Circuit pattern first — decision checklist
 
-Before **any** hand placement coordinates, `autoConnect`, or `PlaceWire`, run
+Before **any** hand placement coordinates or `PlaceWire`, run
 this checklist. It applies to the whole sheet and to **each local subnet**
 independently (see mixed-circuit decomposition in
 [`circuit-pattern-layout.md`](circuit-pattern-layout.md)).
@@ -316,9 +322,9 @@ is the source of truth.*
 
 | Usually **hand** (no catalog entry yet) | Approach |
 | --- | --- |
-| Cross-module / different parts on one net | Run [Routing mode gate](#routing-mode-gate-mandatory-before-every-net): **autoConnect if short**, stub+NetAlias if long |
-| Termination / series R between two signal pins | Same gate — short → autoConnect; far → stub+NetAlias |
-| Two pins shorted on one IC | `autoConnect` (same part, short) |
+| Cross-module / different parts on one net | Run [Routing mode gate](#routing-mode-gate-mandatory-before-every-net): **PlaceWire if short**, stub+NetAlias or corridor PlaceWire if long |
+| Termination / series R between two signal pins | Same gate — short → PlaceWire; far → stub+NetAlias |
+| Two pins shorted on one IC | `PlaceWire` between pin coords (same part, short) |
 | Off-page / port labels | stub + NetAlias after patterns |
 
 #### Step 3 — Apply patterns (per matching cluster)
@@ -340,9 +346,9 @@ the same **movable** part (one resistor, one cap) bound in two applies. Details:
 
 - [ ] Run [Routing mode gate](#routing-mode-gate-mandatory-before-every-net) **for each net**.
 - [ ] Do **not** re-wire nets already listed in `response.connections` with `routed=true`.
-- [ ] **Short hop (gate pass):** `autoConnectObjectsById` — even between different parts if pins are close.
-- [ ] **Long hop (gate fail):** dual-end `placePinStubWireAndNetAlias` (same `netName`).
-- [ ] Power symbols: `autoConnect` pin **0** when the rail tap is adjacent; stub+alias when modules are far apart.
+- [ ] **Short hop (gate pass):** `obj-place-place-wire` (1–2 segments) using pin ext coords — even between different parts if pins are close.
+- [ ] **Long hop (gate fail):** dual-end `placePinStubWireAndNetAlias` (same `netName`) or planned multi-segment PlaceWire.
+- [ ] Power symbols: `PlaceWire` from pin **0** to the rail tap when adjacent; stub+alias when modules are far apart.
 
 If **no** subnet matches any catalog entry, skip Step 3 and hand-layout the
 whole local circuit.
@@ -371,25 +377,16 @@ const c1Id  = c1Res.objectId!;
 await client.canvasOps.setObjectProperty({ objectId: c1Id, propKey: "Part Reference", propValue: "C1", op: 1, commitUndo: true });
 await client.canvasOps.setObjectProperty({ objectId: c1Id, propKey: "Value", propValue: "0.1 μF", op: 1, commitUndo: true });
 
-// 3. Wire by object_id (preferred — no snapshot needed)
-// Symbol pins (VCC, GND, port, off-page): pin number is ALWAYS 0.
-await client.canvasOps.autoConnectObjectsById({
-  context: projectCtx,
-  objectId1: c1Id,  pinNum1: [1],
-  objectId2: vccId, pinNum2: [0],
-});
-await client.canvasOps.autoConnectObjectsById({
-  context: projectCtx,
-  objectId1: c1Id,  pinNum1: [2],
-  objectId2: gndId, pinNum2: [0],
-});
+// 3. Wire with PlaceWire (resolve pin ext via pinsOf / snapshot — scenario-b: connectPinsPlaceWire)
+import { connectPinsPlaceWire } from "./modular-lib.js";
+await connectPinsPlaceWire(client, projectCtx, c1Id, 1, vccId, 0);
+await connectPinsPlaceWire(client, projectCtx, c1Id, 2, gndId, 0);
 ```
 
 ### Schematic wire routing (avoid overlap)
 
-`AutoConnectObjectsById` routes **each call independently**. If many endpoints
-on the same net all connect to one anchor (hub / star topology), the router
-reuses the same corridor and wire segments stack visually.
+Each `PlaceWire` segment is independent. If many endpoints on the same net all
+connect to one anchor (hub / star topology), segments stack visually.
 
 Apply these rules for **any multi-node net** — power, GND, buses, control
 signals, or groups of parallel passives — not only decoupling caps.
@@ -397,7 +394,7 @@ signals, or groups of parallel passives — not only decoupling caps.
 | Rule | Requirement |
 | --- | --- |
 | **Separate branch lanes at placement time** | Before wiring, offset each branch along the axis **perpendicular** to the intended bus so taps do not share one column (or row). On a horizontal bus, give each branch a **unique X**; on a vertical bus, a **unique Y**. Spacing can be small but must not be identical. |
-| **Chain nodes on the same net** | Connect **two adjacent nodes per call** in sequence: `anchor → n₁ → n₂ → … → nₖ`. This builds a bus with independent vertical (or horizontal) drops instead of re-routing from the anchor every time. |
+| **Chain nodes on the same net** | Connect **two adjacent nodes per PlaceWire** in sequence: `anchor → n₁ → n₂ → … → nₖ`. This builds a bus with independent vertical (or horizontal) drops instead of re-routing from the anchor every time. |
 | **Follow a logical order** | Order the chain by signal or power flow (source → load, input → output, left → right). Keep bus direction consistent across related nets on the same sheet when practical. |
 | **Layout is part of routing** | If segments still overlap, **move components** and re-wire — do not stack multiple hub connections from one symbol. |
 
@@ -420,33 +417,29 @@ NET ── node₁ ── node₂ ── node₃
 Minimal pattern:
 
 ```typescript
-// Same net, sequential links — NOT anchor → every node
+// Same net, sequential PlaceWire — NOT anchor → every node in one hop
 for (const [id1, pin1, id2, pin2] of [
   [anchorId, 1, n1Id, 1],
   [n1Id,     1, n2Id, 1],
   [n2Id,     1, n3Id, 1],
 ] as const) {
-  await getSkill("canvas-auto-connect-objects-by-id")!.execute(ctx, {
-    context: projectCtx,
-    objectId1: id1, pinNum1: [pin1],
-    objectId2: id2, pinNum2: [pin2],
-  });
+  await connectPinsPlaceWire(client, projectCtx, id1, pin1, id2, pin2);
 }
 ```
 
 Place the anchor (power symbol, port, or upstream driver) at one end of the
 chain; distribute loads/passives along the bus axis with **non-colliding**
-coordinates before calling `AutoConnectObjectsById`.
+coordinates before calling `PlaceWire`.
 
 ### Stub + Net Alias (long distance / many crossings)
 
 > Use when the [routing mode gate](#routing-mode-gate-mandatory-before-every-net)
-> **fails** the short-hop checks. **Short nets still use `autoConnect`** — stub+alias
-> is not the default for every cross-part net, only for nets that would draw a long
-> or crowded wire.
+> **fails** the short-hop checks. **Short nets still use `PlaceWire`** — stub+alias
+> is for long/crowded hops or modular cross-block naming, not the default for every
+> cross-part net when pins are already adjacent.
 
 When two pins are far apart or a direct orthogonal route would cross many
-existing wires, **do not** call `AutoConnectObjectsById` between them.
+existing wires, **do not** call `AutoConnectObjectsById` between them (agent path).
 Instead, place **matching `NetAlias` labels** on the same net name at each pin
 end — either on a **new short stub** (**30** ext units) or **directly on an
 existing wire** already connected to that pin.
@@ -472,22 +465,21 @@ distance when the path wraps around symbol bounding boxes (typical multi-pin IC 
 | Estimated **L-shaped** route length (H→V or V→H, shorter variant, including bbox detour) **> 500** | Use stub + alias |
 | Proposed L-route crosses **≥ 3** existing `wireSegments` on the active page | Use stub + alias |
 | Same net has **≥ 4 nodes** to interconnect | Stub + alias at each pin; **no** hub/star `AutoConnectObjectsById` |
-| **Different parts**, pins **aligned**, Manhattan **≤ 300**, L-route **≤ 500**, crossings **< 3** | **`AutoConnectObjectsById`** — cross-part is fine when close |
-| **Different parts**, Manhattan **> 400** or L-route **> 500** or crossings **≥ 3** | Dual-end stub + alias |
-| Pins **aligned** (same X or same Y), Manhattan **≤ 300**, crossings **< 3** (same or different parts) | `AutoConnectObjectsById` or a single `PlaceWire` |
-| **Several signal pins on one IC edge** (see [Dense same-edge pins](#dense-same-edge-pins)) | Prefer `AutoConnectObjectsById` per net to the remote pin; reserve stub + alias for long hops or single-pin parts |
+| **Different parts**, pins **aligned**, Manhattan **≤ 300**, L-route **≤ 500**, crossings **< 3** | **`PlaceWire`** (1–2 segments) — cross-part is fine when close |
+| **Different parts**, Manhattan **> 400** or L-route **> 500** or crossings **≥ 3** | Dual-end stub + alias or corridor PlaceWire |
+| Pins **aligned** (same X or same Y), Manhattan **≤ 300**, crossings **< 3** (same or different parts) | Single `PlaceWire` |
+| **Several signal pins on one IC edge** (see [Dense same-edge pins](#dense-same-edge-pins)) | One `PlaceWire` (or L) per net to the remote pin; stub + alias for long hops |
 
 **Stub + alias is symmetric:** call `placePinStubWireAndNetAlias` at **each** pin end
 with the **same** `netName`. Do **not** `autoConnect` between the pins and add an alias
 on only one side — that leaves long physical wires on the page.
 
 **One routing mode per net:** for a given `(netName, pinA, pinB)` pair, choose **either**
-`AutoConnectObjectsById` + alias on the resulting wires **or** dual-end stub + alias —
-**not both**. Mixing modes leaves orphan stubs, duplicate NetAlias labels, and ERC noise.
+full **PlaceWire** path **or** dual-end stub + alias — **not both**. Mixing modes leaves
+orphan stubs, duplicate NetAlias labels, and ERC noise.
 
-**Never** call `PlaceWire` manually before `placePinStubWireAndNetAlias` to “ensure a
-stub exists” — stub creation is the RPC’s job. Manual stubs often duplicate what
-`autoConnect` already placed and are not removed automatically.
+**Never** call extra `PlaceWire` before `placePinStubWireAndNetAlias` to “ensure a
+stub exists” — stub creation is the RPC’s job.
 
 **List existing wires** before routing: `canvas-list-wire-segments` (active page,
 real-time) or `kernel-get-snapshot` → `wireSegments[]`. Endpoints are in
@@ -504,7 +496,7 @@ coords, or convert pins to canvas for crossing checks.
 #### Pin already has a wire
 
 Before placing a stub at a pin, check whether that pin **already has a wire
-segment connected** (from prior `AutoConnectObjectsById`, `PlaceWire`, or manual
+segment connected** (from prior `PlaceWire`, stub RPC, or manual
 editing):
 
 | Pin state | Action |
@@ -582,7 +574,7 @@ For net `NET_X` between pinA and pinB:
 2. **Per pin**, list connected wire segments (see [Pin already has a wire](#pin-already-has-a-wire)).
 3. **Pin A side** — `obj-place-place-pin-stub-wire-and-net-alias` with `objectId`, `pinNum`/`pinName`, `netName = "NET_X"`, `snapToGrid: true`. The RPC detects existing wire, places stub + alias when needed, and merges wire + alias into **one undo step**.
 4. **Pin B side** — same RPC; `netName` **must match** pin A.
-5. **Do not** call `AutoConnectObjectsById` between A and B afterward (that defeats the pattern).
+5. **Do not** add a long `PlaceWire` between A and B afterward (that defeats the pattern).
 6. **Verify** — `kernel-get-snapshot` or `netlist-get-active-page-net-list`: both pins on the same net; run ERC if needed.
 
 ```typescript
@@ -590,25 +582,23 @@ function manhattanExt(a: { x: number; y: number }, b: { x: number; y: number }) 
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
-/** Measure first — short → wire, long → alias both ends. */
+/** Measure first — short → PlaceWire, long → alias both ends. */
 async function routeNet(
-  partA: bigint, pinA: { pinNum?: number; pinName?: string; x: number; y: number },
-  partB: bigint, pinB: { pinNum?: number; pinName?: string; x: number; y: number },
+  partA: bigint, pinA: number | string,
+  partB: bigint, pinB: number | string,
   netName: string,
+  pinExtA: { x: number; y: number },
+  pinExtB: { x: number; y: number },
 ) {
-  if (manhattanExt(pinA, pinB) <= 300) {
-    await client.canvasOps.autoConnectObjectsById({
-      context: projectCtx,
-      objectId1: partA, pinNum1: pinA.pinNum != null ? [pinA.pinNum] : undefined,
-      pinName1: pinA.pinName ? [pinA.pinName] : undefined,
-      objectId2: partB, pinNum2: pinB.pinNum != null ? [pinB.pinNum] : undefined,
-      pinName2: pinB.pinName ? [pinB.pinName] : undefined,
-    });
+  if (manhattanExt(pinExtA, pinExtB) <= 300) {
+    await connectPinsPlaceWire(client, projectCtx, partA, pinA, partB, pinB);
     return;
   }
-  for (const [objectId, pin] of [[partA, pinA], [partB, pinB]] as const) {
+  for (const [objectId, pinKey] of [[partA, pinA], [partB, pinB]] as const) {
     await client.objPlace.placePinStubWireAndNetAlias({
-      context: projectCtx, objectId, pinNum: pin.pinNum, pinName: pin.pinName,
+      context: projectCtx, objectId,
+      pinNum: typeof pinKey === "number" ? pinKey : undefined,
+      pinName: typeof pinKey === "string" ? pinKey : undefined,
       netName, snapToGrid: true,
     });
   }
@@ -617,8 +607,8 @@ async function routeNet(
 
 #### Relation to other wiring rules
 
-- **Bus / chain nets**: still connect **adjacent** pairs with `AutoConnectObjectsById` when distance and crossings are low; apply stub + alias only on **edges** that fail the heuristics above (signal name = `netName`, e.g. `SCL`, `KEY_IN`).
-- **Power / GND**: short taps keep `AutoConnectObjectsById` with symbol pin **0**; long power trees may use stub + alias with `VCC_3V3`, `GND`, etc.
+- **Bus / chain nets**: connect **adjacent** pairs with `PlaceWire` when distance and crossings are low; stub + alias only on **edges** that fail the heuristics above (signal name = `netName`, e.g. `SCL`, `KEY_IN`).
+- **Power / GND**: short taps use `PlaceWire` with symbol pin **0**; long power trees may use stub + alias with `VCC_3V3`, `GND`, etc.
 - **Single-point labels**: placing one alias at a junction (e.g. `KEY_IN` at one node) is for **annotation**; stub + alias is for **connecting two distant pins** — one alias per pin end (stub or existing wire), same `netName`.
 
 #### Dense same-edge pins
@@ -628,10 +618,10 @@ direction, **~10 ext** pin spacing — common on QFP/QFN left/right columns):
 
 **Prefer**
 
-- **`AutoConnectObjectsById`** from each pin to its **remote** counterpart (one net
-  at a time), then **one** `placePinStubWireAndNetAlias` per pin to name the wire
-  already on **that** pin (`usedExistingWire=true` is OK when the wire came from
-  `autoConnect` on the same `pinNum`).
+- **`PlaceWire`** from each pin to its **remote** counterpart (one net at a time),
+  then **one** `placePinStubWireAndNetAlias` per pin to name the wire already on
+  **that** pin (`usedExistingWire=true` is OK when the wire came from PlaceWire on
+  the same `pinNum`).
 - **Dual-end stub + alias** only when the **other end** is far away **and** this part
   exposes **one pin** for that net on this edge (e.g. a sensor’s single SDA pin).
 
@@ -649,7 +639,7 @@ direction, **~10 ext** pin spacing — common on QFP/QFN left/right columns):
 - Wire **one new segment per tap** (A↔B, then B↔C) or stub + alias at **each** endpoint once.
 - After A↔B is done, adding C: connect **only the new segment** (B↔C or A↔C); **do not**
   re-connect A↔B or re-alias pins already done for that `netName`.
-- **Wrong pattern:** hub/star `autoConnect` from one pin to many slaves **and** stub +
+- **Wrong pattern:** hub/star PlaceWire from one pin to many slaves **and** stub +
   alias on the same net — duplicates wires and NetAlias on shared pins.
 
 #### Verifying stub + alias
@@ -672,12 +662,13 @@ direction, **~10 ext** pin spacing — common on QFP/QFN left/right columns):
 - `PlaceNetAliasAt` has returned **REFUSED** in some API audits — if alias placement fails, fall back to direct `PlaceWire` between pins and report the failure. See [hqsch-api-slow-and-broken-rpcs.md](../../../docs/issues/hqsch-api-slow-and-broken-rpcs.md).
 - Snapshot may lag immediately after placement — retry `kernel-get-snapshot` briefly before verifying net membership.
 
-### Fallback — PlaceWire via snapshot pin lookup
+### Pin lookup for PlaceWire
 
-If `AutoConnectObjectsById` fails, call `kernel-get-snapshot`, locate pins via
+Resolve endpoints with `pinsOf` (active page) or `kernel-get-snapshot` →
 `pinInstances[].canvas_object_id` (equal to placement `object_id`), convert
-canvas Y-up positions to external Y-down coords, then `PlaceWire`.
-See [`property-conventions.md`](property-conventions.md) for conversion and retry.
+canvas Y-up to external Y-down, then `PlaceWire`.
+See [`property-conventions.md`](property-conventions.md). If `PlaceWire` misses a pin,
+fix coords / pinNum — **do not** fall back to `AutoConnectObjectsById` on the agent path.
 
 ### Enumerating existing wires
 
@@ -697,10 +688,11 @@ Do **not** brute-force `canvas-get-objects-json-by-ids` over id ranges to find w
 | Place GND/VCC/port/off-page | `placement-place-symbol-from-library` |
 | List symbol libraries | `placement-list-symbol-libraries` |
 | Known local circuit (I2C / SPI / crystal / decoupling / pull) | `pattern-layout-list-circuit-patterns` → `pattern-layout-apply-circuit-pattern` — see [circuit-pattern-layout.md](circuit-pattern-layout.md) |
-| Leftover nets — short hop (gate pass, ≤300 ext, low crossings) | `canvas-auto-connect-objects-by-id` |
+| Leftover nets — short hop (gate pass, ≤300 ext, low crossings) | `obj-place-place-wire` (1–2 segments; scenario-b `connectPinsPlaceWire`) |
 | Leftover nets — long hop (gate fail) | `obj-place-place-pin-stub-wire-and-net-alias` at **both** pin ends — see [Routing mode gate](#routing-mode-gate-mandatory-before-every-net) |
 | List existing wires (active page) | `canvas-list-wire-segments` |
-| Wire via pin coords (fallback) | `kernel-get-snapshot` → `obj-place-place-wire` |
+| Wire via pin coords | `pinsOf` / `kernel-get-snapshot` → `obj-place-place-wire` |
+| **Avoid for agent hand-wiring** | `canvas-auto-connect-objects-by-id` (uncontrolled router) |
 | Wire topology from snapshot | `kernel-get-snapshot` → `wireSegments[].canvasObjectId` |
 | Fallback: local part lib | `placement-list-part-libraries` → `placement-place-part-from-library` |
 | **Avoid for agents** | `placement-place-part`, `placement-place-symbol` |

@@ -8,12 +8,13 @@
 | --- | --- | --- |
 | 模块摆放是否合理 | 模块间距散度、框 mod20 | 各分区是否成团、走线是否挤在框内 |
 | 空白是否太多 | 最大空白矩形、填充率 | 页心/页角是否大片无内容 |
-| 页尺寸（P0）是否合理 | 页边距均衡 | 边框相对内容是否留白过大、是否需 P4c |
+| 页尺寸是否合理 | 页边距均衡 | 边框相对内容是否留白过大（过大 → 检查是否跳过 P3.5 收拢） |
+| 是否规整 | 网格对齐、相邻间距统一 | 整页外轮廓是否为矩形、框边是否成行成列 |
 
 ## 推荐顺序（与 `modular-layout.md` P4b 一致）
 
 1. `npx tsx scripts/layout-audit.ts`（可选 `FRAME_RECTS=`）。
-2. `project.saveProject` — PDF 读 **持久化** `VxPage`，不是未保存画布。
+2. `persistProject` / `project.saveProject` — PDF 与 **关页再开** 都读 **持久化** `VxPage.m_pageSizeInfo`，不是未保存画布上的页框。
 3. `export.exportSchematicPdf` 或 `npx tsx scripts/export-layout-pdf.ts` → stdout **`filePath`**（绝对路径）。
 4. 将 PDF 交给支持 PDF/vision 的模型，或把路径给用户本地打开；结合 audit 数字给出 **改 P1 槽位 / P0 页 / P4a 框** 的建议。
 5. `canvasOps.zoomAll` 便于用户在编辑器对照。

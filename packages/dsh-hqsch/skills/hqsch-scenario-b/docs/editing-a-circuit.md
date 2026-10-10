@@ -24,7 +24,7 @@ If the page already has **module frames / Chinese titles** (P4a):
 2. **Flow B** first: `read-circuit.ts` with `REF=` on parts inside the broken module; note pin→net and `canvasObjectId`.
 3. **Blast radius** = `moduleBlastRadius(client, ctx, refs)` (parts + neighbouring wires + union bbox) plus **that module’s** rect/text ids only. Print it, then delete with `deleteModuleBlastRadius` / `deleteModuleDecorations(moduleKey)`. Do **not** call `prepareP4aDecorations` (clears **all** decorations on the page).
 4. Execute Flow C recipes; re-apply a **single** pattern only when the user asked to regenerate that subnet (host + roles in scope). To shift a block without redrawing it, use `moveExtBatch`.
-5. If bbox changed: `deleteModuleDecorations(moduleKey)` → `unionModuleBBox` + `padUnionBox` → `placeModuleFrameAndTitle` for **one** module.
+5. If bbox changed: `deleteModuleDecorations(moduleKey)` → `unionModuleBBox` + `frameAroundContent` → `placeModuleFrameAndTitle` (with `note`) for **one** module.
 6. Verify changed nets; skip full-page `layout-audit` / PDF unless the user wants a layout review.
 
 Cross-ref: [modular-layout.md](./modular-layout.md) §单模块修补.
@@ -76,7 +76,7 @@ Before any write, list **only** what will change:
 | --- | --- |
 | Change Value / Footprint | That object only |
 | Rename designator | That object + verify find by new ref |
-| Rewire one pin | That pin stub/alias **or** one `autoConnect`; avoid touching unrelated nets |
+| Rewire one pin | That pin stub/alias **or** **`connectPinsPlaceWire`**; avoid touching unrelated nets |
 | Replace part | Old object + its wires (often delete old → place new → reconnect listed pins) |
 | Bulk delete | **Forbidden** without explicit user confirmation |
 
@@ -106,7 +106,7 @@ Environment escape hatch: `CONFIRM=1` in script (document in script header).
 | Recipe | RPCs | Template script |
 | --- | --- | --- |
 | Edit property | `FindObjectByProperty` → `SetObjectProperty` | `scripts/edit-property-by-ref.ts` |
-| Rewire pin | Snapshot pin + `autoConnectObjectsById` **or** `placePinStubWireAndNetAlias` | `scripts/rewire-pin-by-ref.ts` |
+| Rewire pin | Snapshot pin + **`connectPinsPlaceWire`** **or** `placePinStubWireAndNetAlias` | `scripts/rewire-pin-by-ref.ts` |
 | Replace part | Snapshot pose → `deleteObjectsByIds` → `placeKicadSymbol` → reconnect | `scripts/replace-part-by-ref.ts` |
 
 Common rules:
@@ -119,7 +119,7 @@ Common rules:
 **Rewire reality check:** there is no dedicated "disconnect this pin only" RPC in
 the skill toolbox. Practical options:
 
-1. **Join existing net:** `autoConnectObjectsById` to a part already on the target net.
+1. **Join existing net:** `connectPinsPlaceWire` to a part already on the target net.
 2. **Name a net at pin:** `placePinStubWireAndNetAlias` with target `netName` (routing gate in [placement-conventions.md](./placement-conventions.md)).
 3. **True cut:** identify wire segments via `listWireSegments().wires` and delete only if user accepts risk — prefer (1)/(2) for surgical edits.
 
@@ -150,7 +150,7 @@ See `template/scripts/edit-property-by-ref.ts`.
 
 Env: `REF=R201` `PIN=1` `TARGET_REF=U301` `TARGET_PIN=14` `CONFIRM=1`
 
-Connects source pin to an existing part on the target net via `autoConnectObjectsById`.
+Connects source pin to an existing part on the target net via **`connectPinsPlaceWire`** (PlaceWire).
 For net-label-only targets, use `TARGET_NET=+3.3V` + stub/alias path in script comments.
 
 See `template/scripts/rewire-pin-by-ref.ts`.

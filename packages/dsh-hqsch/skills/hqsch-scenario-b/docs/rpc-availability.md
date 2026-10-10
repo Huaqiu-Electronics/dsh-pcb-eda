@@ -120,7 +120,7 @@ The skill documents the workaround; product may implement later.
 | --- | --- | --- |
 | No authoritative connectivity graph | `graph.GetConnectivity` unimplemented | Snapshot three-table join + client BFS for series C/R/L/FB ([reading-a-circuit.md](./reading-a-circuit.md) § Series traversal) |
 | Coupling vs decoupling cap | No `componentClass` / role | Heuristic: shunt cap with one leg on POWER/GROUND netClass → no series bridge |
-| Per-pin wire ids for disconnect | Not exposed | Prefer `autoConnectObjectsById` or `placePinStubWireAndNetAlias`; avoid blind bulk wire delete ([editing-a-circuit.md](./editing-a-circuit.md)) |
+| Per-pin wire ids for disconnect | Not exposed | Prefer **`connectPinsPlaceWire`** / `placePinStubWireAndNetAlias`; avoid blind bulk wire delete ([editing-a-circuit.md](./editing-a-circuit.md)) |
 | `FindNet` silent false | Misleading empty result | **Never use**; query `snapshot.nets` by name |
 | `selection.*` | Unimplemented | Locate by designator / net via snapshot + `FindObjectByProperty` |
 | Transaction / undo group | `transaction.Open` unimplemented | Each RPC `commitUndo: true`; accept multi-step undo |

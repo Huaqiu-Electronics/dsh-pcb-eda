@@ -12,6 +12,7 @@ hqMain(async (client: any) => {
     { label: "componentPlace.placeKicadSymbol", fn: client?.componentPlace?.placeKicadSymbol },
     { label: "canvasOps.setPageSize", fn: client?.canvasOps?.setPageSize },
     { label: "objPlace.placeText", fn: client?.objPlace?.placeText },
+    // E — planned; see docs/decoration-objects.md
     { label: "canvasOps.listPageDecorations", fn: client?.canvasOps?.listPageDecorations },
     { label: "export.exportSchematicPdf", fn: client?.export?.exportSchematicPdf },
   ];

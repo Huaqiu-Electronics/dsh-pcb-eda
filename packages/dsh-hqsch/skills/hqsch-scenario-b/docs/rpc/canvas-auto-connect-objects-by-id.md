@@ -38,6 +38,8 @@ This skill provides access to the **`CanvasOpsService.AutoConnectObjectsById`** 
 | Request type | `AutoConnectObjectsRequest` |
 | Response type | `BoolResponse` |
 
+**Scenario-B agents:** do **not** use this for hand-wiring leftover nets — the engine picks the route. Use `obj-place-place-wire` with pin ext coords instead ([placement-conventions.md](../../../hqeda/guides/placement-conventions.md)).
+
 ## Parameters
 
 | Name | Type | Required | Repeated | Description |
