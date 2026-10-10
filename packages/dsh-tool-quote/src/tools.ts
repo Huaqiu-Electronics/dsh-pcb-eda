@@ -100,11 +100,12 @@ export function createQuoteTools(env: QuoteToolEnv) {
         'When derive_board_size / derive_board_stackup is set, the response also carries the ' +
         'effective quote form: EDA-extracted board facts (length/width from the board outline, ' +
         'layer count + thickness from the stack-up in KiCad) merged with the caller overrides — ' +
-        'plus server defaults applied on the wire (e.g. bcount default 5). Inspect "form" in the ' +
-        'result, adjust any parameter the user wants to change (e.g. color, blayer, board_tg), and ' +
-        're-query with the corrected form rather than guessing values. Progressive usage: quote_pcb ' +
-        'for PCB fabrication, quote_smt for assembly, then the user places the order in the EDA ' +
-        'host. This is a quote-only query — no order is created.',
+        'plus server defaults applied on the wire (e.g. bcount default 5, endpoint-required ' +
+        'pbnum=1 / insidecopper). Inspect "form" in the result, adjust any parameter the user ' +
+        'wants to change (e.g. color, blayer, board_tg), and re-query with the corrected form ' +
+        'rather than guessing values. Progressive usage: quote_pcb for PCB fabrication, quote_smt ' +
+        'for assembly, then the user places the order in the EDA host. This is a quote-only ' +
+        'query — no order is created. All regions are anonymous-queryable (no login required).',
       parameters: {
         region: {
           type: 'string',
@@ -218,12 +219,15 @@ export function createQuoteTools(env: QuoteToolEnv) {
         },
         pcb_bcount: {
           type: 'integer',
-          description: 'Embedded PCB panel quantity, >= 1. Default 5.',
+          description:
+            'Embedded PCB panel quantity, >= 1. Default 5. NOTE: the embedded board size ' +
+            '(pcb_blength/pcb_bwidth) is also used as the assembly panel size (panel = single ' +
+            'board) when no explicit panel size is given — the Intl SMT endpoint rejects the ' +
+            'request otherwise ("pcb_width can not empty", response_code 1003).',
         },
         ...edaFlagProps,
       },
-      output: { schema: { type: 'json' }, render: renderJson },
-      async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
+      output: { schema: { type: 'json' }, render: renderJson },      async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
         const a = args as Record<string, unknown>
         const form: Record<string, unknown> = {}
         if (a.number !== undefined) form.number = a.number
