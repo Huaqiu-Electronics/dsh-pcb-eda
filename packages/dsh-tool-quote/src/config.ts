@@ -55,3 +55,13 @@ export function quoteUrlOf(config: QuoteToolConfig, kind: 'pcb' | 'smt'): string
   )
   return `${base}/${prefix}/${kind}`
 }
+
+/** Build the absolute URL for a place-order trigger route ("pcb" | "smt"). */
+export function placeOrderUrlOf(config: QuoteToolConfig, kind: 'pcb' | 'smt'): string {
+  const base = (config.hqEdgeBaseUrl ?? '').replace(/\/+$/, '')
+  const prefix = (config.quotePathPrefix ?? DEFAULT_QUOTE_PATH_PREFIX).replace(
+    /^\/+|\/+$/g,
+    '',
+  )
+  return `${base}/${prefix}/place/${kind}`
+}

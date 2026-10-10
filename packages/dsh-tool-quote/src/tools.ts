@@ -253,5 +253,66 @@ export function createQuoteTools(env: QuoteToolEnv) {
         return asJson(result)
       },
     }),
+    defineTool({
+      name: 'place_pcb_order',
+      description:
+        'Trigger the EDA host\'s PCB place-order workflow (KiCad ACTIONS::placeOrderForPCB). ' +
+        'The host validates the Huaqiu login (opens its login dialog first if needed), prepares ' +
+        'the order artifacts (gerber/drill/bom/zip) from the currently open PCB board, uploads ' +
+        'them and opens the place-order page in the editor\'s own dialog. Use when the user asks ' +
+        'to "下单", "place order", "提交打样/PCB订单", or after a quote_pcb has been reviewed and the ' +
+        'user wants to actually order. Returns { orderUrl, status, message } — status "launched" ' +
+        'means the order dialog was opened in the editor; the user completes the order there. ' +
+        'NOT a quote — this creates/enters the order flow. Preconditions: a PCB editor with a ' +
+        'board open in the EDA host (otherwise FAILED_PRECONDITION), and a logged-in Huaqiu ' +
+        'account (the host prompts login itself). The region is auto-detected by hq-edge from the ' +
+        'trusted request context — do NOT force a region unless the user explicitly asks.',
+      parameters: {
+        region: {
+          type: 'string',
+          enum: ['cn', 'eu_us', 'jp'],
+          description:
+            'Optional explicit override. When omitted, hq-edge auto-detects the pricing region from ' +
+            'the trusted request context (CN / JP / INTERNATIONAL). "cn" = Huaqiu China (eda.cn), ' +
+            '"eu_us" = NextPCB EU/US, "jp" = NextPCB Japan.',
+        },
+      },
+      output: { schema: { type: 'json' }, render: renderJson },
+      async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
+        const a = args as Record<string, unknown>
+        const payload = { region: a.region }
+        const result = await client.placeOrder('pcb', payload, { signal: exec.signal })
+        return asJson(result)
+      },
+    }),
+    defineTool({
+      name: 'place_smt_order',
+      description:
+        'Trigger the EDA host\'s SMT assembly place-order workflow (KiCad ACTIONS::placeOrderForSMT). ' +
+        'Same flow as place_pcb_order but for assembly: the host validates login, prepares the ' +
+        'assembly order artifacts (board zip + BOM + component positions) from the currently open ' +
+        'PCB, uploads them and opens the place-order page in the editor\'s own dialog. Use when the ' +
+        'user wants to "贴片下单", "SMT 下单", "place SMT order", or after quote_smt has been reviewed. ' +
+        'Returns { orderUrl, status, message }. Preconditions: a PCB editor with a board open in the ' +
+        'EDA host, and a logged-in Huaqiu account (the host prompts login itself). The region is ' +
+        'auto-detected by hq-edge — do NOT force a region unless the user explicitly asks.',
+      parameters: {
+        region: {
+          type: 'string',
+          enum: ['cn', 'eu_us', 'jp'],
+          description:
+            'Optional explicit override. When omitted, hq-edge auto-detects the pricing region from ' +
+            'the trusted request context (CN / JP / INTERNATIONAL). "cn" = Huaqiu China (eda.cn), ' +
+            '"eu_us" = NextPCB EU/US, "jp" = NextPCB Japan.',
+        },
+      },
+      output: { schema: { type: 'json' }, render: renderJson },
+      async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
+        const a = args as Record<string, unknown>
+        const payload = { region: a.region }
+        const result = await client.placeOrder('smt', payload, { signal: exec.signal })
+        return asJson(result)
+      },
+    }),
   ]
 }

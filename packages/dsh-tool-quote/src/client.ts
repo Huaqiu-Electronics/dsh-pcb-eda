@@ -19,7 +19,7 @@
  */
 
 import type { QuoteToolConfig } from './config.js'
-import { quoteUrlOf } from './config.js'
+import { quoteUrlOf, placeOrderUrlOf } from './config.js'
 
 export type QuoteKind = 'pcb' | 'smt'
 
@@ -73,6 +73,12 @@ function resolveSignal(deadlineMs: number, caller?: AbortSignal): AbortSignal | 
 export interface QuoteToolClient {
   quotePcb(payload: unknown, options?: QuoteToolRequestOptions): Promise<unknown>
   quoteSmt(payload: unknown, options?: QuoteToolRequestOptions): Promise<unknown>
+  /**
+   * Trigger the EDA host's place-order workflow (hq-edge
+   * POST /api/v1/quote/place/:kind → QuoteService.PlacePcbOrder / PlaceSmtOrder
+   * → KiCad ACTIONS::placeOrderForPCB / placeOrderForSMT). `kind` is 'pcb' | 'smt'.
+   */
+  placeOrder(kind: 'pcb' | 'smt', payload: unknown, options?: QuoteToolRequestOptions): Promise<unknown>
 }
 
 export function createQuoteToolClient(
@@ -147,8 +153,67 @@ export function createQuoteToolClient(
     }
   }
 
+  const place = async (
+    kind: 'pcb' | 'smt',
+    payload: unknown,
+    options: QuoteToolRequestOptions = {},
+  ): Promise<unknown> => {
+    const base = resolveBaseUrl()
+    const url = placeOrderUrlOf({ ...config, hqEdgeBaseUrl: base }, kind)
+    const signal = resolveSignal(config.requestTimeoutMs ?? 0, options.signal)
+    try {
+      const response = await fetchImpl(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal,
+      })
+      const text = await response.text()
+      let body: unknown
+      try {
+        body = text.length > 0 ? JSON.parse(text) : null
+      } catch {
+        body = null
+      }
+      if (!response.ok) {
+        const envelope =
+          body && typeof body === 'object' && !Array.isArray(body)
+            ? (body as Record<string, unknown>)
+            : {}
+        // Normalize the host envelope into the semantic kinds DSH agents
+        // branch on: EDA_HOST_NOT_READY (no PCB editor / not ready) maps to
+        // FAILED_PRECONDITION, anything else keeps its host kind.
+        const rawKind =
+          typeof envelope.error === 'string' ? envelope.error : statusToKind(response.status)
+        const kindFromEnvelope =
+          rawKind === 'EDA_HOST_NOT_READY' ? 'FAILED_PRECONDITION' : rawKind
+        throw new QuoteToolError(
+          kindFromEnvelope,
+          typeof envelope.detail === 'string' ? envelope.detail : 'place order request failed',
+          response.status,
+          typeof envelope.detail === 'string' ? envelope.detail : undefined,
+          typeof envelope.code === 'string' || typeof envelope.code === 'number'
+            ? envelope.code
+            : undefined,
+        )
+      }
+      return body
+    } catch (err) {
+      if (err instanceof QuoteToolError) throw err
+      if (isAbortError(err)) {
+        throw new QuoteToolError(
+          'DEADLINE_EXCEEDED',
+          'place order request timed out',
+          504,
+        )
+      }
+      throw new QuoteToolError('INTERNAL', `place order request failed: ${String(err)}`, 500)
+    }
+  }
+
   return {
     quotePcb: (payload, options) => request('pcb', payload, options),
     quoteSmt: (payload, options) => request('smt', payload, options),
+    placeOrder: (kind, payload, options) => place(kind, payload, options),
   }
 }

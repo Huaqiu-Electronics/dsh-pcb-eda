@@ -16,17 +16,21 @@ import { createQuoteTools } from '../src/tools'
 // ---------------------------------------------------------------------------
 
 function stubClient() {
-  const calls: Array<{ kind: 'pcb' | 'smt'; payload: unknown }> = []
+  const calls: Array<{ kind: 'pcb' | 'smt'; payload: unknown; place: boolean }> = []
   return {
     calls,
     client: {
       quotePcb: vi.fn(async (payload: unknown) => {
-        calls.push({ kind: 'pcb', payload })
+        calls.push({ kind: 'pcb', payload, place: false })
         return { ok: true }
       }),
       quoteSmt: vi.fn(async (payload: unknown) => {
-        calls.push({ kind: 'smt', payload })
+        calls.push({ kind: 'smt', payload, place: false })
         return { ok: true }
+      }),
+      placeOrder: vi.fn(async (kind: 'pcb' | 'smt', payload: unknown) => {
+        calls.push({ kind, payload, place: true })
+        return { ok: true, status: 'launched' }
       }),
     },
   }
@@ -66,6 +70,7 @@ describe('createQuoteTools — quote_pcb', () => {
         eda: undefined,
         includeRawResponse: false,
       },
+      place: false,
     })
   })
 
@@ -106,6 +111,24 @@ describe('createQuoteTools — quote_smt', () => {
       eda: undefined,
       includeRawResponse: false,
     })
+  })
+})
+
+describe('createQuoteTools — place orders', () => {
+  it('place_pcb_order forwards { region } to client.placeOrder("pcb")', async () => {
+    const { calls, client } = stubClient()
+    const tools = toolsOf(client)
+    await toolByName(tools, 'place_pcb_order').execute({ region: 'cn' }, {})
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual({ kind: 'pcb', payload: { region: 'cn' }, place: true })
+  })
+
+  it('place_smt_order forwards { region } to client.placeOrder("smt")', async () => {
+    const { calls, client } = stubClient()
+    const tools = toolsOf(client)
+    await toolByName(tools, 'place_smt_order').execute({}, {})
+    expect(calls).toHaveLength(1)
+    expect(calls[0]).toEqual({ kind: 'smt', payload: { region: undefined }, place: true })
   })
 })
 
@@ -179,5 +202,40 @@ describe('createQuoteToolClient', () => {
       status: 412,
     })
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('placeOrder POSTs to /api/v1/quote/place/<kind>', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(200, { orderUrl: '', status: 'launched', message: 'opened' }),
+    )
+    const client = createQuoteToolClient(
+      { hqEdgeBaseUrl: 'http://localhost:18080', requestTimeoutMs: 5_000 },
+      { fetchImpl },
+    )
+    const result = await client.placeOrder('pcb', { region: 'cn' })
+    expect(result).toEqual({ orderUrl: '', status: 'launched', message: 'opened' })
+    const call = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
+    const [url, init] = call
+    expect(url).toBe('http://localhost:18080/api/v1/quote/place/pcb')
+    expect(init.method).toBe('POST')
+    expect(JSON.parse(String(init.body))).toEqual({ region: 'cn' })
+  })
+
+  it('placeOrder maps EDA_HOST_NOT_READY to FAILED_PRECONDITION', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse(412, {
+        error: 'EDA_HOST_NOT_READY',
+        detail: 'No PCB editor handler is registered (open a PCB editor first)',
+        status: 412,
+      }),
+    )
+    const client = createQuoteToolClient(
+      { hqEdgeBaseUrl: 'http://localhost:18080', requestTimeoutMs: 5_000 },
+      { fetchImpl },
+    )
+    await expect(client.placeOrder('smt', {})).rejects.toMatchObject({
+      kind: 'FAILED_PRECONDITION',
+      status: 412,
+    })
   })
 })
