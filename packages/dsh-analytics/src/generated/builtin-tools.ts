@@ -28,6 +28,8 @@ export const BUILTIN_TOOLS = [
   "kicad_pcb_update_selected_track_width",
   "match_bom",
   "pcb_preview",
+  "place_pcb_order",
+  "place_smt_order",
   "quote_pcb",
   "quote_smt",
   "run_erc",
