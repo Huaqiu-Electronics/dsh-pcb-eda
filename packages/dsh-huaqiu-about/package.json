@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-huaqiu-about",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "description": "HuaQiu About section in the DSH settings page: original DSH mark, bundled DSH version and the Powered-by-DSH claim.",
   "type": "module",
   "main": "./lib/index.mjs",
