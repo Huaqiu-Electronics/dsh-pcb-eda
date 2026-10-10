@@ -28,6 +28,8 @@ export const BUILTIN_TOOLS = [
   "kicad_pcb_update_selected_track_width",
   "match_bom",
   "pcb_preview",
+  "quote_pcb",
+  "quote_smt",
   "run_erc",
   "search_hqsch_parts",
 ] as const
