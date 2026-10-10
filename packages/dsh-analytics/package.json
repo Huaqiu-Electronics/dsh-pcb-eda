@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-analytics",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "description": "Huaqiu Sensors Analytics integration for DeepSeek Harness",
   "type": "module",
   "main": "./lib/index.mjs",

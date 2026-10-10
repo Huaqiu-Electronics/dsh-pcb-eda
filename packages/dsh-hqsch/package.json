@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-hqsch",
-  "version": "0.5.4",
+  "version": "0.5.5",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
