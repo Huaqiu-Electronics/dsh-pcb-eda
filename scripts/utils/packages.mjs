@@ -84,6 +84,47 @@ export function dshPlugins() {
   return discoverPackages().filter((p) => p.manifest.dsh != null)
 }
 
+/**
+ * Names of the cordis services one plugin entry waits for.
+ *
+ * Read from the plugin's own `cordis.patch.yml` (every plugin here ships one),
+ * which is the manifest DSH actually consumes when it inserts the entry. Both
+ * YAML spellings are accepted:
+ *
+ *   inject: ['hqEdge', 'tools']     ← flow sequence (what the repo uses)
+ *   inject:\n  - hqEdge             ← block sequence
+ *
+ * A tiny targeted scan rather than a YAML dependency: the only thing any
+ * caller needs is "is service X in this entry's inject list", and pulling in a
+ * parser for one line of config would be a heavier dependency than the answer.
+ *
+ * @param {WorkspacePackage} pkg
+ * @returns {string[]} service names (deduplicated, order preserved)
+ */
+export function pluginEntryInjects(pkg) {
+  let raw
+  try {
+    raw = readFileSync(join(pkg.dir, 'cordis.patch.yml'), 'utf8')
+  } catch {
+    return []
+  }
+
+  const found = new Set()
+  const add = (token) => {
+    const name = String(token).trim().replace(/^['"]+|['"]+$/g, '').trim()
+    if (name.length > 0) found.add(name)
+  }
+
+  for (const match of raw.matchAll(/inject:\s*\[([^\]]*)\]/g)) {
+    for (const token of match[1].split(',')) add(token)
+  }
+  for (const match of raw.matchAll(/inject:[ \t]*\r?\n((?:[ \t]*-[^\r\n]*(?:\r?\n|$))+)/g)) {
+    for (const line of match[1].split(/\r?\n/)) add(line.replace(/^\s*-\s*/, ''))
+  }
+
+  return [...found]
+}
+
 /** Absolute path to the root (private marker) package.json. */
 export function rootManifestPath() {
   return join(repoRoot, 'package.json')

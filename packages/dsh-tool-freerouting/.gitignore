@@ -1,0 +1,18 @@
+/lib/
+/dist/
+/.dsh-host-smoke/
+
+# 测试产物
+.vitest-attachments/
+tests/__screenshots__/
+
+# Verified dependencies and build outputs, prepared before packaging.
+/python/vendor/
+/bundled/jre/
+/bundled/freerouting.jar
+/bundled/freerouting.build.json
+/.build-cache/
+/.dependency-build-*/
+
+# Internal design and acceptance documents are not public release inputs.
+/docs/

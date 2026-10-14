@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-tool-symbol-footprint",
-  "version": "0.4.13",
+  "version": "0.5.21",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
@@ -29,19 +29,21 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-tools": "^0.1.0-rc.0",
-    "@huaqiu/dsh-artifacts": "^0.4.13",
-    "@huaqiu/dsh-auth": "^0.4.13",
-    "@huaqiu/component-gen-app": "^0.4.13",
+    "@huaqiu/dsh-artifacts": "^0.5.21",
+    "@huaqiu/dsh-auth": "^0.5.21",
+    "@huaqiu/component-gen-app": "^0.5.21",
     "react": "^18"
   },
   "dependencies": {
     "@deepseek-ai/dsh-home-paths": "^0.1.0-rc.0",
     "@huaqiu/component-gen-server": "workspace:*",
-    "@huaqiu/dsh-plugin-log": "workspace:*"
+    "@huaqiu/dsh-plugin-log": "workspace:*",
+    "@huaqiu/dsh-sidebar-entry": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.0",
     "@huaqiu/component-gen-app": "workspace:*",
+    "@huaqiu/dsh-sidebar-entry": "workspace:*",
     "@huaqiu/component-gen-server": "workspace:*",
     "@huaqiu/dsh-artifacts": "workspace:*",
     "@huaqiu/dsh-auth": "workspace:*",

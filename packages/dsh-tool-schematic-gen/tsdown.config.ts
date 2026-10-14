@@ -31,7 +31,12 @@ export default defineConfig([
     // and would silently externalize it. Force-bundle it here.
     deps: {
       neverBundle: [/^react$/, /^react\//, /^@deepseek-ai\//],
-      alwaysBundle: [/^@huaqiu\/dsh-artifacts(\/|$)/],
+      alwaysBundle: [
+        /^@huaqiu\/dsh-artifacts(\/|$)/,
+        // Shared family sidebar-entry helper: a plain library module, so it
+        // must be bundled or the runtime fails with "missed the module table".
+        /^@huaqiu\/dsh-sidebar-entry$/,
+      ],
     },
     outputOptions: {
       entryFileNames: 'client.js',

@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-auth",
-  "version": "0.4.13",
+  "version": "0.5.21",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
@@ -28,6 +28,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-credentials": "^0.0.1-rc.1",
     "@deepseek-ai/dsh-host-webserver": "^0.1.0-rc.0"
   },
   "dependencies": {

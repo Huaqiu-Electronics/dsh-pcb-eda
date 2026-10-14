@@ -9,7 +9,7 @@
  *   - remote: HTTP 上传到 pcblint-java 服务（由其转发到 cli-runner 执行 kicad-cli，
  *             不做 base64 回读，返回 outputFilePaths 由本插件从共享磁盘读取）
  *
- * @module dsh-kicad-drc
+ * @module @huaqiu/dsh-kicad-drc
  */
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
@@ -58,7 +58,7 @@ export const Config: Schema<Config> = Schema.object({
 })
 
 /** 插件名，Cordis 会显示。 */
-export const name = 'dsh-kicad-drc'
+export const name = '@huaqiu/dsh-kicad-drc'
 
 /** 依赖的 DSH 服务（webServer 用于 /drc-report 报告查看路由；headless 环境缺失时自动降级）。 */
 export const inject = ['tools', 'webServer']
@@ -67,7 +67,7 @@ export const inject = ['tools', 'webServer']
  * 插件入口：根据配置构建执行器并注册工具。
  */
 export function apply(ctx: Context, config: Config): void {
-  console.log(`[dsh-kicad-drc] 插件版本: ${PLUGIN_VERSION}`)
+  console.log(`[@huaqiu/dsh-kicad-drc] 插件版本: ${PLUGIN_VERSION}`)
   // 构建执行器
   let executor
   if (config.executorMode === 'remote') {
@@ -79,7 +79,7 @@ export function apply(ctx: Context, config: Config): void {
       fileBaseUrl: config.fileBaseUrl,
     })
     console.log(
-      `[dsh-kicad-drc] 使用远程 pcblint-java: ${config.pcblintBaseUrl}`
+      `[@huaqiu/dsh-kicad-drc] 使用远程 pcblint-java: ${config.pcblintBaseUrl}`
       + (config.fileBaseUrl ? `, fileBaseUrl: ${config.fileBaseUrl}` : '（fileBaseUrl 为空，共享磁盘读取模式）'),
     )
   } else {
@@ -88,10 +88,10 @@ export function apply(ctx: Context, config: Config): void {
     let cliPath: string | undefined
     try {
       cliPath = resolveKicadCli(config.kicadCliPath || undefined)
-      console.log(`[dsh-kicad-drc] 使用本地 kicad-cli: ${cliPath}`)
+      console.log(`[@huaqiu/dsh-kicad-drc] 使用本地 kicad-cli: ${cliPath}`)
     } catch {
       // 启动时探测失败不致命：kicad-cli 在首次调用工具时才真正需要
-      console.warn('[dsh-kicad-drc] 本地模式：启动时未找到 kicad-cli，将在首次调用工具时重新探测')
+      console.warn('[@huaqiu/dsh-kicad-drc] 本地模式：启动时未找到 kicad-cli，将在首次调用工具时重新探测')
     }
     executor = new LocalExecutor(cliPath ?? (config.kicadCliPath || undefined))
   }
@@ -111,7 +111,7 @@ export function apply(ctx: Context, config: Config): void {
         handler: createDrcReportHandler(registry),
       })
       return () => { if (typeof reg === 'function') (reg as () => void)() }
-    }, 'dsh-kicad-drc: /drc-report routes')
+    }, '@huaqiu/dsh-kicad-drc: /drc-report routes')
     registerReport = (key, reportPath) => registry.register(key, reportPath)
   }
 
@@ -121,13 +121,13 @@ export function apply(ctx: Context, config: Config): void {
   if (registry) {
     registry.register(tool)
     ctx.effect(() => {
-      console.log(`[dsh-kicad-drc] 已注册工具: ${TOOL_NAME}`)
+      console.log(`[@huaqiu/dsh-kicad-drc] 已注册工具: ${TOOL_NAME}`)
       return () => {
         try { registry.dispose(TOOL_NAME) } catch { /* ignore */ }
-        console.log(`[dsh-kicad-drc] 工具已卸载: ${TOOL_NAME}`)
+        console.log(`[@huaqiu/dsh-kicad-drc] 工具已卸载: ${TOOL_NAME}`)
       }
-    }, 'dsh-kicad-drc.lifecycle')
+    }, '@huaqiu/dsh-kicad-drc.lifecycle')
   } else {
-    console.warn('[dsh-kicad-drc] 未找到 tools 服务，工具未注册')
+    console.warn('[@huaqiu/dsh-kicad-drc] 未找到 tools 服务，工具未注册')
   }
 }

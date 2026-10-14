@@ -26,6 +26,7 @@ import { resolveConfig } from './config.js'
 import { HTTP_TIMEOUT_MS } from './sse.js'
 import { ProgressStore } from './progress.js'
 import { createProgressHandler, PROGRESS_ROUTE_PREFIX } from './routes.js'
+import { registerSchematicGenPromptSection } from './prompt.js'
 import { getLogger } from '@huaqiu/dsh-plugin-log'
 
 /** Plugin id — matches package.json. */
@@ -38,7 +39,13 @@ export const name = '@huaqiu/dsh-tool-schematic-gen'
  * It is already transitively required, because `@huaqiu/dsh-artifacts`
  * (which we inject as `huaqiuArtifacts) declares it too.
  */
-export const inject = ['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer'] as const
+/**
+ * `systemPrompt` carries the standing tool-policy section (see `prompt.ts`).
+ * It is declared here so DSH holds the plugin until the service exists, but
+ * registration is still guarded: a deployment without it must load the tools
+ * regardless.
+ */
+export const inject = ['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer', 'systemPrompt'] as const
 
 /** Shared component name for the unified DSH-plugin log. */
 const COMPONENT = 'dsh-schematic-gen'
@@ -106,6 +113,12 @@ export function apply(ctx: Context, config: SchematicGenPluginConfig = {}): () =
   }
 
   const disposers = createSchematicGenTools(env).map((tool) => ctx.tools.register(tool))
+
+  // Standing tool policy — complementary to the per-turn intent the
+  // `@schematic-gen` chip's codec splices into the user message.
+  disposers.push(registerSchematicGenPromptSection(
+    (ctx as unknown as { systemPrompt?: unknown }).systemPrompt,
+  ))
 
   log.info('registered agent tools', {
     tools: disposers.length,

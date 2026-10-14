@@ -10,6 +10,8 @@
  *       connection_count, module_names, zip_bytes,
  *       zipArtifact:{id,type:'zip',filename,size,uri?}, note? }
  *   both may return { status:'needs_auth', kind, hint }
+ *   both may return { status:'needs_subscription', kind, packageName,
+ *     currentQuota, hint } — no available GEN generation quota.
  *
  * `uri` (when present) is the HQ Edge-resolvable handle the Place action uses.
  */
@@ -51,6 +53,9 @@ export interface SchResult {
   connectionCount: number | null
   /** User-safe status detail — rendered by the card. */
   note: string | null
+  /** Subscription detail (only for status 'needs_subscription'). */
+  packageName: string | null
+  currentQuota: number | null
   /**
    * Agent-only directive/explanation. Parsed only so the shape is explicit;
    * the card deliberately never renders it.
@@ -62,6 +67,7 @@ export type ProjectedPhase =
   | { phase: 'generating' }
   | { phase: 'failed'; message: string }
   | { phase: 'needs_auth'; result: SchResult }
+  | { phase: 'needs_subscription'; result: SchResult }
   | { phase: 'completed'; result: SchResult }
   | { phase: 'unknown' }
 
@@ -141,6 +147,8 @@ export function parseSchResult(text: string): SchResult | null {
     moduleCount: typeof o.module_count === 'number' ? o.module_count : null,
     connectionCount: typeof o.connection_count === 'number' ? o.connection_count : null,
     note: typeof o.note === 'string' ? o.note : null,
+    packageName: typeof o.packageName === 'string' && o.packageName ? o.packageName : null,
+    currentQuota: typeof o.currentQuota === 'number' ? o.currentQuota : null,
     agentNote: typeof o.agentNote === 'string' ? o.agentNote : null,
   }
 }
@@ -158,6 +166,7 @@ export function projectToolCall(block: ToolBlockLike | undefined): ProjectedPhas
   if (!parsed) return { phase: 'failed', message: firstLine(text) || 'unparseable tool result' }
   if (parsed.status === 'generated') return { phase: 'completed', result: parsed }
   if (parsed.status === 'needs_auth') return { phase: 'needs_auth', result: parsed }
+  if (parsed.status === 'needs_subscription') return { phase: 'needs_subscription', result: parsed }
   if (parsed.kind) return { phase: 'completed', result: parsed }
   return { phase: 'failed', message: `unexpected tool status: ${parsed.status}` }
 }

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rmSync } from 'node:fs'
 import { InMemoryHuaqiuAuthService } from '../src/service.js'
-import { AUTH_ROUTE_PREFIX, createAuthHandler } from '../src/routes.js'
+import { AUTH_ROUTE_PREFIX, AI_USAGE_URL, createAuthHandler, fetchAiTokenUsage } from '../src/routes.js'
 import { authFetch } from './helpers.js'
 
 // Isolate the persisted-session directory to a temp dir so the standalone
@@ -164,5 +164,76 @@ describe('auth webServer routes (browser→node transport)', () => {
     }))
     const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/user-info`)).text)
     expect(res).toEqual({ userInfo: null })
+  })
+
+  // ── AI usage (plain-http upstream, so the node half must be the caller) ────
+
+  /** The endpoint's real payload, verbatim from the documented curl. */
+  const AI_USAGE_RESULT = {
+    availablePoints: 198735,
+    availableQuota: 9936735,
+    availableUsd: 19.87347,
+    usedPoints: 1265,
+    usedQuota: 63265,
+    usedUsd: 0.12653,
+  }
+
+  it('GET /ai-usage returns null when no credential is resolved', async () => {
+    const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)
+    expect(res).toEqual({ usage: null })
+  })
+
+  it('GET /ai-usage fetches the balance node-side and authenticates with X-Token', async () => {
+    await post(`${AUTH_ROUTE_PREFIX}/session`, { token: 'tok-9', userId: 'u9' })
+    const calls: Array<[string, RequestInit | undefined]> = []
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push([String(input), init])
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ code: 200000, message: 'success', result: AI_USAGE_RESULT }),
+      } as Response
+    }))
+
+    const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)
+    expect(res.usage).toEqual(AI_USAGE_RESULT)
+    // Exactly one upstream call, made by the node half — the endpoint is plain
+    // http, so the browser must never be the caller (ATS + CORS reject it).
+    expect(calls).toHaveLength(1)
+    expect(calls[0]![0]).toBe(AI_USAGE_URL)
+    expect((calls[0]![1]!.headers as Record<string, string>)['X-Token']).toBe('tok-9')
+  })
+
+  it('GET /ai-usage degrades to null on a bad envelope or a rejected token', async () => {
+    await post(`${AUTH_ROUTE_PREFIX}/session`, { token: 'tok-bad', userId: 'u9' })
+    vi.stubGlobal('fetch', vi.fn(async () => (
+      { ok: true, status: 200, json: async () => ({ code: 400001, message: 'invalid token' }) } as Response
+    )))
+    expect(JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)).toEqual({ usage: null })
+
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502 } as Response)))
+    expect(JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)).toEqual({ usage: null })
+
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('offline') }))
+    expect(JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)).toEqual({ usage: null })
+  })
+
+  it('fetchAiTokenUsage targets the fdatasheets endpoint and coerces missing fields to 0', async () => {
+    const doFetch = vi.fn(async () => (
+      { ok: true, status: 200, json: async () => ({ code: 200000, result: { usedPoints: 1265 } }) } as Response
+    )) as unknown as typeof fetch
+    const usage = await fetchAiTokenUsage('tok-1', doFetch)
+    expect(usage).toEqual({
+      availablePoints: 0,
+      availableQuota: 0,
+      availableUsd: 0,
+      usedPoints: 1265,
+      usedQuota: 0,
+      usedUsd: 0,
+    })
+    const [url, init] = (doFetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit]
+    expect(url).toBe(AI_USAGE_URL)
+    expect(url.startsWith('http://')).toBe(true)
+    expect((init.headers as Record<string, string>)['X-Token']).toBe('tok-1')
   })
 })

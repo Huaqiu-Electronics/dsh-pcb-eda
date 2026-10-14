@@ -1,0 +1,4 @@
+# Engine source hashes must survive clones with any core.autocrlf setting.
+engine/src/** text eol=lf
+engine/tests/upstream/** text eol=lf
+engine/upstream-2.5.0-source.zip -text

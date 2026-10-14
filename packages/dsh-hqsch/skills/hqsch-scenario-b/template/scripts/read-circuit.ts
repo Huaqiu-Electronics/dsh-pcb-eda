@@ -7,7 +7,7 @@
  *   NET=+3.3V npx tsx scripts/read-circuit.ts
  *   REF=VR201 TRACE=1 npx tsx scripts/read-circuit.ts
  */
-import { hqMainWithProject, naturalCompare, type EditorClient, type ProjectContext } from "./lib/hq.js";
+import { hqMainWithProject, type EditorClient, type ProjectContext } from "./lib/hq.js";
 
 const REF = process.env.REF;
 const NET = process.env.NET;
@@ -134,8 +134,7 @@ class SnapCtx {
         net: this.netOf.get(pinMetaId(p)) ?? "(未连接)",
         pos: p.position,
       }))
-      // 引脚号可能是 "A5"/"CC1" —— 禁止 Number() 强转，用自然序比较。
-      .sort((a, b) => naturalCompare(a.num, b.num));
+      .sort((a, b) => Number(a.num) - Number(b.num));
   }
   netMembers(netName: string, excludeRef?: string): Array<{ ref: string; pinLabel: string }> {
     const net = this.netByName.get(netName);
@@ -271,7 +270,12 @@ function printRoleSummary(ref: string, sym: Sym, rows: PinRow[], props: Array<{ 
   console.log(`    总结: 结合邻域${TRACE ? "/穿透" : ""}块描述 ${ref} 在局部子电路中的功能`);
 }
 
-async function resolveCanvasIds(client: EditorClient, ctx: ProjectContext, ref: string, sym: Sym): Promise<void> {
+async function resolveCanvasIds(
+  client: EditorClient,
+  ctx: ProjectContext,
+  ref: string,
+  sym: Sym,
+): Promise<void> {
   console.log(`\n  ── canvas 编辑 id（读懂 → 改电路桥接）──`);
   console.log(`    snapshot metadata.id:  ${symMetaId(sym)}`);
   console.log(`    canvasObjectId:       ${sym.canvasObjectId ?? "(空)"}`);
@@ -295,7 +299,7 @@ hqMainWithProject(async ({ client, projectId, projectContext: pctx }) => {
     console.log("=== 网络分类（netClass）===");
     const byClass = new Map<number, number>();
     for (const n of ctx.nets) byClass.set(n.netClass ?? -1, (byClass.get(n.netClass ?? -1) ?? 0) + 1);
-    for (const [k, v] of [...byClass.entries()].sort()) console.log(`  ${(NET_CLASS[k] ?? k).padEnd(12)} ${v}`);
+    for (const [k, v] of [...byClass.entries()].sort()) console.log(`  ${String(NET_CLASS[k] ?? k).padEnd(12)} ${v}`);
     const bridges = buildSeriesBridgeGraph(ctx);
     console.log(`\n=== 可穿透串联无源件: ${bridges.length} 个 ===`);
     for (const b of bridges.slice(0, 8)) console.log(`  ${b.ref}  ${b.netA} ↔ ${b.netB}`);

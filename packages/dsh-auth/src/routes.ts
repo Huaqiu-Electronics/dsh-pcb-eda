@@ -6,6 +6,8 @@
  *   POST /api/v1/huaqiu/auth/logout                                → cache cleared
  *   GET  /api/v1/huaqiu/auth/session   → { authenticated, user }
  *   GET  /api/v1/huaqiu/auth/config    → { hostMode }
+ *   GET  /api/v1/huaqiu/auth/user-info → { userInfo } (node-side eda.cn call)
+ *   GET  /api/v1/huaqiu/auth/ai-usage  → { usage }    (node-side AI balance call)
  *
  * `config` tells the browser half whether it is running under an HQ Edge host
  * (hq-edge passes the operator credential to hq-edge itself, so the sidebar
@@ -72,6 +74,85 @@ export async function fetchEdaUserProfile(
 }
 
 export const AUTH_ROUTE_PREFIX = '/api/v1/huaqiu/auth'
+
+// ── AI token usage (proxied by the node half) ────────────────────────────────
+
+/**
+ * The account's AI balance endpoint.
+ *
+ * It is served over PLAIN `http`, which is why the node half must be the one to
+ * call it: a WebView fetch is refused by App Transport Security ("the resource
+ * could not be loaded because the App Transport Security policy requires the
+ * use of a secure connection") and, independently, by CORS (the response sends
+ * no `Access-Control-Allow-Origin`). Node's fetch is subject to neither, and
+ * this process already talks to this very host for the Huaqiu AI gateway
+ * (`http://www.fdatasheets.com/user-rest/ai/v1`, see hq-edge's
+ * `HUAQIU_AI_GATEWAY_BASE_URL`) — so the call is known to work from here.
+ */
+export const AI_USAGE_URL = 'http://www.fdatasheets.com/user-rest/api/ai/usage'
+
+/**
+ * Normalized AI token usage — the `/user-rest/api/ai/usage` result.
+ *
+ * `points` is the account-level token balance (what the user thinks of as
+ * "tokens"); `quota` is the same figure in the gateway's internal unit
+ * (points × 50) and `usd` its money equivalent. All three pairs are reported
+ * because the endpoint reports all three; the UI reads `points`.
+ *
+ * (Mirrored as a type-only declaration in `client/lib.ts` — the browser half
+ * must not import node modules, and the two halves are built as separate
+ * bundles.)
+ */
+export interface AiTokenUsage {
+  availablePoints: number
+  availableQuota: number
+  availableUsd: number
+  usedPoints: number
+  usedQuota: number
+  usedUsd: number
+}
+
+/**
+ * Fetch the account's AI token usage for a token. Null on any failure (the UI
+ * degrades to「—」) — never throws.
+ *
+ * The header is `X-Token` (capital T), which is what this endpoint expects; the
+ * subscription endpoint next door uses `x-token` + `X-User-Id`.
+ */
+export async function fetchAiTokenUsage(
+  token: string,
+  doFetch: typeof fetch = globalThis.fetch.bind(globalThis),
+): Promise<AiTokenUsage | null> {
+  try {
+    const res = await doFetch(AI_USAGE_URL, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json, text/plain, */*',
+        'Content-Type': 'application/json',
+        'X-Token': token,
+      },
+    })
+    if (!res.ok) return null
+    const body = (await res.json()) as { code?: number; result?: Record<string, unknown> }
+    if (body.code !== 200000 || !body.result) return null
+    const result = body.result
+    const num = (key: string): number => {
+      const v = Number(result[key])
+      return Number.isFinite(v) ? v : 0
+    }
+    return {
+      availablePoints: num('availablePoints'),
+      availableQuota: num('availableQuota'),
+      availableUsd: num('availableUsd'),
+      usedPoints: num('usedPoints'),
+      usedQuota: num('usedQuota'),
+      usedUsd: num('usedUsd'),
+    }
+  } catch (err) {
+    log().warn('fetchAiTokenUsage failed', { error: String((err as Error)?.message || err) })
+    return null
+  }
+}
 
 export type AuthHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void> | void
 
@@ -162,6 +243,20 @@ export function createAuthHandler(service: HuaqiuAuthService): AuthHandler {
         }
         const userInfo = await fetchEdaUserProfile(token)
         sendJson(res, 200, { userInfo })
+        return
+      }
+
+      if (req.method === 'GET' && pathname === `${AUTH_ROUTE_PREFIX}/ai-usage`) {
+        // The WebView CANNOT reach this endpoint itself (plain http → ATS +
+        // CORS, see AI_USAGE_URL), so the node half performs the call with the
+        // credential IT resolved (host → pushed → persisted) — the same shape
+        // as /user-info above.
+        const token = await service.auth.getAccessToken()
+        if (!token) {
+          sendJson(res, 200, { usage: null })
+          return
+        }
+        sendJson(res, 200, { usage: await fetchAiTokenUsage(token) })
         return
       }
 

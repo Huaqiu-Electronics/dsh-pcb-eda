@@ -33,6 +33,8 @@ function stubAuth(initial: StubInfo | null, hostMode = false, profile: { nicknam
       current = null
       for (const l of listeners) l(null)
     }),
+    getSubscriptionQuota: vi.fn(async () => null),
+    getAiTokenUsage: vi.fn(async () => null),
     onAuthStateChanged: (cb: (info: StubInfo | null) => void) => {
       listeners.add(cb)
       return () => listeners.delete(cb)
@@ -210,7 +212,8 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     click(trigger(container))
     const style = menu()?.style
     // DSH token first, explicit dark fallback second — both must be dark-aware.
-    expect(style?.background).toBe('var(--dsw-alias-bg-overlay, #20242c)')
+    // The fallback surface follows the redesigned prototype (#1e1b24).
+    expect(style?.background).toBe('var(--dsw-alias-bg-overlay, #1e1b24)')
     expect(style?.boxShadow).toContain('rgba(0, 0, 0')
 
     // And light again.
@@ -290,6 +293,79 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
       await auth.logout()
     })
     expect(menu()).toBeNull()
+  })
+
+  it('renders the AI token usage metric (used/total points + percent bar) when the menu opens', async () => {
+    const container = await renderSettled()
+    const auth = (await import('../src/client/auth-state.js')).getAuth() as unknown as {
+      getSubscriptionQuota: ReturnType<typeof vi.fn>
+      getAiTokenUsage: ReturnType<typeof vi.fn>
+    }
+    // The shared quota pass resolves GEN + ERC + AI in one window.
+    auth.getSubscriptionQuota = vi.fn(async (code: string) =>
+      code === 'auto-design'
+        ? { hasSubscription: true, packageName: 'Pro', currentQuota: 3, totalQuota: 10 }
+        : { hasSubscription: false, packageName: '', currentQuota: 0, totalQuota: 0 },
+    )
+    auth.getAiTokenUsage = vi.fn(async () => ({
+      availablePoints: 198735,
+      availableQuota: 9936735,
+      availableUsd: 19.87347,
+      usedPoints: 1265,
+      usedQuota: 63265,
+      usedUsd: 0.12653,
+    }))
+
+    click(trigger(container))
+    // Flush the quota effect's Promise.all (and its setState).
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+
+    const menuEl = menu()!
+    // AI label (zh) is present alongside GEN / ERC.
+    expect(menuEl.textContent).toContain('AI 用量')
+    // GEN also resolved through the same pass (sanity).
+    expect(menuEl.textContent).toContain('3 / 10')
+
+    // The AI metric card carries the used/total points and a percent hover.
+    // Pick the SHORTEST div containing the label: ancestors (the metrics
+    // container, the menu) also contain it, so length disambiguates the leaf.
+    const aiCard = [...menuEl.querySelectorAll('div')]
+      .filter((d) => (d.textContent ?? '').includes('AI 用量'))
+      .sort((a, b) => (a.textContent?.length ?? 0) - (b.textContent?.length ?? 0))[0]
+    expect(aiCard).toBeTruthy()
+    const aiSpans = aiCard!.querySelectorAll('span')
+    const aiValue = aiSpans[aiSpans.length - 1]!
+    // used / total points: 1265 / (1265 + 198735) = 1265 / 200000 点
+    expect(aiValue.textContent).toContain('1265 / 200000')
+    // The hover detail reports the fractional percent (0.6%).
+    expect(aiValue.getAttribute('title')).toContain('已使用 0.6%')
+  })
+
+  it('renders an empty AI metric (—) when the usage fetch yields nothing', async () => {
+    const container = await renderSettled()
+    const auth = (await import('../src/client/auth-state.js')).getAuth() as unknown as {
+      getAiTokenUsage: ReturnType<typeof vi.fn>
+    }
+    auth.getAiTokenUsage = vi.fn(async () => null)
+
+    click(trigger(container))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    const menuEl = menu()!
+    // The AI card is present (label) but shows the no-data dash.
+    expect(menuEl.textContent).toContain('AI 用量')
+    const aiCard = [...menuEl.querySelectorAll('div')]
+      .filter((d) => (d.textContent ?? '').includes('AI 用量'))
+      .sort((a, b) => (a.textContent?.length ?? 0) - (b.textContent?.length ?? 0))[0]
+    expect(aiCard).toBeTruthy()
+    const aiSpans = aiCard!.querySelectorAll('span')
+    const aiValue = aiSpans[aiSpans.length - 1]!
+    expect(aiValue.textContent).toBe('—')
   })
 })
 

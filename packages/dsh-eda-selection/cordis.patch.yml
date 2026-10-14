@@ -1,0 +1,9 @@
+# DSH bundle patch: inserts the ambient selection plugin.
+#
+# The browser half registers a `conversation.input.dock` entry and the node
+# half registers a `systemPrompt` section, so the entry inject must hold the
+# plugin until both surfaces exist.
+- insert:
+    - id: huaqiu-eda-selection
+      name: '@huaqiu/dsh-eda-selection'
+      inject: ['hqEdge', 'systemPrompt']

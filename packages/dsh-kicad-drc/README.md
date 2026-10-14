@@ -1,4 +1,4 @@
-# dsh-kicad-drc
+# @huaqiu/dsh-kicad-drc
 
 DeepSeek Harness (DSH) 插件：为 AI agent 注册 `kicad_drc_run` 工具，对 `.kicad_pcb` 文件执行 KiCad DRC（设计规则检查）并返回结构化结果；Web GUI 中还会在对话轮次尾部渲染**分页报告卡片**。
 

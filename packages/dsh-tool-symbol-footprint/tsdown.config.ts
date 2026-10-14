@@ -34,7 +34,15 @@ export default defineConfig([
     // Force-bundle them here.
     deps: {
       neverBundle: [/^react$/, /^react\//, /^@deepseek-ai\//],
-      alwaysBundle: [/^@huaqiu\/component-gen-app$/, /^@huaqiu\/dsh-artifacts(\/|$)/],
+      // Subpath-aware patterns: an anchored `^...$` regex would NOT match
+      // `@huaqiu/dsh-artifacts/placement` and would silently externalize it.
+      // @huaqiu/dsh-sidebar-entry is the shared family sidebar-entry helper —
+      // a plain library module, so it must be bundled too.
+      alwaysBundle: [
+        /^@huaqiu\/component-gen-app$/,
+        /^@huaqiu\/dsh-artifacts(\/|$)/,
+        /^@huaqiu\/dsh-sidebar-entry$/,
+      ],
     },
     outputOptions: {
       entryFileNames: 'client.js',

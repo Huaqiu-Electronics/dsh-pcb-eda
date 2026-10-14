@@ -1,0 +1,8 @@
+{
+  "runtime": "Eclipse Temurin 25.0.4.1+1 Windows x64 JRE",
+  "source": "https://github.com/adoptium/temurin25-binaries/releases/tag/jdk-25.0.4.1%2B1",
+  "java_exe_sha256": "5808527e3dfc4eb285c7664ba356bc267055ef906e83ed4660d9f7976da7349b",
+  "release_sha256": "5ba8ae03d3be693475bf0d34c57c55b55c51954b065ac71a397fa0212889534e",
+  "archive_url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.4.1%2B1/OpenJDK25U-jre_x64_windows_hotspot_25.0.4.1_1.zip",
+  "archive_sha256": "4c95451cea98556def2c54f7782933f52a26d4a36bd85e1d59f0364464828b07"
+}

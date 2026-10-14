@@ -1,5 +1,5 @@
 /**
- * dsh-kicad-drc 浏览器半边：在对话轮次尾部渲染 DRC 报告分页卡片。
+ * @huaqiu/dsh-kicad-drc 浏览器半边：在对话轮次尾部渲染 DRC 报告分页卡片。
  *
  * 机制（与 @huaqiu/dsh-tool-pcb-viewer 相同）：
  * - host 端工具结果里带 {ok, viewUrl} JSON 块；
@@ -351,7 +351,7 @@ export function apply(ctx: ClientCtx): void {
   // Watcher：挂在会话头部动作区（渲染 null，只负责维护索引）
   ctx.slots.inject('conversation.session.header.actions', () => ctx.slots.register({
     name: 'conversation.session.header.actions',
-    id: 'dsh-kicad-drc-watcher',
+    id: '@huaqiu/dsh-kicad-drc-watcher',
     order: 999,
     inject: () => ({}),
   }, PreviewWatcher))

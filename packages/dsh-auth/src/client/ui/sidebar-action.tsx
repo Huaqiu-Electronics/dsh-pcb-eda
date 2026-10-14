@@ -26,9 +26,9 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { getAuth, getAuthState, getHqEdge, setProfile, subscribeAuth } from '../auth-state.js'
-import { buildProfileUrl } from '../lib.js'
+import { buildProfileUrl, ERC_PRODUCT_CODE, GEN_PRODUCT_CODE, type AiTokenUsage, type SubscriptionQuota } from '../lib.js'
 import { useIsDark, useLocale } from '../ui-env.js'
-import { useT } from '../i18n.js'
+import { useT, type Translate } from '../i18n.js'
 import { HQ_ICON } from './hq-icon.jsx'
 
 export interface SidebarFooterActionOwnerProps {
@@ -49,6 +49,26 @@ interface Palette {
   dangerHover: string
   avatarBg: string
   shadow: string
+  /** Profile-header card background (prototype `bg-white/[0.03]`). */
+  card: string
+  /** 1px hairline used on cards inside the popup. */
+  cardBorder: string
+  /** Quota metric card background (prototype `bg-black/20`). */
+  metric: string
+  metricHover: string
+  /** Huaqiu brand red (#e62e2d). */
+  primary: string
+  primaryHover: string
+  /** Badge tint: primary at ~10% (prototype `bg-hq-primary/10`). */
+  primarySoft: string
+  /** Progress-bar track (prototype `dark:bg-gray-800`). */
+  track: string
+  /** GEN / ERC / AI progress gradients (prototype blue→indigo, purple→pink). */
+  genGradient: string
+  ercGradient: string
+  aiGradient: string
+  /** "Online" dot green. */
+  online: string
 }
 
 const LIGHT_PALETTE: Palette = {
@@ -60,19 +80,43 @@ const LIGHT_PALETTE: Palette = {
   danger: 'var(--dsw-alias-state-error-primary, #d4380d)',
   dangerHover: 'rgba(216, 56, 13, 0.08)',
   avatarBg: 'var(--dsw-alias-bg-layer-2, #eef2f7)',
-  shadow: '0 12px 32px rgba(15, 23, 42, 0.16)',
+  shadow: '0 20px 40px -15px rgba(0, 0, 0, 0.12), 0 0 1px 1px rgba(0, 0, 0, 0.05)',
+  card: '#f7f8fa',
+  cardBorder: '#e8ebf0',
+  metric: '#f7f8fa',
+  metricHover: '#eef1f5',
+  primary: '#e62e2d',
+  primaryHover: '#cc2423',
+  primarySoft: 'rgba(230, 46, 45, 0.08)',
+  track: '#e4e7ec',
+  genGradient: 'linear-gradient(90deg, #3b82f6, #6366f1)',
+  ercGradient: 'linear-gradient(90deg, #a855f7, #ec4899)',
+  aiGradient: 'linear-gradient(90deg, #10b981, #06b6d4)',
+  online: '#10b981',
 }
 
 const DARK_PALETTE: Palette = {
-  surface: 'var(--dsw-alias-bg-overlay, #20242c)',
-  border: 'var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.14))',
+  surface: 'var(--dsw-alias-bg-overlay, #1e1b24)',
+  border: 'var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.10))',
   text: 'var(--dsw-alias-label-primary, #e6eaf0)',
   muted: 'var(--dsw-alias-label-secondary, #8b95a5)',
   hover: 'var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08))',
   danger: 'var(--dsw-alias-state-error-primary, #ff7875)',
   dangerHover: 'rgba(255, 120, 117, 0.14)',
   avatarBg: 'var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.10))',
-  shadow: '0 12px 32px rgba(0, 0, 0, 0.46)',
+  shadow: '0 20px 40px -15px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.1)',
+  card: 'rgba(255, 255, 255, 0.03)',
+  cardBorder: 'rgba(255, 255, 255, 0.08)',
+  metric: 'rgba(0, 0, 0, 0.20)',
+  metricHover: 'rgba(0, 0, 0, 0.30)',
+  primary: '#e62e2d',
+  primaryHover: '#cc2423',
+  primarySoft: 'rgba(230, 46, 45, 0.10)',
+  track: 'rgba(255, 255, 255, 0.10)',
+  genGradient: 'linear-gradient(90deg, #3b82f6, #6366f1)',
+  ercGradient: 'linear-gradient(90deg, #a855f7, #ec4899)',
+  aiGradient: 'linear-gradient(90deg, #10b981, #06b6d4)',
+  online: '#10b981',
 }
 
 const TRIGGER_BASE: CSSProperties = {
@@ -95,11 +139,11 @@ const TRIGGER_BASE: CSSProperties = {
 const MENU_BASE: CSSProperties = {
   position: 'fixed',
   zIndex: 2147483000,
-  minWidth: 184,
-  padding: 6,
+  width: 320,
+  padding: 12,
   borderWidth: 1,
   borderStyle: 'solid',
-  borderRadius: 12,
+  borderRadius: 16,
   fontFamily: 'inherit',
   fontSize: 13,
 }
@@ -129,17 +173,21 @@ const MENU_ITEM_BASE: CSSProperties = {
 
 /**
  * One menu row. Hover is tracked in state: the client bundle ships no CSS
- * file, so inline styles cannot express `:hover`.
+ * file, so inline styles cannot express `:hover`. `trailing` renders a
+ * chevron on the right (prototype nav rows), `danger` switches to the danger
+ * color scheme (prototype logout).
  */
 function MenuItem({
   label,
   icon,
+  trailing,
   danger,
   palette,
   onSelect,
 }: {
   label: string
   icon: React.JSX.Element
+  trailing?: React.JSX.Element
   danger?: boolean
   palette: Palette
   onSelect: () => void
@@ -151,6 +199,7 @@ function MenuItem({
       role="menuitem"
       style={{
         ...MENU_ITEM_BASE,
+        justifyContent: 'space-between',
         color: danger ? palette.danger : palette.text,
         background: hovered ? (danger ? palette.dangerHover : palette.hover) : 'transparent',
       }}
@@ -158,8 +207,21 @@ function MenuItem({
       onMouseLeave={() => setHovered(false)}
       onClick={onSelect}
     >
-      {icon}
-      <span>{label}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        {icon}
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      </span>
+      {trailing ? (
+        <span
+          style={{
+            display: 'flex',
+            flex: '0 0 auto',
+            color: hovered ? (danger ? palette.danger : palette.text) : palette.muted,
+          }}
+        >
+          {trailing}
+        </span>
+      ) : null}
     </button>
   )
 }
@@ -207,6 +269,386 @@ function LogoutIcon(): React.JSX.Element {
   )
 }
 
+/** GEN metric icon (lucide `cpu`, blue like the prototype). */
+function CpuIcon(): React.JSX.Element {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={13}
+      height={13}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#3b82f6"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ flex: '0 0 auto' }}
+    >
+      <rect x="4" y="4" width="16" height="16" rx="2" />
+      <rect x="9" y="9" width="6" height="6" />
+      <path d="M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2" />
+    </svg>
+  )
+}
+
+/** ERC metric icon (lucide `waves`, purple like the prototype). */
+function WaveIcon(): React.JSX.Element {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={13}
+      height={13}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#a855f7"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ flex: '0 0 auto' }}
+    >
+      <path d="M2 12c1.5-3 3-3 4.5 0s3 3 4.5 0 3-3 4.5 0 3 3 4.5 0" />
+      <path d="M2 17c1.5-3 3-3 4.5 0s3 3 4.5 0 3-3 4.5 0 3 3 4.5 0" />
+    </svg>
+  )
+}
+
+/** Upgrade-button crown (solid amber like the prototype). */
+function CrownIcon(): React.JSX.Element {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="#fcd34d"
+      aria-hidden
+      style={{ flex: '0 0 auto' }}
+    >
+      <path d="M2 18h20l-1.5-9-5.5 4L12 5.5 9 13l-5.5-4L2 18z" />
+    </svg>
+  )
+}
+
+/** Trailing chevron for nav rows (lucide `chevron-right`). */
+function ChevronRightIcon(): React.JSX.Element {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={12}
+      height={12}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ flex: '0 0 auto' }}
+    >
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  )
+}
+
+/** AI usage metric glyph (lucide `sparkles`) — the token balance. */
+function SparklesIcon(): React.JSX.Element {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width={14}
+      height={14}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="#10b981"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      style={{ flex: '0 0 auto' }}
+    >
+      <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+      <path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
+    </svg>
+  )
+}
+
+/**
+ * One normalized metric reading — everything {@link QuotaMetric} renders.
+ *
+ * The card itself knows nothing about where a reading comes from, so GEN, ERC
+ * and the AI token balance are three small pure adapters over the same
+ * presentational component (and each is unit-testable without a DOM).
+ */
+interface MetricReading {
+  /** Right-aligned mono text (already localized and formatted). */
+  value: string
+  /** Hover detail; defaults to `value`. */
+  title?: string
+  /** Bar fill, 0–100. Fractional is allowed (sub-1% usage is normal for tokens). */
+  percent: number
+  /** false → the value renders in the danger color (unsubscribed / no data). */
+  ok: boolean
+}
+
+/** Quota metric card: icon + label, mono count and a gradient progress bar. */
+function QuotaMetric({
+  label,
+  icon,
+  reading,
+  gradient,
+  palette,
+}: {
+  label: string
+  icon: React.JSX.Element
+  reading: MetricReading | null
+  gradient: string
+  palette: Palette
+}): React.JSX.Element {
+  const t = useT()
+  const [hovered, setHovered] = useState(false)
+  const value = reading?.value ?? '—'
+  return (
+    <div
+      role="presentation"
+      style={{
+        background: hovered ? palette.metricHover : palette.metric,
+        borderRadius: 12,
+        border: `1px solid ${palette.cardBorder}`,
+        padding: 10,
+        boxSizing: 'border-box',
+        transition: 'background 0.15s ease',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 6 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500, color: palette.text, minWidth: 0 }}>
+          {icon}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        </span>
+        <span
+          style={{
+            fontWeight: 700,
+            color: reading?.ok ? palette.text : palette.danger,
+            fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+            fontSize: 12,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+          }}
+          title={reading?.title ?? value}
+        >
+          {value}
+        </span>
+      </div>
+      <div style={{ width: '100%', height: 6, borderRadius: 999, background: palette.track, overflow: 'hidden' }}>
+        <div style={{ width: `${reading?.percent ?? 0}%`, height: '100%', borderRadius: 999, background: gradient }} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * GEN / ERC reading from an eda.cn active-subscription payload.
+ *
+ * `hasSubscription` false (or an unknown total) is NOT an error: it is an
+ * account with no plan, which reads as 0% plus the "not subscribed" copy in
+ * the danger color.
+ */
+export function quotaReading(quota: SubscriptionQuota | null, t: Translate): MetricReading | null {
+  if (!quota) return null
+  const used = quota.currentQuota
+  const total = quota.totalQuota
+  const percent = quota.hasSubscription && typeof total === 'number' && total > 0
+    ? Math.max(0, Math.min(100, Math.round((used / total) * 100)))
+    : 0
+  return {
+    value: quota.hasSubscription
+      ? (typeof total === 'number'
+          ? t('subscription.quotaCount', { used, total })
+          : String(used))
+      : t('subscription.unsubscribed'),
+    percent,
+    ok: quota.hasSubscription,
+  }
+}
+
+/**
+ * AI token reading from `/user-rest/api/ai/usage`.
+ *
+ * The balance is reported as `usedPoints` + `availablePoints`, so the total is
+ * their sum — there is no separate `totalPoints` field to read. Percent keeps
+ * one decimal: a fresh account burns well under 1% of its balance, and rounding
+ * 0.6% up to "1%" would overstate consumption fourfold.
+ */
+export function aiUsageReading(usage: AiTokenUsage | null, t: Translate): MetricReading | null {
+  if (!usage) return null
+  const used = Math.max(0, usage.usedPoints)
+  const available = Math.max(0, usage.availablePoints)
+  const total = used + available
+  const percent = total > 0
+    ? Math.min(100, Math.round((used / total) * 1000) / 10)
+    : 0
+  return {
+    value: t('subscription.aiUsageCount', { used, total }),
+    title: t('subscription.aiUsagePercent', { percent }),
+    percent,
+    ok: true,
+  }
+}
+
+/**
+ * Profile header card (prototype): name + plan badge + phone line on the
+ * left, an "online" pill on the right. No redundant avatar — the trigger
+ * already shows it.
+ */
+function ProfileHeaderCard({
+  displayName,
+  packageName,
+  phone,
+  palette,
+}: {
+  displayName: string
+  packageName: string | null
+  phone: string | null
+  palette: Palette
+}): React.JSX.Element {
+  const t = useT()
+  return (
+    <div
+      role="presentation"
+      style={{
+        padding: 10,
+        borderRadius: 12,
+        background: palette.card,
+        border: `1px solid ${palette.cardBorder}`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 8,
+        marginBottom: 12,
+        boxSizing: 'border-box',
+      }}
+    >
+      <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: palette.text,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {displayName}
+          </span>
+          {packageName ? (
+            <span
+              style={{
+                fontSize: 10,
+                background: palette.primarySoft,
+                color: palette.primary,
+                padding: '2px 6px',
+                borderRadius: 4,
+                fontWeight: 500,
+                border: `1px solid ${palette.primarySoft}`,
+                whiteSpace: 'nowrap',
+                flexShrink: 0,
+              }}
+            >
+              {packageName}
+            </span>
+          ) : null}
+        </div>
+        {phone ? (
+          <p
+            style={{
+              margin: 0,
+              marginTop: 2,
+              fontSize: 12,
+              color: palette.muted,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {phone}
+          </p>
+        ) : null}
+      </div>
+      <span
+        style={{
+          fontSize: 10,
+          background: 'rgba(16, 185, 129, 0.10)',
+          color: palette.online,
+          padding: '2px 8px',
+          borderRadius: 999,
+          fontWeight: 500,
+          border: '1px solid rgba(16, 185, 129, 0.20)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          flexShrink: 0,
+        }}
+      >
+        <span style={{ width: 6, height: 6, borderRadius: 6, background: palette.online }} />
+        {t('subscription.online')}
+      </span>
+    </div>
+  )
+}
+
+/** Full-width red-gradient upgrade button (prototype CTA). */
+function UpgradeButton({
+  subscribing,
+  palette,
+  onClick,
+}: {
+  subscribing: boolean
+  palette: Palette
+  onClick: () => void
+}): React.JSX.Element {
+  const t = useT()
+  const [hovered, setHovered] = useState(false)
+  return (
+    <button
+      type="button"
+      style={{
+        width: '100%',
+        marginTop: 10,
+        padding: '9px 12px',
+        borderRadius: 12,
+        border: 'none',
+        background: subscribing
+          ? `linear-gradient(90deg, ${palette.primary}, #e11d48)`
+          : hovered
+            ? `linear-gradient(90deg, ${palette.primaryHover}, #be123c)`
+            : `linear-gradient(90deg, ${palette.primary}, #e11d48)`,
+        color: '#ffffff',
+        fontSize: 12,
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        cursor: subscribing ? 'default' : 'pointer',
+        opacity: subscribing ? 0.72 : 1,
+        boxShadow: '0 8px 20px rgba(230, 46, 45, 0.22)',
+        transition: 'background 0.15s ease, opacity 0.15s ease',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+    >
+      <CrownIcon />
+      {subscribing ? t('subscription.subscribing') : t('subscription.upgrade')}
+    </button>
+  )
+}
+
 export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ wide }: SidebarFooterActionOwnerProps): React.JSX.Element | null {
   const authState = useSyncExternalStore(subscribeAuth, getAuthState)
   const auth = getAuth()
@@ -217,6 +659,8 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null)
   const [avatarBroken, setAvatarBroken] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [quota, setQuota] = useState<{ gen: SubscriptionQuota | null; erc: SubscriptionQuota | null; ai: AiTokenUsage | null } | null>(null)
+  const [subscribing, setSubscribing] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
@@ -270,8 +714,33 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
     if (!authenticated) setMenuOpen(false)
   }, [authenticated])
 
+  // Live quota: EVERY time the menu opens (and every time the auth state
+  // flips to authenticated) re-fetch the active subscription for GEN and ERC
+  // DIRECTLY from eda.cn — the sidebar must never show a stale count. The AI
+  // token balance rides the same pass (`/user-rest/api/ai/usage`, one GET, no
+  // hq-edge hop), so all three metrics share one loading window instead of
+  // three staggered ones.
+  useEffect(() => {
+    if (!menuOpen || !authenticated) {
+      if (!menuOpen) setQuota(null)
+      return
+    }
+    let cancelled = false
+    void Promise.all([
+      auth?.getSubscriptionQuota?.(GEN_PRODUCT_CODE).catch(() => null) ?? Promise.resolve(null),
+      auth?.getSubscriptionQuota?.(ERC_PRODUCT_CODE).catch(() => null) ?? Promise.resolve(null),
+      auth?.getAiTokenUsage?.().catch(() => null) ?? Promise.resolve(null),
+    ]).then(([gen, erc, ai]) => {
+      if (!cancelled) setQuota({ gen, erc, ai })
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menuOpen, authenticated])
+
   // Anchor the portalled menu to the trigger before paint: the sidebar footer
   // sits at the bottom edge, so the menu grows UPWARD from the trigger's top.
+  // Width is FIXED (320, prototype `w-80`) — the sidebar footer is narrow, so
+  // the popup intentionally overhangs it instead of collapsing to its width.
   useLayoutEffect(() => {
     if (!menuOpen || !triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
@@ -283,9 +752,8 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
       boxShadow: palette.shadow,
       left: Math.max(8, Math.round(rect.left)),
       bottom: Math.max(8, Math.round(window.innerHeight - rect.top + 8)),
-      ...(wide ? { width: Math.round(rect.width) } : {}),
     })
-  }, [menuOpen, wide, avatar, palette])
+  }, [menuOpen, avatar, palette])
 
   // Close on: outside click, Escape, resize or scroll (the anchor moved).
   useEffect(() => {
@@ -339,6 +807,19 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
 
   const title = authenticated ? t('sidebar.accountTitle') : t('sidebar.loginTitle')
   const triggerBackground = menuOpen || hovered ? palette.hover : 'transparent'
+
+  /**
+   * Open the subscription page. Host mode → the EDA host's native dialog
+   * (DialogService.OpenUrl, preferred size 1400×740); standalone DSH → the
+   * in-app iframe dialog at the same preferred size. No credential → no-op.
+   */
+  const openSubscription = (): void => {
+    if (subscribing) return
+    setSubscribing(true)
+    void auth.openSubscriptionDialog()
+      .catch(() => { /* host without dialog service — menu stays usable */ })
+      .finally(() => setSubscribing(false))
+  }
 
   return (
     <div style={{ position: 'relative', width: '100%' }}>
@@ -401,14 +882,82 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
       {menuOpen && menuStyle
         ? createPortal(
             <div ref={menuRef} role="menu" style={menuStyle}>
-              {displayName ? (
-                <div style={{ ...MENU_HEADER_BASE, color: palette.muted }} title={displayName}>{displayName}</div>
-              ) : null}
-              <MenuItem
-                label={t('menu.profile')}
-                icon={<UserIcon />}
+              <ProfileHeaderCard
+                displayName={displayName ?? t('sidebar.account')}
+                packageName={quota?.gen?.packageName ?? quota?.erc?.packageName ?? null}
+                phone={authState.phone ?? null}
                 palette={palette}
-                onSelect={openProfile}
+              />
+              <div
+                role="presentation"
+                style={{
+                  ...MENU_HEADER_BASE,
+                  paddingTop: 0,
+                  paddingBottom: 6,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 0.4,
+                  textTransform: 'uppercase',
+                  color: palette.muted,
+                }}
+              >
+                {t('subscription.quotaHeader')}
+              </div>
+              <div role="presentation" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <QuotaMetric
+                  label={t('subscription.gen')}
+                  icon={<CpuIcon />}
+                  reading={quotaReading(quota?.gen ?? null, t)}
+                  gradient={palette.genGradient}
+                  palette={palette}
+                />
+                <QuotaMetric
+                  label={t('subscription.erc')}
+                  icon={<WaveIcon />}
+                  reading={quotaReading(quota?.erc ?? null, t)}
+                  gradient={palette.ercGradient}
+                  palette={palette}
+                />
+                <QuotaMetric
+                  label={t('subscription.ai')}
+                  icon={<SparklesIcon />}
+                  reading={aiUsageReading(quota?.ai ?? null, t)}
+                  gradient={palette.aiGradient}
+                  palette={palette}
+                />
+              </div>
+              <UpgradeButton
+                subscribing={subscribing}
+                palette={palette}
+                onClick={() => {
+                  if (subscribing) return
+                  openSubscription()
+                }}
+              />
+              <div
+                role="presentation"
+                style={{
+                  height: 1,
+                  margin: '12px 2px',
+                  background: palette.border,
+                }}
+              />
+              <div role="presentation" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <MenuItem
+                  label={t('menu.profile')}
+                  icon={<UserIcon />}
+                  trailing={<ChevronRightIcon />}
+                  palette={palette}
+                  onSelect={openProfile}
+                />
+              </div>
+              <div
+                role="presentation"
+                style={{
+                  height: 1,
+                  margin: '12px 2px',
+                  background: palette.border,
+                }}
               />
               <MenuItem
                 label={t('menu.logout')}

@@ -23,10 +23,28 @@ import { accessSync, readFileSync } from 'node:fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { dshPlugins } from './utils/packages.mjs';
+import { dshPlugins, pluginEntryInjects } from './utils/packages.mjs';
 
 const PORT = 3080;
 const PROFILE = 'web';
+
+// Not a plugin at all — a host package bundled with HQ Edge rather than
+// registered into a DSH profile.
+const NOT_A_PLUGIN = new Set(['@huaqiu/dsh-eda-host']);
+
+// Real plugins whose entry `inject` waits on `hqEdge`, a service only the
+// edge-bridge provides and only inside an HQ Edge runtime. Registering them in
+// a standalone DSH launch makes `dsh plugin add` succeed but leaves each one
+// "pending (waiting for service: hqEdge)", and boot then aborts with
+// "N entries did not activate" — so they are skipped outright.
+//
+// Derived from each plugin's own `cordis.patch.yml`, so a newly added
+// hqEdge-dependent plugin is skipped without anyone editing this list.
+const PLUGINS_NOT_AVAILABLE_IN_STANDALONE_DSH = new Set(
+  dshPlugins()
+    .filter((p) => pluginEntryInjects(p).includes('hqEdge'))
+    .map((p) => p.name),
+);
 
 // Resolved from the script's own location (import.meta.url) so it works
 // regardless of the caller's cwd.
@@ -39,7 +57,16 @@ const HARNESS_DIR = path.resolve(SCRIPT_DIR, '..', '..', 'deepseek-harness');
 // Discover the real dsh plugins under packages/ (those declaring a `dsh`
 // config) — app/server/utility packages are not plugins and are excluded.
 // Resolve to absolute paths because `pnpm dsh` runs with cwd = HARNESS_DIR.
-const PLUGINS = dshPlugins().map((p) => p.dir).filter((p) => !p.includes('dsh-eda-host'));
+//
+// Keyed by npm NAME, not by directory path: the skip sets above hold names.
+const PLUGINS = dshPlugins()
+  .filter((p) => !NOT_A_PLUGIN.has(p.name) && !PLUGINS_NOT_AVAILABLE_IN_STANDALONE_DSH.has(p.name))
+  .map((p) => p.dir);
+
+// Skipped deliberately — say so, or the absence looks like a discovery bug.
+const SKIPPED = dshPlugins()
+  .filter((p) => NOT_A_PLUGIN.has(p.name) || PLUGINS_NOT_AVAILABLE_IN_STANDALONE_DSH.has(p.name))
+  .map((p) => `${p.name}${NOT_A_PLUGIN.has(p.name) ? ' (host package, not a plugin)' : ' (needs hqEdge)'}`);
 
 /**
  * Kill any process currently listening on the given port.
@@ -146,6 +173,10 @@ function main() {
   }
 
   console.log(`Using local dsh from: ${HARNESS_DIR} (pnpm dsh)`);
+  if (SKIPPED.length > 0) {
+    console.log(`Skipping ${SKIPPED.length} package(s) not usable in a standalone DSH launch:`);
+    for (const name of SKIPPED) console.log(`  - ${name}`);
+  }
   console.log(`Freeing port ${PORT}…`);
   killPort(PORT);
 

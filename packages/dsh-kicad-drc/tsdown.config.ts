@@ -2,7 +2,7 @@ import { defineConfig, type UserConfig } from 'tsdown'
 
 /** host 半边：Node ESM bundle（DSH 插件入口）。 */
 const host: UserConfig = {
-  name: 'dsh-kicad-drc',
+  name: '@huaqiu/dsh-kicad-drc',
   entry: ['src/index.ts'],
   outDir: 'lib',
   format: ['esm'],
@@ -26,7 +26,7 @@ const host: UserConfig = {
  * react / react/jsx-runtime 不打进 bundle，运行时从 DSH 模块表 require（shell 提供单例）。
  */
 const client: UserConfig = {
-  name: 'dsh-kicad-drc-client',
+  name: '@huaqiu/dsh-kicad-drc-client',
   entry: { client: 'src/client/index.tsx' },
   outDir: 'lib',
   format: ['cjs'],
@@ -40,7 +40,7 @@ const client: UserConfig = {
   external: ['react', 'react/jsx-runtime'],
   banner:
     'window.__ModuleLoader__.load({\n'
-    + '\tid: "dsh-kicad-drc",\n'
+    + '\tid: "@huaqiu/dsh-kicad-drc",\n'
     + '\tfactory: (require) => {\n'
     + '\tvar module = { exports: {} };\n'
     + '\tvar exports = module.exports;',

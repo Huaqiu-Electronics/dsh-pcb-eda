@@ -44,6 +44,12 @@ This skill provides access to the **`CanvasOpsService.ListWireSegments`** RPC me
 | --- | --- | --- | --- | --- |
 | `context` | `ProjectContext` | no | no | — |
 
+## Agent notes (coordinates and netName)
+
+- **Response field:** wire list is **`wires`** (`listWireSegments().wires`), not `wireSegments`.
+- **Coordinates:** segment endpoints use the same **external display** system as `PlaceKicadSymbol` / `placePinStub` when the page is active: **Y increases downward**. Align with snapshot via `PAGE_TOP = page_box.max.y` and `extY = PAGE_TOP - canvasY` (see scenario-b `property-conventions.md`).
+- **`netName` on each wire:** engine-resolved net name after refresh (`WireSegmentInfo.netName`), **not** the NetAlias label alone and **not** authoritative for pin ownership. For semantics use `getActivePageNetList` or snapshot `nets[]`; for pin locations use `PortInstScalar` / `pinInstances` — **do not** infer pin attachment from wire endpoints alone.
+
 ## Response
 
 Returns a `ListWireSegmentsResponse` message with the following fields:

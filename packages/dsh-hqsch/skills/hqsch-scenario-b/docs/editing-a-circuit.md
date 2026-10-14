@@ -12,8 +12,22 @@ whole page: change a value, rewire one pin, replace one part, rename a net label
 | Draw a new circuit from scratch | **A** — patterns + placement |
 | "What does VR201 do?" / read-only | **B** — [reading-a-circuit.md](./reading-a-circuit.md) |
 | Change C201 to 1 µF / move R5 net / swap U3 | **C** — this doc |
+| Fix **one module** on a partitioned schematic (reset block, power section, rewire in one box) | **C** — this doc + [modular-layout.md](./modular-layout.md) §单模块修补 |
 
 **Never** clear the page or redraw the whole schematic for a local edit.
+
+## Modular designs (single-block edit)
+
+If the page already has **module frames / Chinese titles** (P4a):
+
+1. **Do not** run a whole-page build script, `clearActivePageFull`, or Flow **A** P0–P4 — that is whole-page redraw.
+2. **Flow B** first: `read-circuit.ts` with `REF=` on parts inside the broken module; note pin→net and `canvasObjectId`.
+3. **Blast radius** = `moduleBlastRadius(client, ctx, refs)` (parts + neighbouring wires + union bbox) plus **that module’s** rect/text ids only. Print it, then delete with `deleteModuleBlastRadius` / `deleteModuleDecorations(moduleKey)`. Do **not** call `prepareP4aDecorations` (clears **all** decorations on the page).
+4. Execute Flow C recipes; re-apply a **single** pattern only when the user asked to regenerate that subnet (host + roles in scope). To shift a block without redrawing it, use `moveExtBatch`.
+5. If bbox changed: `deleteModuleDecorations(moduleKey)` → `unionModuleBBox` + `padUnionBox` → `placeModuleFrameAndTitle` for **one** module.
+6. Verify changed nets; skip full-page `layout-audit` / PDF unless the user wants a layout review.
+
+Cross-ref: [modular-layout.md](./modular-layout.md) §单模块修补.
 
 ## Fixed workflow (mandatory order)
 
@@ -67,6 +81,10 @@ Before any write, list **only** what will change:
 | Bulk delete | **Forbidden** without explicit user confirmation |
 
 Do **not** use `deleteObjectsByIds` on whole-page occupancy without user OK.
+
+**Module frames / free text:** delete only ids from the **decoration ledger** (A) or future
+`listPageDecorations` (E). **Do not** scan `GetSnapshot` or occupancy for rects/text — see
+`decoration-objects.md`.
 
 ### 4. Print diff → user confirmation
 

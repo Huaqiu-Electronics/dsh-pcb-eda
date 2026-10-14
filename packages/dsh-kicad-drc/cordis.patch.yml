@@ -1,4 +1,4 @@
-# dsh-kicad-drc bundle patch layer — 把本插件挂载进 profile 树。
+# @huaqiu/dsh-kicad-drc bundle patch layer — 把本插件挂载进 profile 树。
 - insert:
-    - id: kicad-drc
-      name: dsh-kicad-drc
+    - id: kicad-dsh-drc
+      name: '@huaqiu/dsh-kicad-drc'

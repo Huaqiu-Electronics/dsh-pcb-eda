@@ -59,4 +59,40 @@ describe('createWebServerAuthTransport', () => {
     const t = createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch)
     await expect(t.fetchSession()).resolves.toEqual({ authenticated: true, user: null })
   })
+
+  it('fetchAiUsage reads the /ai-usage route (never the external endpoint)', async () => {
+    const usage = {
+      availablePoints: 198735,
+      availableQuota: 9936735,
+      availableUsd: 19.87347,
+      usedPoints: 1265,
+      usedQuota: 63265,
+      usedUsd: 0.12653,
+    }
+    const doFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ usage }),
+    })) as unknown as typeof fetch
+    const t = createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch)
+    await expect(t.fetchAiUsage()).resolves.toEqual(usage)
+    // Same-origin node route — the plain-http fdatasheets URL must not appear
+    // here (the WebView refuses it on ATS + CORS grounds).
+    const [url] = (doFetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string]
+    expect(url).toBe('/api/v1/huaqiu/auth/ai-usage')
+    expect(url).not.toContain('fdatasheets')
+    expect(doFetch).toHaveBeenCalledWith(url, expect.objectContaining({ method: 'GET' }))
+  })
+
+  it('fetchAiUsage returns null on a non-ok response, a missing payload, or a network error', async () => {
+    const notOk = vi.fn(async () => ({ ok: false, status: 500 })) as unknown as typeof fetch
+    await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', notOk).fetchAiUsage()).resolves.toBeNull()
+
+    const empty = vi.fn(async () => ({ ok: true, json: async () => ({}) })) as unknown as typeof fetch
+    await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', empty).fetchAiUsage()).resolves.toBeNull()
+
+    const offline = vi.fn(async () => {
+      throw new Error('offline')
+    }) as unknown as typeof fetch
+    await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', offline).fetchAiUsage()).resolves.toBeNull()
+  })
 })

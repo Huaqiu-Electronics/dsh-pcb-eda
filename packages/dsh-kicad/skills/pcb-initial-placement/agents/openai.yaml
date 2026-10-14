@@ -1,0 +1,4 @@
+interface:
+  display_name: "PCB 初始布局"
+  short_description: "为只有网表、零布局的 KiCad PCB 做 Phase-1 初始布局（功能分块、锚点定位、分区摆放、无重叠校验），优先经 KiCad IPC 应用到打开的板子"
+  default_prompt: "使用 $pcb-initial-placement，为当前板子完成 Phase-1 初始布局：功能分块、锚点与定位件、分区摆放、无重叠校验与出图，结果优先通过 KiCad IPC 应用为一步撤销；仅在 IPC 不可用且用户明确接受时离线生成新板文件。"

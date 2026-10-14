@@ -33,6 +33,7 @@ import {
   type SchematicGenConfig,
 } from './config.js'
 import { consumeCopilotkit, exportModuleGraphZip, HTTP_TIMEOUT_MS } from './sse.js'
+import { fetchGenQuota, type GenQuota } from './quota.js'
 import type { ProgressNote, RunProgress, TodoItem } from './progress.js'
 import type { TraceEvent } from './trace.js'
 
@@ -323,6 +324,30 @@ export function needsAuth(kind: 'schematic' | 'system'): Record<string, unknown>
 }
 
 /**
+ * Structured `needs_subscription` result returned when the resolved account
+ * has NO available GEN generation quota (subscription exhausted / none).
+ *
+ * Mirrors `needs_auth`: the web client renders a subscription card (which
+ * opens the subscription dialog automatically ONCE per session and always
+ * offers the subscribe button); the MODEL is told every time — the `hint`
+ * below is the every-call notice the user asked for.
+ */
+export function needsSubscription(kind: 'schematic' | 'system', quota: GenQuota): Record<string, unknown> {
+  return {
+    status: 'needs_subscription',
+    kind,
+    packageName: quota.packageName,
+    currentQuota: quota.currentQuota,
+    hint:
+      'This account has no available GEN generation quota for ' + kind + ' design ' +
+      '(currentQuota=' + quota.currentQuota + ', package=' + (quota.packageName || 'none') + '). ' +
+      'Please tell the user: there is no available GEN generation quota, so the design was ' +
+      'NOT generated. A subscription dialog has been opened — after the user subscribes or ' +
+      'upgrades (or confirms the quota is restored), call this tool again to retry.',
+  }
+}
+
+/**
  * Host whitelist for the project-zip download — mirrors the web app's
  * `/api/sch_sub_gen/download_zip` proxy (`apps/web/.../download_zip/route.ts`):
  * only https/http URLs on `eda.cn` / `*.eda.cn` are allowed. The URL comes
@@ -393,6 +418,11 @@ export async function runGenerateSchematic(
 ): Promise<Record<string, unknown>> {
   const account = await resolveAccount(env.auth)
   if (!account) return needsAuth('schematic')
+  // GEN quota pre-check: fail-closed only when the quota API answers with
+  // "no quota left"; a failed check (null) fails open so a flaky quota API
+  // never blocks a paying user.
+  const genQuota = await fetchGenQuota(account, env.deps?.fetchImpl)
+  if (genQuota && genQuota.currentQuota <= 0) return needsSubscription('schematic', genQuota)
   const threadId = newRunId(env)
   const body = buildRunBody(
     agentIds.SCHEMATIC,
@@ -489,6 +519,9 @@ export async function runGenerateSystem(
 ): Promise<Record<string, unknown>> {
   const account = await resolveAccount(env.auth)
   if (!account) return needsAuth('system')
+  // GEN quota pre-check (see runGenerateSchematic).
+  const genQuota = await fetchGenQuota(account, env.deps?.fetchImpl)
+  if (genQuota && genQuota.currentQuota <= 0) return needsSubscription('system', genQuota)
   const threadId = newRunId(env)
   const body = buildRunBody(
     agentIds.SYSTEM,
@@ -620,6 +653,20 @@ const AUTH_GATE_NOTE =
   'writing in), then call this tool again. Never invent credentials and never ' +
   'claim success when the result is needs_auth.'
 
+/** Agent-awareness note about the GEN subscription quota gate, appended to
+ *  both tool descriptions. A `needs_subscription` result means the account has
+ *  no generation quota left: the web client auto-opens the subscription dialog
+ *  once, but the model MUST inform the user EVERY time (this is the every-call
+ *  notice) — never silently pretend the tool ran. */
+const SUBSCRIPTION_GATE_NOTE =
+  ' SUBSCRIPTION: Before every run this tool checks the account GEN generation ' +
+  'quota against eda.cn. If the result has status "needs_subscription", the ' +
+  'design was NOT generated: the account has no available GEN quota. Always ' +
+  'tell the user (in their language) that there is no available GEN quota and ' +
+  'the design was not generated; a subscription dialog has been opened — after ' +
+  'the user subscribes or upgrades, call this tool again. Do not pretend the ' +
+  'design was generated when the result is needs_subscription.'
+
 // ── Tool definitions ─────────────────────────────────────────────────────────
 
 function createSchematicTool(env: SchematicGenEnv) {
@@ -642,7 +689,7 @@ function createSchematicTool(env: SchematicGenEnv) {
       'zip. ' +
       'Do NOT paste the schematic source, file URLs, or any fenced code block ' +
       'into your reply; just note in one line that the schematic was generated ' +
-      'and how many sheets it has. ' + AUTH_GATE_NOTE,
+      'and how many sheets it has. ' + AUTH_GATE_NOTE + SUBSCRIPTION_GATE_NOTE,
     parameters: {
       description: {
         type: 'string',
@@ -685,7 +732,7 @@ function createSystemTool(env: SchematicGenEnv) {
       'project zip. Do NOT paste the schematic source, file URLs, or any fenced ' +
       'code block into your reply; just note in one line that the design was ' +
       'generated, its module count, and that the project zip is downloadable ' +
-      'from the card. ' + AUTH_GATE_NOTE,
+      'from the card. ' + AUTH_GATE_NOTE + SUBSCRIPTION_GATE_NOTE,
     parameters: {
       description: {
         type: 'string',

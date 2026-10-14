@@ -1,0 +1,384 @@
+diff --git a/src/main/java/app/freerouting/io/specctra/SesWriter.java b/src/main/java/app/freerouting/io/specctra/SesWriter.java
+index b9ff315..82ab9ce 100644
+--- a/src/main/java/app/freerouting/io/specctra/SesWriter.java
++++ b/src/main/java/app/freerouting/io/specctra/SesWriter.java
+@@ -13,7 +13,6 @@ import app.freerouting.datastructures.IdentifierType;
+ import app.freerouting.datastructures.IndentFileWriter;
+ import app.freerouting.geometry.planar.Area;
+ import app.freerouting.geometry.planar.FloatPoint;
+-import app.freerouting.geometry.planar.Point;
+ import app.freerouting.io.CoordinateTransform;
+ import app.freerouting.io.specctra.parser.Layer;
+ import app.freerouting.io.specctra.parser.Parser;
+@@ -23,7 +22,6 @@ import app.freerouting.logger.FRLogger;
+ import app.freerouting.rules.Net;
+ import java.io.IOException;
+ import java.io.OutputStream;
+-import java.util.Arrays;
+ import java.util.Collection;
+ import java.util.LinkedHashSet;
+ import java.util.Locale;
+@@ -69,7 +67,6 @@ public final class SesWriter {
+   // ---------------------------------------------------------------------------
+   // Private helpers for session-file writing.
+   // ---------------------------------------------------------------------------
+-
+   private static void writeSessionScope(
+       BasicBoard board,
+       IdentifierType identifierType,
+@@ -376,82 +373,16 @@ public final class SesWriter {
+       CoordinateTransform coordinateTransform,
+       IndentFileWriter file)
+       throws IOException {
+-    int layerIndex = wire.getLayer();
+-    final app.freerouting.board.model.structure.Layer boardLayer =
+-        board.layerStructure.layers[layerIndex];
+-    final int wireWidth = (int) Math.round(coordinateTransform.boardToDsn(2 * wire.getHalfWidth()));
++    String layer = board.layerStructure.layers[wire.getLayer()].name;
++    int width = (int) Math.round(coordinateTransform.boardToDsn(2 * wire.getHalfWidth()));
++    SesTracePath path = SesTracePath.from(wire, board, coordinateTransform);
+     file.startScope();
+     file.write("wire");
+-    Point[] corners = wire.polyline().corners();
+-    int[] coors = new int[2 * corners.length];
+-    int cornerIndex = 0;
+-    int[] prevCoors = null;
+-    for (int i = 0; i < corners.length; i++) {
+-      FloatPoint cornerPoint = corners[i].toFloat();
+-      if (i == 0 || i == corners.length - 1) {
+-        FloatPoint snapped = snappedEndpoint(wire, i == 0);
+-        if (snapped != null) {
+-          cornerPoint = snapped;
+-        }
+-      }
+-      double[] currentFloatCoors = coordinateTransform.boardToDsn(cornerPoint);
+-      int[] currentCoors = new int[2];
+-      currentCoors[0] = (int) Math.round(currentFloatCoors[0]);
+-      currentCoors[1] = (int) Math.round(currentFloatCoors[1]);
+-      if (i == 0 || (currentCoors[0] != prevCoors[0] || currentCoors[1] != prevCoors[1])) {
+-        coors[cornerIndex] = currentCoors[0];
+-        ++cornerIndex;
+-        coors[cornerIndex] = currentCoors[1];
+-        ++cornerIndex;
+-        prevCoors = currentCoors;
+-      }
+-    }
+-    if (cornerIndex < coors.length) {
+-      coors = Arrays.copyOf(coors, cornerIndex);
+-    }
+-    writePath(boardLayer.name, wireWidth, coors, identifierType, file);
++    path.write(layer, width, identifierType, file);
+     writeFixedState(file, wire.getFixedState());
+     file.endScope();
+   }
+ 
+-  /**
+-   * Returns the exact pad/via center to use for a wire endpoint, or null to keep the corner as-is.
+-   * Trace endpoints can sit on the border of freerouting's octagon approximation of a pad — a point
+-   * that is inside the approximation but outside the importing tool's real pad polygon, which then
+-   * reports the net as unconnected. Snapping the endpoint to the contacted drill item's center (the
+-   * same coordinate {@code writeVia} emits) removes those sub-pad gaps. Only snaps when the
+-   * endpoint already lies within the pad inradius of the center, so the last segment cannot leave
+-   * the pad or fold across a neighbor.
+-   */
+-  static FloatPoint snappedEndpoint(PolylineTrace wire, boolean startSide) {
+-    Point corner = startSide ? wire.firstCorner() : wire.lastCorner();
+-    FloatPoint cornerFloat = corner.toFloat();
+-    java.util.Set<Item> contacts = startSide ? wire.getStartContacts() : wire.getEndContacts();
+-    int layer = wire.getLayer();
+-    for (Item contact : contacts) {
+-      if (!(contact instanceof app.freerouting.board.model.items.DrillItem drill)) {
+-        continue;
+-      }
+-      if (layer < drill.firstLayer() || layer > drill.lastLayer()) {
+-        continue;
+-      }
+-      app.freerouting.geometry.planar.Shape padShape = drill.getShape(layer - drill.firstLayer());
+-      if (padShape == null) {
+-        continue;
+-      }
+-      FloatPoint center = drill.getCenter().toFloat();
+-      double centerDistance = cornerFloat.distance(center);
+-      if (centerDistance <= 0.5) {
+-        // Already at the center (within rounding) — nothing to fix.
+-        return null;
+-      }
+-      if (centerDistance <= padShape.borderDistance(center)) {
+-        return center;
+-      }
+-    }
+-    return null;
+-  }
+-
+   private static void writeVia(
+       Via via,
+       BasicBoard board,
+@@ -489,28 +420,6 @@ public final class SesWriter {
+     }
+   }
+ 
+-  private static void writePath(
+-      String layerName,
+-      int width,
+-      int[] coors,
+-      IdentifierType identifierType,
+-      IndentFileWriter file)
+-      throws IOException {
+-    file.startScope();
+-    file.write("path ");
+-    identifierType.write(layerName, file);
+-    file.write(" ");
+-    file.write(String.valueOf(width));
+-    int cornerCount = coors.length / 2;
+-    for (int i = 0; i < cornerCount; i++) {
+-      file.newLine();
+-      file.write(String.valueOf(coors[2 * i]));
+-      file.write(" ");
+-      file.write(String.valueOf(coors[2 * i + 1]));
+-    }
+-    file.endScope();
+-  }
+-
+   private static void writeConductionArea(
+       ConductionArea conductionArea,
+       BasicBoard board,
+diff --git a/src/main/java/app/freerouting/management/jobs/RoutingJobSchedulerActionThread.java b/src/main/java/app/freerouting/management/jobs/RoutingJobSchedulerActionThread.java
+index 50d4009..657eb26 100644
+--- a/src/main/java/app/freerouting/management/jobs/RoutingJobSchedulerActionThread.java
++++ b/src/main/java/app/freerouting/management/jobs/RoutingJobSchedulerActionThread.java
+@@ -57,12 +57,18 @@ public class RoutingJobSchedulerActionThread extends StoppableThread {
+     Thread monitorThread =
+         new Thread(
+             () -> {
+-              while ((job != null) && (job.thread != null)) {
++              while (job != null
++                  && job.thread != null
++                  && job.thread.isAlive()
++                  && (job.state == RoutingJobState.RUNNING
++                      || job.state == RoutingJobState.STOPPING
++                      || job.state == RoutingJobState.PAUSED)) {
+ 
+                 try {
+                   Thread.sleep(1000);
+                 } catch (InterruptedException e) {
+-                  e.printStackTrace();
++                  Thread.currentThread().interrupt();
++                  return;
+                 }
+ 
+                 if (job.state == RoutingJobState.RUNNING || job.state == RoutingJobState.STOPPING) {
+@@ -80,14 +86,16 @@ public class RoutingJobSchedulerActionThread extends StoppableThread {
+                       try {
+                         Thread.sleep(1000);
+                       } catch (InterruptedException e) {
+-                        e.printStackTrace();
++                        Thread.currentThread().interrupt();
++                        return;
+                       }
+                     }
+                     markTimedOutIfStillActive();
+                   }
+                 }
+               }
+-            });
++            },
++            "freerouting-job-monitor-" + job.id);
+     monitorThread.setDaemon(true);
+     monitorThread.start();
+ 
+@@ -190,14 +198,14 @@ public class RoutingJobSchedulerActionThread extends StoppableThread {
+           }
+         });
+     pipeline.run();
+-    setJobOutput(job);
++    boolean outputReady = setJobOutput(job);
+ 
+     boolean fanoutTimedOut = pipeline.getAutorouter().isFanoutTimedOut();
+     final boolean optimizerTimedOut =
+         pipeline.getOptimizer() != null && pipeline.getOptimizer().isTimedOut();
+ 
+     job.finishedAt = Instant.now();
+-    assignTerminalState();
++    assignTerminalState(outputReady);
+ 
+     long durationMs = java.time.Duration.between(job.startedAt, job.finishedAt).toMillis();
+     double durationSec = durationMs / 1000.0;
+@@ -318,53 +326,57 @@ public class RoutingJobSchedulerActionThread extends StoppableThread {
+     }
+   }
+ 
+-  private void setJobOutput(RoutingJob job) {
+-    if (job.output == null) {
+-      job.output = new BoardFileDetails(job.board);
+-      job.output.addUpdatedEventListener(_ -> job.fireOutputUpdatedEvent());
+-      String outputBaseName =
+-          job.input != null ? job.input.getFilenameWithoutExtension() : job.name;
+-      if (job.input != null && job.input.format == FileFormat.KICAD_DESIGN_JSON) {
+-        job.output.format = FileFormat.KICAD_SESSION_JSON;
+-        job.output.setFilename(outputBaseName + ".json");
++  private boolean setJobOutput(RoutingJob job) {
++    try {
++      if (job.board == null) {
++        throw new java.io.IOException("The final routing board is unavailable");
++      }
++      if (job.output == null) {
++        job.output = new BoardFileDetails(job.board);
++        job.output.addUpdatedEventListener(_ -> job.fireOutputUpdatedEvent());
++        String name = job.input != null ? job.input.getFilenameWithoutExtension() : job.name;
++        if (job.input != null && job.input.format == FileFormat.KICAD_DESIGN_JSON) {
++          job.output.format = FileFormat.KICAD_SESSION_JSON;
++          job.output.setFilename(name + ".json");
++        } else {
++          job.output.format = FileFormat.SES;
++          job.output.setFilename(name + ".ses");
++        }
++      }
++      byte[] bytes;
++      if (job.output.format == FileFormat.KICAD_SESSION_JSON) {
++        bytes =
++            app.freerouting.io.kicad.KiCadJsonWriter.write(job.board, job.name)
++                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+       } else {
+-        job.output.format = FileFormat.SES;
+-        job.output.setFilename(outputBaseName + ".ses");
+-      }
+-    }
+-
+-    // save the result to the output field
+-    if (job.output.format == FileFormat.KICAD_SESSION_JSON) {
+-      try {
+-        String jsonStr = app.freerouting.io.kicad.KiCadJsonWriter.write(job.board, job.name);
+-        job.output.setData(jsonStr.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+-      } catch (Exception e) {
+-        FRLogger.error("Couldn't save the JSON output into the job object.", e);
+-      }
+-    } else if (job.output.format == FileFormat.SES) {
+-      HeadlessBoardManager boardManager = new HeadlessBoardManager(job);
+-      boardManager.replaceRoutingBoard(job.board);
+-
+-      // Save the SES file after the auto-router has finished
+-      try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+-        if (boardManager.saveAsSpecctraSessionSes(baos, job.name)) {
+-          job.output.setData(baos.toByteArray());
++        HeadlessBoardManager manager = new HeadlessBoardManager(job);
++        manager.replaceRoutingBoard(job.board);
++        try (ByteArrayOutputStream buffer = new ByteArrayOutputStream()) {
++          boolean saved;
++          if (job.output.format == FileFormat.SES) {
++            saved = manager.saveAsSpecctraSessionSes(buffer, job.name);
++          } else if (job.output.format == FileFormat.SCR) {
++            saved = manager.saveAsFusionScriptScr(buffer, job.name);
++          } else {
++            throw new java.io.IOException("Unsupported routing output format");
++          }
++          if (!saved) {
++            throw new java.io.IOException("The current routing board could not be exported");
++          }
++          bytes = buffer.toByteArray();
+         }
+-      } catch (Exception e) {
+-        FRLogger.error("Couldn't save the SES output into the job object.", e);
+       }
+-    } else if (job.output.format == FileFormat.SCR) {
+-      HeadlessBoardManager boardManager = new HeadlessBoardManager(job);
+-      boardManager.replaceRoutingBoard(job.board);
+-
+-      // Save the SCR file after the auto-router has finished
+-      try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+-        if (boardManager.saveAsFusionScriptScr(baos, job.name)) {
+-          job.output.setData(baos.toByteArray());
+-        }
+-      } catch (Exception e) {
+-        FRLogger.error("Couldn't save the SCR output into the job object.", e);
++      if (bytes.length == 0) {
++        throw new java.io.IOException("The current routing board produced empty output");
+       }
++      // Publish only the complete current snapshot. A failed export must not
++      // leave an earlier preview available as a completed routing result.
++      job.output.setData(bytes);
++      return true;
++    } catch (Exception error) {
++      job.output = null;
++      FRLogger.error("The current routing output was not published.", error);
++      return false;
+     }
+   }
+ 
+@@ -386,7 +398,7 @@ public class RoutingJobSchedulerActionThread extends StoppableThread {
+    * RoutingJobState#CANCELLED}. Anything already terminal, including a timeout assigned by the
+    * monitor, is left as it is.
+    */
+-  void assignTerminalState() {
++  void assignTerminalState(boolean outputReady) {
+     synchronized (terminalStateLock) {
+       if (job.state != RoutingJobState.RUNNING && job.state != RoutingJobState.STOPPING) {
+         return;
+@@ -395,10 +407,14 @@ public class RoutingJobSchedulerActionThread extends StoppableThread {
+         job.state = RoutingJobState.CANCELLED;
+         return;
+       }
+-      if (jobClockExpired() && job.thread != null && job.thread.isStopRequested()) {
++      if (jobClockExpired()) {
+         job.state = RoutingJobState.TIMED_OUT;
+         return;
+       }
++      if (!outputReady) {
++        job.state = RoutingJobState.INVALID;
++        return;
++      }
+       job.state = RoutingJobState.COMPLETED;
+       GlobalSettings settings = GlobalSettings.current();
+       if (settings != null) {
+diff --git a/src/test/java/app/freerouting/io/specctra/SesRoundTripTest.java b/src/test/java/app/freerouting/io/specctra/SesRoundTripTest.java
+index 68c5ae2..555581f 100644
+--- a/src/test/java/app/freerouting/io/specctra/SesRoundTripTest.java
++++ b/src/test/java/app/freerouting/io/specctra/SesRoundTripTest.java
+@@ -217,7 +217,7 @@ class SesRoundTripTest {
+         }
+         tracesWithDrillContacts++;
+         var corner = (startSide ? trace.firstCorner() : trace.lastCorner()).toFloat();
+-        var snapped = SesWriter.snappedEndpoint(trace, startSide);
++        var snapped = SesTracePath.snappedEndpoint(trace, startSide);
+         if (snapped != null) {
+           // A snap may only move the endpoint to the center of a contacted drill item,
+           // and never further than that item's pad inradius.
+diff --git a/src/test/java/app/freerouting/management/jobs/RoutingJobSchedulerActionThreadTest.java b/src/test/java/app/freerouting/management/jobs/RoutingJobSchedulerActionThreadTest.java
+index facef10..dcd9595 100644
+--- a/src/test/java/app/freerouting/management/jobs/RoutingJobSchedulerActionThreadTest.java
++++ b/src/test/java/app/freerouting/management/jobs/RoutingJobSchedulerActionThreadTest.java
+@@ -103,7 +103,7 @@ class RoutingJobSchedulerActionThreadTest {
+   @Test
+   void jobClockStopBecomesTimedOut() {
+     RoutingJobSchedulerActionThread action = stoppedJob(RoutingJobState.RUNNING, true);
+-    action.assignTerminalState();
++    action.assignTerminalState(true);
+     assertEquals(RoutingJobState.TIMED_OUT, action.job.state);
+   }
+ 
+@@ -119,7 +119,7 @@ class RoutingJobSchedulerActionThreadTest {
+   @Test
+   void stopBeforeTheJobClockCompletes() {
+     RoutingJobSchedulerActionThread action = stoppedJob(RoutingJobState.RUNNING, false);
+-    action.assignTerminalState();
++    action.assignTerminalState(true);
+     assertEquals(RoutingJobState.COMPLETED, action.job.state);
+   }
+ 
+@@ -127,7 +127,7 @@ class RoutingJobSchedulerActionThreadTest {
+   void userCancelWinsOverTheExpiredJobClock() {
+     RoutingJobSchedulerActionThread action = stoppedJob(RoutingJobState.STOPPING, true);
+     action.job.setCancelledByUser(true);
+-    action.assignTerminalState();
++    action.assignTerminalState(true);
+     assertEquals(RoutingJobState.CANCELLED, action.job.state);
+   }
+ 
+@@ -137,7 +137,7 @@ class RoutingJobSchedulerActionThreadTest {
+     job.state = RoutingJobState.RUNNING;
+     RoutingJobSchedulerActionThread action = new RoutingJobSchedulerActionThread(job);
+     action.markTimedOutIfStillActive();
+-    action.assignTerminalState();
++    action.assignTerminalState(true);
+     assertEquals(RoutingJobState.TIMED_OUT, job.state);
+   }
+ 

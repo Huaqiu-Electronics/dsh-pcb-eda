@@ -65,6 +65,13 @@ const ZH = {
     'card.auth.loggedOut': '未登录 —— 请在上方登录华秋 EDA AI（eda.cn）账号，或点击左侧「华秋EDA AI 登录」按钮；登录完成后让助手重试。',
     'card.auth.descHost': '工具「{tool}」需要登录华秋 EDA AI 账号才能继续。点击下方按钮后，EDA（KiCad）将弹出登录窗口，请在弹出的窗口中完成登录；登录完成后回复助手「已登录，请重试」，助手会自动重新调用该工具。',
     'card.auth.loginBtn': '登录华秋 EDA AI',
+    // Subscription gate (needs_subscription card).
+    'card.subscription.title': '生成配额不足',
+    'card.subscription.desc': '当前账号没有可用的 GEN 生成次数，设计未生成。',
+    'card.subscription.package': '套餐：{name}',
+    'card.subscription.quota': '可用次数：{count}',
+    'card.subscription.subscribe': '订阅 / 升级',
+    'card.subscription.afterSubscribe': '订阅或升级套餐后，回复助手「已订阅，请重试」，助手会重新生成。',
     // Substituted into `{nickname}` by `card.auth.loggedIn`. zh uses a
     // full-width colon, en a half-width one plus a space — hardcoding '：'
     // made the English card read "Logged in：John".
@@ -128,6 +135,13 @@ const EN: Record<CopyKey, string> = {
     'card.auth.loggedOut': 'Not logged in — complete the login above, or use the 华秋EDA AI sidebar button.',
     'card.auth.descHost': 'Tool "{tool}" requires a Huaqiu EDA AI account. Click the button below — EDA (KiCad) will open its login dialog. Complete the login there, then reply "I have logged in, please retry" so the assistant can retry the tool.',
     'card.auth.loginBtn': 'Sign in to Huaqiu EDA AI',
+    // Subscription gate (needs_subscription card).
+    'card.subscription.title': 'No generation quota',
+    'card.subscription.desc': 'This account has no GEN generation quota left, so the design was not generated.',
+    'card.subscription.package': 'Plan: {name}',
+    'card.subscription.quota': 'Available: {count}',
+    'card.subscription.subscribe': 'Subscribe / Upgrade',
+    'card.subscription.afterSubscribe': 'After subscribing or upgrading, reply "I have subscribed, please retry" and the assistant will regenerate.',
     'card.nicknameSep': ': {nickname}',
 }
 

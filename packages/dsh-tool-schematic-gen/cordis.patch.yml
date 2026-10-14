@@ -7,4 +7,4 @@
 - insert:
     - id: huaqiu-tool-schematic-gen
       name: '@huaqiu/dsh-tool-schematic-gen'
-      inject: ['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer']
+      inject: ['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer', 'systemPrompt']

@@ -44,14 +44,14 @@ async function fetchWithRetry(url: string, init: RequestInit, label: string): Pr
       const resp = await fetch(url, init)
       if (resp.status >= 500 && attempt < 2) {
         await resp.body?.cancel().catch(() => {})
-        console.warn(`[dsh-kicad-drc] ${label} HTTP ${resp.status}，1s 后重试`)
+        console.warn(`[@huaqiu/dsh-kicad-drc] ${label} HTTP ${resp.status}，1s 后重试`)
         await sleep(1000)
         continue
       }
       return resp
     } catch (e) {
       if (isAbortError(e) || attempt >= 2) throw e
-      console.warn(`[dsh-kicad-drc] ${label} 网络错误: ${(e as Error).message}，1s 后重试`)
+      console.warn(`[@huaqiu/dsh-kicad-drc] ${label} 网络错误: ${(e as Error).message}，1s 后重试`)
       await sleep(1000)
     }
   }
@@ -156,7 +156,7 @@ export class RemoteExecutor implements DrcExecutor {
           drcJson = null
         }
       } else {
-        console.warn(`[dsh-kicad-drc] outputFilePath 不可读: ${remotePath}`)
+        console.warn(`[@huaqiu/dsh-kicad-drc] outputFilePath 不可读: ${remotePath}`)
       }
     }
 
@@ -167,9 +167,9 @@ export class RemoteExecutor implements DrcExecutor {
         mkdirSync(pcbDir, { recursive: true })
         writeFileSync(localPersistPath, drcJson, 'utf-8')
         drcJsonPath = localPersistPath
-        console.log(`[dsh-kicad-drc] drc.json 已持久化: ${localPersistPath}`)
+        console.log(`[@huaqiu/dsh-kicad-drc] drc.json 已持久化: ${localPersistPath}`)
       } catch (e) {
-        console.warn(`[dsh-kicad-drc] 写入本地文件失败: ${(e as Error).message}`)
+        console.warn(`[@huaqiu/dsh-kicad-drc] 写入本地文件失败: ${(e as Error).message}`)
         drcJsonPath = localPersistPath // 即使写入失败也返回目标路径，方便排查
       }
     }
@@ -177,7 +177,7 @@ export class RemoteExecutor implements DrcExecutor {
     // kicad-cli 执行成功但报告取回失败时，在 stderr 里显式标注，避免被误读为"DRC 未生成报告"
     let stderr = data.stderr ?? ''
     if (drcJson === null && data.exitCode === 0) {
-      stderr += '\n[dsh-kicad-drc] 警告: kicad-cli 执行成功(exit 0)，但插件未能取回 drc.json（HTTP 下载或共享磁盘读取失败）'
+      stderr += '\n[@huaqiu/dsh-kicad-drc] 警告: kicad-cli 执行成功(exit 0)，但插件未能取回 drc.json（HTTP 下载或共享磁盘读取失败）'
     }
 
     const elapsedMs = Math.round(performance.now() - start)
@@ -203,14 +203,14 @@ export class RemoteExecutor implements DrcExecutor {
       const resp = await fetchWithRetry(fileUrl, { signal: ctrl.signal }, '下载 drc.json')
       clearTimeout(t)
       if (!resp.ok) {
-        console.warn(`[dsh-kicad-drc] 下载 drc.json 失败: HTTP ${resp.status} ${fileUrl}`)
+        console.warn(`[@huaqiu/dsh-kicad-drc] 下载 drc.json 失败: HTTP ${resp.status} ${fileUrl}`)
         return null
       }
       const raw = await resp.text()
       JSON.parse(raw) // 验证 JSON 合法
       return raw
     } catch (e) {
-      console.warn(`[dsh-kicad-drc] 下载 drc.json 异常: ${(e as Error).message} ${fileUrl}`)
+      console.warn(`[@huaqiu/dsh-kicad-drc] 下载 drc.json 异常: ${(e as Error).message} ${fileUrl}`)
       return null
     }
   }
