@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# vendored kicanview engine bundle (runtime asset of @hqa/kicad-sch-preview), not build output
+!packages/kicad-sch-preview/vendor/kicadpreview/dist/
+!packages/kicad-sch-preview/vendor/kicadpreview/dist/**
 lib/
 # scripts/lib is checked-in source (shared package discovery), not build output
 !scripts/lib/
