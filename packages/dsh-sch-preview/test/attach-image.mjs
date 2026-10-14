@@ -1,9 +1,11 @@
 // Verify the attachImage gate in both directions with a fake attachments store.
 import assert from "node:assert";
+import { fileURLToPath } from "node:url";
+const pkgDir = fileURLToPath(new URL("..", import.meta.url)); // package root
 const mod = await import("../lib/index.js");
 
-const FILE = "D:/dsh-plugins/kicad-sch-preview/vendor/kicadpreview/design_blocks/2.kicad_sch";
-const OUT = "D:/dsh-plugins/kicad-sch-preview/.sch-preview-out";
+const FILE = `${pkgDir}vendor/kicadpreview/design_blocks/2.kicad_sch`;
+const OUT = `${pkgDir}.sch-preview-out`;
 
 function makeCtx() {
     let registered;

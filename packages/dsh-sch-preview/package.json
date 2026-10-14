@@ -1,5 +1,5 @@
 {
-    "name": "@hqa/kicad-sch-preview",
+    "name": "@huaqiu/dsh-sch-preview",
     "version": "0.1.0",
     "type": "module",
     "description": "DSH plugin: headless KiCad schematic preview — screenshot + structured content into the agent context",

@@ -1,5 +1,5 @@
 # DSH bundle patch: inserts the kicad schematic preview tool plugin into a profile's layer stack.
 - insert:
-    - id: kicad-sch-preview
-      name: '@hqa/kicad-sch-preview'
+    - id: dsh-sch-preview
+      name: '@huaqiu/dsh-sch-preview'
       inject: ['tools']

@@ -1,5 +1,7 @@
 // Mock-ctx smoke test: run the plugin's apply() against a fake context to
 // validate the full defineTool path (schema compilation + registration).
+import { fileURLToPath } from "node:url";
+const pkgDir = fileURLToPath(new URL("..", import.meta.url)); // package root
 const mod = await import("../lib/index.js");
 
 let registered = null;
@@ -34,8 +36,8 @@ if (registered.render) {
 if (registered.execute) {
     const exec = { agent: undefined, signal: new AbortController().signal };
     const value = await registered.execute({
-        file_path: "D:/dsh-plugins/kicad-sch-preview/vendor/kicadpreview/design_blocks/1.kicad_sch",
-        save_dir: "D:/dsh-plugins/kicad-sch-preview/.sch-preview-out",
+        file_path: `${pkgDir}vendor/kicadpreview/design_blocks/1.kicad_sch`,
+        save_dir: `${pkgDir}.sch-preview-out`,
     }, exec);
     console.log("execute ok:", JSON.stringify({ savedTo: value.savedTo, sheets: value.sheets, bom: value.bom.count, image: value.image }));
 }

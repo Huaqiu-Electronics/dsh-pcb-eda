@@ -1,8 +1,8 @@
 /**
- * @hqa/kicad-sch-preview — DSH plugin: headless KiCad schematic preview.
+ * @huaqiu/dsh-sch-preview — DSH plugin: headless KiCad schematic preview.
  *
  * Registers the model-facing `sch_preview` tool: renders .kicad_sch design
- * files in a short-lived headless browser (Playwright + vendored kicadpreview
+ * files in a short-lived headless browser (Playwright + vendored kicanview
  * bundle), captures a PNG screenshot of the drawing surface, and returns the
  * image as an attachment block plus structured content (sheet list, captured
  * sheet, BOM summary) into the agent context. The PNG is also persisted to
@@ -10,7 +10,7 @@
  *
  * Node half only (no browser bundle): the tool result itself carries the
  * screenshot, so no client card is needed in v1.
- * @module @hqa/kicad-sch-preview
+ * @module @huaqiu/dsh-sch-preview
  */
 
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -23,7 +23,7 @@ import { AttachmentId } from "@deepseek-ai/dsh-attachment";
 import type { ContentBlock } from "@deepseek-ai/dsh-llm";
 import { renderSchematic, type BomItemView, type RenderFile, type SheetInfo } from "./render/renderer.js";
 
-export const name = "kicad-sch-preview";
+export const name = "@huaqiu/dsh-sch-preview";
 export const inject = ["tools"];
 
 /** Deployment configuration for the schematic preview tool. */
