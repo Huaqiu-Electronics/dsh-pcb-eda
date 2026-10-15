@@ -63,12 +63,27 @@ export function schematicEntryCopy(lang: HostLocale | undefined): { label: strin
  * (18×18 on the collapsed rail).
  */
 export const SCHEMATIC_ICON =
-`<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
-    <g fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="1.75" y="2.75" width="12.5" height="10.5" rx="1.2" />
-        <path d="M4.5 6.25h3M8.5 6.25h3M4.5 9.75h3M8.5 9.75h3" />
-    </g>
-</svg>`
+`
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Schematic Sheet Frame -->
+  <rect x="3" y="3" width="18" height="18" rx="2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Circuit Wires & Connection Nodes -->
+  <path d="M7 8H10M14 8H17" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M10 16H14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  <path d="M10 8V16" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  
+  <!-- Component Symbol (Resistor / Block representation) -->
+  <path d="M10 10L11 11L12 9L13 11L14 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Junction Nodes / Pins -->
+  <circle cx="7" cy="8" r="1.5" fill="currentColor"/>
+  <circle cx="17" cy="8" r="1.5" fill="currentColor"/>
+  <circle cx="10" cy="16" r="1.5" fill="currentColor"/>
+  <circle cx="14" cy="16" r="1.5" fill="currentColor"/>
+</svg>
+`
+
 
 /**
  * Row styles — matched to the shipped `sidebar.panellist` rows and to the

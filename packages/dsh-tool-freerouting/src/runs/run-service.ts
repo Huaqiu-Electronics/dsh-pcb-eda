@@ -17,7 +17,6 @@ import { ProcessRecorder, runLogger } from './process-recorder.js';
 import type { EditorLifecycle } from './editor-lifecycle.js';
 import type { ResourceGuard } from './resource-guard.js';
 import { activeHelperPids, hasAnyPendingHelpers } from '../ipc/helper-processes.js';
-import { pid as processId } from 'node:process';
 
 declare module '@deepseek-ai/dsh-jobs' {
   interface JobKindMap {
@@ -215,14 +214,13 @@ export class RunService {
     const record = (message: string) => process.note(message);
     let stopResources: (() => void) | undefined;
     try {
+      // Bound only the compute this run owns. The per-process ceiling exists to stop
+      // before the shipped 2 GiB JVM heap is exhausted, and the sampler expands each
+      // root to its descendants. Shared processes — the KiCad editor and the DSH host
+      // — are routinely larger than that ceiling without endangering a run, so they are
+      // covered by the machine-wide cleanup reserve instead of a per-process limit.
       stopResources = await this.resources?.watch(
-        () =>
-          [
-            processId,
-            Number(session.target.instance.split(':')[0]),
-            this.launcher?.pid ?? 0,
-            ...activeHelperPids,
-          ].filter((pid) => pid > 0),
+        () => [this.launcher?.pid ?? 0, ...activeHelperPids].filter((pid) => pid > 0),
         (reason) => {
           this.controllers.get(run.id)?.abort(reason);
           // Stop compute only; preview cleanup and begun board writes stay protected.

@@ -284,10 +284,15 @@ time.sleep(90)
             Path(directory, "freerouting.json").write_text(
                 json.dumps(
                     {
+                        # The engine rejects a configuration without the version
+                        # discriminator and falls back to the default endpoint, so the
+                        # requested port would never be bound. Mirror the launcher.
+                        "version": "2.5.0",
                         "api_server": {
                             "enabled": True,
                             "http_allowed": True,
                             "endpoints": [endpoint],
+                            "authentication": {"enabled": False},
                         },
                         "gui": {"enabled": False},
                         "profile": {"allow_telemetry": False, "allow_contact": False},

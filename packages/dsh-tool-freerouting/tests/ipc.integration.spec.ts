@@ -9,6 +9,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent';
 import type { Context } from '@deepseek-ai/cordis';
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs';
 import { BoardGuard } from '../src/ipc/board-guard.js';
+import { activeHelperPids } from '../src/ipc/helper-processes.js';
 import type { KicadIpcClient } from '../src/ipc/client.js';
 import { RunStore } from '../src/runs/run-store.js';
 import { RunService } from '../src/runs/run-service.js';
@@ -146,7 +147,14 @@ function harness(importFailure?: string, fillFailure = false, cancelAtImport = f
   let done!: Promise<JobOutcome>;
   let cancel!: (reason: string) => void;
   const bound = {
-    target: { boardPath: 'E:\\fixture.kicad_pcb', socket: 'test', version: '10.0.6' },
+    // Editor identity as reported by the IPC socket: `<pid>:<creation time>`.
+    // The private-byte ceiling must never be applied to that pid.
+    target: {
+      boardPath: 'E:\\fixture.kicad_pcb',
+      instance: '45016:1dd5bf0:7d8ca10f',
+      socket: 'test',
+      version: '10.0.6',
+    },
     importStarted: false,
     exportDsn: vi.fn(async () => Buffer.from('(pcb (network (net GND (pins J1-1 J2-1)) (net VCC (pins J3-1 J4-1))))')),
     repairDsn: vi.fn(async () => Buffer.from('(pcb (network (net GND (pins J1-1 J2-1)) (net VCC (pins J3-1 J4-1))))')),
@@ -202,6 +210,34 @@ function harness(importFailure?: string, fillFailure = false, cancelAtImport = f
 }
 
 describe('final import workflow', () => {
+  it('samples only the compute a run owns, never the editor or the host process', async () => {
+    const sampled: number[][] = [];
+    const resources = {
+      watch: vi.fn(async (ownedPids: () => number[], _stop: (reason: Error) => void) => {
+        sampled.push(ownedPids());
+        return () => {};
+      }),
+    };
+    const h = harness(undefined, false, false, resources as unknown as ResourceGuard);
+    // A loaded KiCad editor (3 GiB private, as measured on a live 10.0.7 editor with
+    // the assistant open) must not be able to reach the JVM-heap ceiling.
+    const editorPid = Number(h.bound.target.instance.split(':')[0]);
+    const ownedHelperPid = 60_001;
+    activeHelperPids.add(ownedHelperPid);
+    try {
+      await h.service.start(h.run);
+      await h.done();
+      expect(sampled).toHaveLength(1);
+      const pids = sampled[0] ?? [];
+      expect(pids).not.toContain(editorPid);
+      expect(pids).not.toContain(process.pid);
+      expect(pids).toContain(ownedHelperPid);
+      expect(h.run.state).toBe('succeeded');
+    } finally {
+      activeHelperPids.delete(ownedHelperPid);
+    }
+  });
+
   it('fails and releases the bound session when resource monitoring cannot start', async () => {
     const resources = {
       watch: vi.fn(async () => {

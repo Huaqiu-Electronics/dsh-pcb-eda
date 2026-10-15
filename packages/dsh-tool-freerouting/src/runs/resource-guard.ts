@@ -8,6 +8,9 @@ export const resourceLimits = {
   responseBytes: 48 * MiB,
   retainedBytes: 128 * MiB,
   // Conservative stop before the shipped 2 GiB JVM heap is exhausted.
+  // Scope: the compute a run owns (the routing engine and its one-shot helpers).
+  // A process the run merely shares the machine with (KiCad editor, DSH host) is
+  // bounded by the machine-wide cleanup reserve, never by this ceiling.
   processPrivateBytes: 1536 * MiB,
   // >2x the measured dedicated editor private-byte peak.
   cleanupReserveBytes: 1024 * MiB,
@@ -34,7 +37,16 @@ export function resourceViolation(sample: ResourceSample): string | undefined {
 export class ResourceGuard {
   constructor(private readonly python: () => string) {}
 
-  async watch(pids: () => number[], stop: (reason: Error) => void): Promise<() => void> {
+  /**
+   * Watch the compute a run owns.
+   *
+   * `ownedPids` must return only processes this run started — the routing engine
+   * and its one-shot helpers — because the sampler expands each root to its
+   * descendants and `resourceLimits.processPrivateBytes` is calibrated for the
+   * shipped JVM heap. Sampling a shared process such as the KiCad editor aborts
+   * every run the moment that editor is normally loaded.
+   */
+  async watch(ownedPids: () => number[], stop: (reason: Error) => void): Promise<() => void> {
     let disposed = false,
       checking = false;
     const check = async () => {
@@ -43,7 +55,7 @@ export class ResourceGuard {
       }
       checking = true;
       try {
-        const sample = await computeCommand(this.python(), { command: 'sample', pids: pids() }, sampleSchema);
+        const sample = await computeCommand(this.python(), { command: 'sample', pids: ownedPids() }, sampleSchema);
         if (disposed) {
           return;
         }
