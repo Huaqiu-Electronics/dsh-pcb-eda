@@ -1,0 +1,22 @@
+(pcb stop-regression
+  (parser (string_quote ") (space_in_quoted_tokens on))
+  (resolution um 10)
+  (unit um)
+  (structure
+    (layer F.Cu (type signal) (property (index 0)))
+    (layer B.Cu (type signal) (property (index 1)))
+    (boundary (path pcb 0 0 0 20000 0 20000 20000 0 20000 0 0))
+    (keepout wall-front (rect F.Cu 9000 0 11000 20000))
+    (keepout wall-back (rect B.Cu 9000 0 11000 20000))
+    (via Via)
+    (rule (width 200) (clearance 200)))
+  (placement (component Pin
+    (place J1 5000 10000 front 0)
+    (place J2 15000 10000 front 0)))
+  (library
+    (image Pin (pin Pad 1 0 0))
+    (padstack Pad (shape (circle F.Cu 600)) (attach off))
+    (padstack Via
+      (shape (circle F.Cu 600)) (shape (circle B.Cu 600)) (attach off)))
+  (network (net N (pins J1-1 J2-1)))
+  (wiring))

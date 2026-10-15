@@ -1,0 +1,30 @@
+{
+  "name": "@huaqiu/dsh-sidebar-entry",
+  "version": "0.5.21",
+  "type": "module",
+  "main": "./lib/index.mjs",
+  "types": "./lib/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.mts",
+      "default": "./lib/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown",
+    "test": "vitest run",
+    "prepack": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "jsdom": "^26.0.0"
+  }
+}

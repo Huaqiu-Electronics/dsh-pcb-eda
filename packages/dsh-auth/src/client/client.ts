@@ -5,12 +5,18 @@
 import {
   AUTH_ORIGIN,
   buildLoginUrl,
+  buildSubscriptionUrl,
+  fetchSubscriptionQuota,
   handleAuthMessage,
+  SUBSCRIPTION_PREFERRED_SIZE,
+  type AiTokenUsage,
   type AuthMessageEventLike,
   type AuthTokenPayload,
   type LoginOptions,
+  type SubscriptionQuota,
 } from './lib.js'
 import { closeLoginDialog, isLoginDialogOpen, openLoginDialog } from './ui/login-dialog.js'
+import { closeSubscriptionDialog, isSubscriptionDialogOpen, openSubscriptionDialog } from './ui/subscription-dialog.js'
 import type { AuthStorage } from './storage.js'
 import type { AuthTransport } from './transport.js'
 
@@ -22,6 +28,19 @@ export interface AuthClientDeps {
   loginUrl?: string
   windowLike: Pick<Window, 'addEventListener' | 'removeEventListener'>
   documentLike: Pick<Document, 'createElement' | 'body'>
+  /**
+   * Host-side native dialog opener (wired by the client entry from the lazy
+   * `hqEdge` service). In host mode the subscription dialog must be opened by
+   * the EDA host through DialogService.OpenUrl (hqEdge.openUrl) — a browser
+   * iframe cannot be shown over the host UI. Absent/undefined = the host has
+   * no dialog service; `openSubscriptionDialog()` then no-ops and the caller
+   * degrades gracefully.
+   */
+  openHostDialog?: (url: string, options: {
+    title?: string
+    size?: { width?: number; height?: number }
+    key?: string
+  }) => Promise<void>
 }
 
 export interface AuthClient {
@@ -46,6 +65,30 @@ export interface AuthClient {
      * the UI keeps showing the authenticated state.
      */
     logout(): Promise<void>
+    /**
+     * Active subscription quota for one eda.cn product, fetched DIRECTLY from
+     * eda.cn (`/sub-api/subscriptions/active`) — no hq-edge hop, so the
+     * sidebar can show live quota even in standalone DSH. Null on fetch
+     * failure / no credential (callers decide fail-open vs fail-closed).
+     */
+    getSubscriptionQuota(productCode: string): Promise<SubscriptionQuota | null>
+    /**
+     * AI token usage for the signed-in account. Resolved by the NODE half
+     * (`GET /api/v1/huaqiu/auth/ai-usage`) — the endpoint is served over plain
+     * `http`, which this WebView refuses (App Transport Security + CORS), so the
+     * request must not be made from here. Null on fetch failure / no credential,
+     * the same one-round-trip shape as {@link getSubscriptionQuota}.
+     */
+    getAiTokenUsage(): Promise<AiTokenUsage | null>
+    /**
+     * Open the subscription landing page (`gen.eda.cn/subscription` with the
+     * token). Host mode: ask the EDA host to open its NATIVE dialog through
+     * DialogService.OpenUrl (preferred size 1400×740). Standalone DSH: open
+     * the in-app iframe dialog at the same preferred size. No-op when the
+     * credential is missing; host mode without a dialog service no-ops too
+     * (the UI falls back to its own subscribe button + error copy).
+     */
+    openSubscriptionDialog(): Promise<void>
     onAuthStateChanged(listener: (info: AuthTokenPayload | null) => void): () => void
   }
   /** Route window 'message' events here. Exposed for direct testing. */
@@ -195,6 +238,41 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       emit(null)
       closeIframe()
     },
+    getSubscriptionQuota: async (productCode: string): Promise<SubscriptionQuota | null> => {
+      if (hostMode && !hostSessionLoaded) await resolveHost()
+      const token = await auth.getAccessToken()
+      const id = hostMode
+        ? (hostSession?.id ?? null)
+        : (hostSession?.id ?? storage.get()?.id ?? null)
+      if (!token || !id) return null
+      return fetchSubscriptionQuota({ userId: id, token, productCode })
+    },
+    getAiTokenUsage: async (): Promise<AiTokenUsage | null> => {
+      if (hostMode && !hostSessionLoaded) await resolveHost()
+      // Gate on a credential first: the node route resolves the token itself,
+      // so a request without one is a guaranteed-null round trip.
+      if (!(await auth.getAccessToken())) return null
+      return transport.fetchAiUsage()
+    },
+    openSubscriptionDialog: async (): Promise<void> => {
+      if (hostMode && !hostSessionLoaded) await resolveHost()
+      const token = await auth.getAccessToken()
+      if (!token) return
+      const url = buildSubscriptionUrl({ token })
+      if (hostMode) {
+        // The EDA host owns the UI — open its native dialog (fire-and-forget).
+        // No dialog service → no-op; the caller keeps its subscribe button.
+        if (!deps.openHostDialog) return
+        await deps.openHostDialog(url, {
+          title: 'Huaqiu EDA subscription',
+          size: { width: SUBSCRIPTION_PREFERRED_SIZE.width, height: SUBSCRIPTION_PREFERRED_SIZE.height },
+          key: 'hq-subscription-dialog',
+        })
+        return
+      }
+      if (isSubscriptionDialogOpen()) return
+      openSubscriptionDialog(url, { size: SUBSCRIPTION_PREFERRED_SIZE })
+    },
     onAuthStateChanged: (listener: (info: AuthTokenPayload | null) => void): (() => void) => {
       listeners.add(listener)
       return () => listeners.delete(listener)
@@ -293,6 +371,7 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
     dispose() {
       deps.windowLike.removeEventListener('message', onWindowMessage)
       closeIframe()
+      if (isSubscriptionDialogOpen()) closeSubscriptionDialog()
       hostMode = false
       hostSession = null
       hostSessionLoaded = false

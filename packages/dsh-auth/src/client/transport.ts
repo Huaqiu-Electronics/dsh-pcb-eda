@@ -4,7 +4,7 @@
  * browser→host channel — `apiProxy`'s dispatch table is closed, so a
  * plugin-owned `webServer` route is the smallest supported extension point.
  */
-import type { AuthTokenPayload } from './lib.js'
+import type { AiTokenUsage, AuthTokenPayload } from './lib.js'
 
 export interface AuthTransport {
   pushSession(info: AuthTokenPayload): Promise<void>
@@ -37,6 +37,15 @@ export interface AuthTransport {
    * carries only {token, userId} — e.g. host mode under kicad.
    */
   fetchUserInfo(): Promise<EdaUserProfile | null>
+  /**
+   * Fetch the account's AI token usage from the NODE half (`/ai-usage`), which
+   * performs the upstream `GET http://www.fdatasheets.com/user-rest/api/ai/usage`
+   * with the `X-Token` header. This half must NOT call that endpoint itself: it
+   * is plain `http`, which the WebView refuses on two independent grounds — App
+   * Transport Security and CORS — and the failures are what the browser console
+   * reports as a blocked resource. Null on failure (the sidebar shows「—」).
+   */
+  fetchAiUsage(): Promise<AiTokenUsage | null>
 }
 
 /** Minimal session user shape returned by the node `/session` route. */
@@ -119,6 +128,19 @@ export function createWebServerAuthTransport(
         if (!res.ok) return null
         const body = await res.json() as { userInfo?: EdaUserProfile | null }
         return body.userInfo ?? null
+      } catch {
+        return null
+      }
+    },
+    async fetchAiUsage() {
+      try {
+        const res = await doFetch(`${base}/ai-usage`, {
+          method: 'GET',
+          headers: { accept: 'application/json' },
+        })
+        if (!res.ok) return null
+        const body = await res.json() as { usage?: AiTokenUsage | null }
+        return body.usage ?? null
       } catch {
         return null
       }

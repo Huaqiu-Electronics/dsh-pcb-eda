@@ -45,8 +45,9 @@ describe('@huaqiu/dsh-tool-schematic-gen plugin', () => {
   it('exposes the expected node plugin shape', () => {
     expect(name).toBe('@huaqiu/dsh-tool-schematic-gen')
     // `webServer` mounts the progress route the browser card polls while a
-    // 10-minute generation runs.
-    expect(inject).toEqual(['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer'])
+    // 10-minute generation runs. `systemPrompt` carries the standing
+    // tool-policy section (src/prompt.ts).
+    expect(inject).toEqual(['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer', 'systemPrompt'])
     expect(agentIds.SCHEMATIC).toBe('schemagen')
     expect(agentIds.SYSTEM).toBe('modular_circuit')
   })

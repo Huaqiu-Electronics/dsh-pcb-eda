@@ -1,0 +1,149 @@
+{
+  "name": "@huaqiu/dsh-tool-freerouting",
+  "version": "0.5.21",
+  "description": "Windows KiCad 10 IPC FreeRouting adapter with live editor preview and transactional final import",
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "pcb",
+    "freerouting",
+    "kicad",
+    "autorouting"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "types": "./lib/types/client/index.d.ts",
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "files": [
+    "lib/index.js",
+    "lib/client.js",
+    "lib/client.js.map",
+    "lib/types",
+    "python",
+    "bundled",
+    "scripts/smoke-dsh-host.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "README.zh-CN.md",
+    "engine",
+    "scripts/test-engine.mjs",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
+  "scripts": {
+    "build": "node scripts/clean-build.mjs && tsc -b --force && tsdown",
+    "check": "pnpm run check:python-style && pnpm run test:build-dependencies && pnpm run format:check && pnpm run lint && pnpm run verify:boundaries && pnpm run typecheck && pnpm test && pnpm run test:python && pnpm run test:engine",
+    "format:check": "prettier --check --ignore-unknown .",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.mjs\" \"*.config.{ts,mjs}\" --max-warnings=0",
+    "package:plugin": "pnpm run prepare:dependencies && pnpm run check && pnpm run build && pnpm run prepare:bundle && pnpm run smoke:fresh-install",
+    "prepare:bundle": "node scripts/prepare.mjs",
+    "smoke:dsh-host": "node scripts/smoke-dsh-host.mjs",
+    "smoke:fresh-install": "node scripts/fresh-install-smoke.mjs",
+    "test": "pnpm run test:unit && pnpm run test:integration && pnpm run test:browser",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
+    "test:ipc-live": "vitest run --config vitest.live.config.ts",
+    "test:python": "node scripts/test-python.mjs",
+    "check:python-style": "node scripts/check-python-style.mjs",
+    "typecheck": "tsc -p tsconfig.vitest.json --pretty false",
+    "verify:boundaries": "node scripts/verify-boundaries.mjs",
+    "prepack": "node scripts/verify-build-inputs.mjs && pnpm run build",
+    "test:engine": "node scripts/test-engine.mjs",
+    "test:editor-close-live": "vitest run --config vitest.editor-close.config.ts",
+    "test:safety-live": "vitest run --config vitest.safety.config.ts",
+    "prepare:dependencies": "node scripts/prepare-dependencies.mjs",
+    "test:build-dependencies": "node scripts/test-build-dependencies.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "@hono/node-server": "^2.1.1",
+    "execa": "10.1.0",
+    "get-stream": "9.0.1",
+    "hono": "^4.13.2",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-agent": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-api-remotes": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-brand": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-chat": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-tool": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-jobs": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-jobs-local": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-llm": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-scope": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-session": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-timeout": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-tools": "0.1.7-rc.2",
+    "@deepseek-ai/dsh-util-values": "0.1.7-rc.2",
+    "@types/node": "^24.3.0",
+    "@types/react": "^18.3.24",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^6.0.2",
+    "@vitest/browser-playwright": "4.1.10",
+    "eslint": "^9.0.0",
+    "playwright": "1.58.2",
+    "prettier": "^3.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsdown": "^0.15.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.0.0",
+    "vitest": "4.1.10",
+    "vitest-browser-react": "2.2.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-agent": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-chat": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-conversation": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-client-ui-tool": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-host-webserver": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-jobs": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-session": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-system-prompt": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-tools": "^0.1.7-rc.2",
+    "@deepseek-ai/dsh-util-values": "^0.1.7-rc.2",
+    "react": "^18.3.1"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-tool"
+      ]
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

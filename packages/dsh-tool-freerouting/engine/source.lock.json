@@ -1,0 +1,14 @@
+{
+  "version": "2.5.0",
+  "upstream_tag": "v2.5.0",
+  "upstream_revision": "b647a2f824cfbc54bc4dcaee71b03b7cd945eb76",
+  "source_archive": "upstream-2.5.0-source.zip",
+  "source_sha256": "fca6957f5c33f8dd964782ffbe10ac67cd7514cd566fe66ac76d589a2a4eca76",
+  "java_release": 25,
+  "patch_id": "dsh-freerouting-2.5.0-1",
+  "patch_sources": {
+    "app/freerouting/io/specctra/SesWriter.java": "66d9736a220b802447e4c2b7fb58d3bf854e6a2354ce89eaec58c809e6f85802",
+    "app/freerouting/io/specctra/SesTracePath.java": "b19b38d649bd5c5aba8c020bac45e9c315d1224285953acc337108bf7306f42a",
+    "app/freerouting/management/jobs/RoutingJobSchedulerActionThread.java": "45b74247d005b57b6529d67902ad020d775b18426e954ab9a2f028981894b510"
+  }
+}

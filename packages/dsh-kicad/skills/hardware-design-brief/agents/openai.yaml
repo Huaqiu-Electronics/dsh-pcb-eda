@@ -1,4 +1,4 @@
 interface:
-  display_name: "硬件需求与设计输入"
-  short_description: "通过提问生成市场 MRD、硬件 PRD 与电路板设计输入"
-  default_prompt: "使用 $hardware-design-brief 帮我梳理市场需求、硬件产品需求和电路板设计输入。"
+  display_name: "硬件需求与方案设计"
+  short_description: "为团队与 Maker 生成可指导原理图的选型、电路及互连方案，支持多 PCB 分解"
+  default_prompt: "使用 $hardware-design-brief，基于已有需求完成可供原理图和 PCB 设计使用的硬件方案，明确核心器件与封装、电源和接口电路、模块及板间连接、预算和验证；若有多块 PCB，请逐板拆分。"

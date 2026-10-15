@@ -1,0 +1,16 @@
+- insert:
+    - id: huaqiu-dsh-tool-freerouting
+      name: '@huaqiu/dsh-tool-freerouting'
+      config:
+        freeroutingBaseUrl: http://127.0.0.1:37864
+        autoLaunchFreerouting: true
+        kicadPythonPath: ''
+        kicadApiSocket: ''
+        routePrefix: /pcb-freerouting
+        realtime: true
+        drawtimeSec: 5
+        pollIntervalMs: 2000
+        pollTimeoutMs: 1800000
+        requestTimeoutMs: 120000
+        resultTtlMs: 3600000
+        maxPendingRuns: 4

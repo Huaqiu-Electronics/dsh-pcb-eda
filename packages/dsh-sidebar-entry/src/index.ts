@@ -1,18 +1,25 @@
 /**
- * Sidebar entry injection core — adapted from dsh-web's shared
- * `shared/client/sidebar-entry-core.ts` (used by dsh-task-board /
- * dsh-skill-explorer / dsh-ssh). This package keeps a local copy because it
- * lives outside the dsh-web repo.
+ * `@huaqiu/dsh-sidebar-entry` — one shared sidebar entry row for the Huaqiu
+ * DSH plugin family.
  *
- * dsh's sidebar shell exposes no slot an external plugin can register into,
- * so the entry row is injected between the shell's New Session button and the
- * workspace browser. The injection self-heals: a MutationObserver watches the
- * sidebar root and re-inserts the row whenever a React re-render displaces it
- * (re-insertion happens in the same frame, before paint, so no flicker).
+ * Adapted from dsh-web's `shared/client/sidebar-entry-core.ts` (used by
+ * dsh-task-board / dsh-skill-explorer / dsh-ssh). It lives in its own package
+ * so every Huaqiu plugin that needs a sidebar toolbutton shares ONE copy of
+ * the injection policy instead of forking it.
+ *
+ * dsh's sidebar shell exposes no slot an external plugin can register into at
+ * this position (between the New Session button and the workspace browser), so
+ * the entry row is injected into the live DOM. The injection self-heals: a
+ * MutationObserver watches the sidebar root and re-inserts the row whenever a
+ * React re-render displaces it (re-insertion happens in the same frame, before
+ * paint, so no flicker).
  *
  * The row is plain DOM (no React tree) so it can never disturb the shell's
- * reconciliation; the view it toggles is a separate React root owned by the
- * caller (our `shell.overlay` workspace).
+ * reconciliation. What the row DOES on click is entirely the caller's: open a
+ * `shell.overlay` workspace (component-gen) or act on the DSH composer
+ * (schematic-gen).
+ *
+ * @module @huaqiu/dsh-sidebar-entry
  */
 
 /** Per-package configuration for one sidebar entry row. */
@@ -225,5 +232,80 @@ export function mountSidebarEntry(options: SidebarEntryOptions): () => void {
     unsubscribeRefresh?.()
     unsubscribeActive?.()
     entry.remove()
+  }
+}
+
+/**
+ * Every row selector in the Huaqiu sidebar family, in intended visual order.
+ *
+ * Family ordering is only stable when every participating plugin passes the
+ * SAME list to {@link mountSidebarEntry} — the core positions a row relative to
+ * the family block, never relative to transient shell geometry. Adding a new
+ * family row means adding its selector here (and to no plugin-local list).
+ */
+export const HUAQIU_SIDEBAR_ENTRY_FAMILY: readonly string[] = [
+  '[data-hqcg-footprint-entry]',
+  '[data-hqcg-symbol-entry]',
+  '[data-hqcg-schematic-entry]',
+]
+
+// ---- host locale detection (shared by every family sidebar row) ----
+
+/** Host UI languages this family localizes into. */
+export type HostLocale = 'zh' | 'en'
+
+/**
+ * Read the host UI language from `<html lang>`.
+ *
+ * `dsh-client-locale` rewrites the attribute on every language change (dsh
+ * web) and HQ Edge mirrors it, so this is the one source every family plugin
+ * can read without importing a `locale` service.
+ * @returns 'zh' / 'en', or undefined when the tag is absent or unsupported
+ *   (callers fall back to their own default).
+ */
+export function detectHostLocale(): HostLocale | undefined {
+  if (typeof document === 'undefined') return undefined
+  const tag = document.documentElement?.getAttribute('lang')
+  if (tag === null || tag === undefined || tag === '') return undefined
+  const primary = tag.toLowerCase().split('-')[0]
+  return primary === 'zh' || primary === 'en' ? primary : undefined
+}
+
+/**
+ * Watch `<html lang>` and report every resolved change.
+ *
+ * Idempotent-safe: repeated calls share one observer and each caller gets its
+ * own disposer; the observer disconnects when the last listener leaves.
+ * @param listener - called with the newly resolved language.
+ * @returns disposer removing this listener.
+ */
+/** Shared observer/listener set backing {@link observeHostLocale}. */
+const localeListeners = new Set<(lang: HostLocale | undefined) => void>()
+let localeObserver: MutationObserver | null = null
+
+export function observeHostLocale(listener: (lang: HostLocale | undefined) => void): () => void {
+  if (typeof document === 'undefined' || typeof MutationObserver === 'undefined' || document.documentElement === null) {
+    return () => {}
+  }
+  let current = detectHostLocale()
+  const listeners = localeListeners
+  listeners.add(listener)
+  if (localeObserver === null) {
+    localeObserver = new MutationObserver(() => {
+      const next = detectHostLocale()
+      if (next === current) return
+      current = next
+      for (const fn of [...listeners]) {
+        try { fn(next) } catch { /* one bad subscriber must not strand the rest */ }
+      }
+    })
+    localeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] })
+  }
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0 && localeObserver !== null) {
+      localeObserver.disconnect()
+      localeObserver = null
+    }
   }
 }

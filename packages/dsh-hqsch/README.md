@@ -47,16 +47,22 @@ bundled `template/` directory.
 Source of truth lives in the **hq-edge** monorepo (`skills/hqeda/onboarding/scenario-b/`
 + guides + modular-placement docs). From `hq-edge/skills/hqeda`:
 
+From **hq-edge**: `pnpm run build:scenario-b` (rebuild `skills/hqeda/scenario-b/`).
+
+From **this repo** (`packages/dsh-hqsch`):
+
 ```bash
-pnpm run build:scenario-b:dsh
+node scripts/sync-skill-from-hq-edge.mjs
 ```
 
-This rebuilds `skills/hqeda/scenario-b/` and copies it into
-`packages/dsh-hqsch/skills/hqsch-scenario-b/` (SKILL frontmatter `name: hqsch-scenario-b`).
+That rebuilds the bundle from the sibling hq-edge package and re-applies the DSH
+layer (`hqMain`, `script-lifetime.md`, part-search wording, etc.). Use
+`--check` to validate anchors without writing.
 
-> **The DSH bundle is not the upstream folder verbatim.** That command wipes the
-> target directory (everything but `node_modules`), so after every sync the
-> DSH-only layer must be re-applied:
+> **The DSH bundle is not the upstream folder verbatim.** A raw
+> `build:scenario-b:dsh` copy wipes the target (except `node_modules`) and drops
+> the DSH layer — prefer `sync-skill-from-hq-edge.mjs`. If you only use the hq-edge
+> command, you must manually re-apply:
 >
 > 1. `docs/script-lifetime.md` and `template/scripts/lib/hq.ts` (the `hqMain` /
 >    `hqMainWithProject` runtime shell) — keep them, upstream does not ship them.

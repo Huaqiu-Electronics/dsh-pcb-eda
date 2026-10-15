@@ -1,0 +1,174 @@
+(session "live-preview"
+  (base_design "live-preview")
+  (placement
+    (resolution um 10)
+    (component Pin
+      (place L0 50000 50000 front 0)
+      (place R0 450000 50000 front 0)
+      (place L1 50000 60000 front 0)
+      (place R1 450000 180000 front 0)
+      (place L2 50000 70000 front 0)
+      (place R2 450000 310000 front 0)
+      (place L3 50000 80000 front 0)
+      (place R3 450000 80000 front 0)
+      (place L4 50000 90000 front 0)
+      (place R4 450000 210000 front 0)
+      (place L5 50000 100000 front 0)
+      (place R5 450000 340000 front 0)
+      (place L6 50000 110000 front 0)
+      (place R6 450000 110000 front 0)
+      (place L7 50000 120000 front 0)
+      (place R7 450000 240000 front 0)
+      (place L8 50000 130000 front 0)
+      (place R8 450000 370000 front 0)
+      (place L9 50000 140000 front 0)
+      (place R9 450000 140000 front 0)
+      (place L10 50000 150000 front 0)
+      (place R10 450000 270000 front 0)
+      (place L11 50000 160000 front 0)
+      (place R11 450000 400000 front 0)
+      (place L12 50000 170000 front 0)
+      (place R12 450000 170000 front 0)
+      (place L13 50000 180000 front 0)
+      (place R13 450000 300000 front 0)
+      (place L14 50000 190000 front 0)
+      (place R14 450000 70000 front 0)
+      (place L15 50000 200000 front 0)
+      (place R15 450000 200000 front 0)
+      (place L16 50000 210000 front 0)
+      (place R16 450000 330000 front 0)
+      (place L17 50000 220000 front 0)
+      (place R17 450000 100000 front 0)
+      (place L18 50000 230000 front 0)
+      (place R18 450000 230000 front 0)
+      (place L19 50000 240000 front 0)
+      (place R19 450000 360000 front 0)
+      (place L20 50000 250000 front 0)
+      (place R20 450000 130000 front 0)
+      (place L21 50000 260000 front 0)
+      (place R21 450000 260000 front 0)
+      (place L22 50000 270000 front 0)
+      (place R22 450000 390000 front 0)
+      (place L23 50000 280000 front 0)
+      (place R23 450000 160000 front 0)
+      (place L24 50000 290000 front 0)
+      (place R24 450000 290000 front 0)
+      (place L25 50000 300000 front 0)
+      (place R25 450000 60000 front 0)
+      (place L26 50000 310000 front 0)
+      (place R26 450000 190000 front 0)
+      (place L27 50000 320000 front 0)
+      (place R27 450000 320000 front 0)
+      (place L28 50000 330000 front 0)
+      (place R28 450000 90000 front 0)
+      (place L29 50000 340000 front 0)
+      (place R29 450000 220000 front 0)
+      (place L30 50000 350000 front 0)
+      (place R30 450000 350000 front 0)
+      (place L31 50000 360000 front 0)
+      (place R31 450000 120000 front 0)
+      (place L32 50000 370000 front 0)
+      (place R32 450000 250000 front 0)
+      (place L33 50000 380000 front 0)
+      (place R33 450000 380000 front 0)
+      (place L34 50000 390000 front 0)
+      (place R34 450000 150000 front 0)
+      (place L35 50000 400000 front 0)
+      (place R35 450000 280000 front 0)
+    )
+  )
+  (was_is
+  )
+  (routes 
+    (resolution um 10)
+    (parser
+    )
+    (library_out 
+      (padstack Via
+        (shape
+          (circle F.Cu 6000 0 0)
+        )
+        (shape
+          (circle B.Cu 6000 0 0)
+        )
+        (attach off)
+      )
+    )
+    (network_out 
+      (net N6
+        (wire
+          (path F.Cu 2000
+            380250 97875
+            368125 97875
+          )
+        )
+        (wire
+          (path B.Cu 2000
+            380250 97875
+            368125 97875
+          )
+        )
+        (wire
+          (path F.Cu 2000
+            368125 97875
+            380250 97875
+          )
+        )
+        (wire
+          (path B.Cu 2000
+            368125 97875
+            380250 97875
+          )
+        )
+        (wire
+          (path F.Cu 2000
+            60700 97875
+            72825 97875
+          )
+        )
+        (wire
+          (path B.Cu 2000
+            60700 97875
+            72825 97875
+          )
+        )
+        (wire
+          (path F.Cu 2000
+            72825 97875
+            60700 97875
+          )
+        )
+        (wire
+          (path B.Cu 2000
+            72825 97875
+            60700 97875
+          )
+        )
+        (wire
+          (path F.Cu 2000
+            72825 97875
+            60700 110000
+            50000 110000
+          )
+        )
+        (via Via 72825 97875
+        )
+        (wire
+          (path B.Cu 2000
+            368125 97875
+            72825 97875
+          )
+        )
+        (via Via 368125 97875
+        )
+        (wire
+          (path F.Cu 2000
+            450000 110000
+            380250 110000
+            368125 97875
+          )
+        )
+      )
+    )
+  )
+)
