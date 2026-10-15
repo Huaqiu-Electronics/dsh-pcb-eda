@@ -4,9 +4,9 @@
 
 - 不是 KiCad 层次化 multi sheet。  
 - 不是 PCB 布局。  
-- 只读审计、纯 ERC、符号库策略细节见 [eda](../../eda/SKILL.md) / [scenario-b](../scenario-b/SKILL.md)。
+- 只读审计、纯 ERC、符号库策略细节见 eda / scenario-b。
 
-KiCad 完整版（含审计规则 ID）：[modular-placement.md](../../../../modular-placement.md)。
+KiCad 完整版（含审计规则 ID）：modular-placement.md。
 
 > **scenario-b 以 `modular-layout.md` + `modular-layout-compact.md` 为准**：网格版式（列/层/并排）、**P3.5 `repackModules` 两遍收拢**（必须在跨模块标签之前）、P4a **`placeGridFrames`** 按网格拉框。下文 P4c 裁边已被 P3.5 取代，仅在不走模块化库的手工流程中参考。
 
@@ -84,7 +84,7 @@ P4c 【可选】fitPageToContent：union 实际 bbox 微调 Custom 页（仅估�
 
 STM32F103 最小系统（电源、MCU 双 section、8MHz、复位、BOOT、去耦、DS18B20）→ 默认 **S 偏 M**（建议约 **1800×1400 ext** 起，含标题栏预留）。
 
-估页公式与 RPC 细节见 [hq-mapping.md](hq-mapping.md#p0-按复杂度设定-custom-页)。
+估页公式与 RPC 细节见 [hq-mapping.md](modular-layout-hq-mapping.md#p0-按复杂度设定-custom-页)。
 
 ### P0 后必须做
 
@@ -109,7 +109,7 @@ STM32F103 最小系统（电源、MCU 双 section、8MHz、复位、BOOT、去�
 | 温度/传感器 | DS18B20 等 | TEMP_DQ 等 |
 | 去耦电容模块 | VDD 旁 100nF 等 | +3V3, GND |
 
-区位示意（**相对 P0 后的 page_box**，坐标落地见 [hq-mapping.md](hq-mapping.md)）：
+区位示意（**相对 P0 后的 page_box**，坐标落地见 [hq-mapping.md](modular-layout-hq-mapping.md)）：
 
 ```text
 +------------------------------------------------------------------+
@@ -178,7 +178,7 @@ STM32F103 最小系统（电源、MCU 双 section、8MHz、复位、BOOT、去�
 
 ## P3 与 pattern 触发词
 
-需求中出现下列特征 → **必须先 pattern**（详见 [circuit-pattern-layout.md](../../guides/circuit-pattern-layout.md)）：
+需求中出现下列特征 → **必须先 pattern**（详见 [circuit-pattern-layout.md](circuit-pattern-layout.md)）：
 
 | 需求 | pattern |
 | --- | --- |

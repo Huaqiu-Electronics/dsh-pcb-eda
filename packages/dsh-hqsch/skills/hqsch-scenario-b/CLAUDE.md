@@ -16,10 +16,11 @@
 
 1. `docs/placement-conventions.md` — 坐标、布局、**routing mode gate**（短→**PlaceWire**，长→stub+alias；**禁止**手布用 autoConnect）
 2. `docs/circuit-pattern-layout.md` — 优先用 pattern（pull_resistor、reset_circuit、decoupling_cap）
-3. `docs/part-search.md` — searchParts → getEdaModels → PlaceKicadSymbol
+3. `docs/part-search.md` — 器件选型两条通道（有 `search_hqsch_parts` 等 tool 用 tool，否则 `scripts/search-parts.ts`）→ 选定 `(manufacturerId, mpn)` → `placePartByMpn`；字段说明在 `docs/part-search/`
 4. `docs/quickstart.md` — connect、createProjectContext
 5. `docs/property-conventions.md` — 位号、引脚坐标
 6. `docs/reading-a-circuit.md` — 读电路 / GetSnapshot 三表联结 / 邻域 / 串联穿透
+6b. `docs/hierarchical-schematic-playbook.md` — **层次 H0–H4**：顶层 block + 短 stub/NetAlias 连 block pin；子页按 **单模块** P1–P3、最小 A4、`placePortNearPin`；与单页 P0–P4 **不要混用**
 7. `docs/editing-a-circuit.md` — **局部改电路（Flow C）** / 确认 diff / 修改集 / 验收
 8. `docs/rpc-availability.md` — 接口可用性、禁建列表、耗时基线
 9. `docs/troubleshooting-power-nets.md` — **电源/网络异常**（GND「消失」、短接、先几何后语义）
@@ -34,9 +35,10 @@
 
 ## 硬性规则
 
-- **所有脚本必须经 `scripts/lib/hq.ts` 的 `hqMain` / `hqMainWithProject` 进入**；**禁止**裸 `connect()` + `main().catch(e => process.exit(1))`。外壳透传 `connect({ timeoutMs })`、`finally { client.close() }`、保证进程退出。见 `docs/script-lifetime.md`。
+- **所有脚本必须经 `scripts/lib/hq.ts` 的 `hqMain` / `hqMainWithProject` 进入**；**禁止**裸 `connect()` + `main().catch(e => process.exit(1))`。外壳透传 `connect({ timeoutMs })`、`finally { client.close() }`、保证进程退出。见 `docs/script-lifetime.md`。唯一例外是 `scripts/search-parts.ts`：只发 HTTP、不连编辑器。
 - **不要依赖「脚本会自己退出」**：卡住的 RPC 会让 node 进程永久存活，重试一次多泄漏一个。
 - 器件（R/C/Q/U）：在线搜索 + `client.componentPlace.placeKicadSymbol`；**禁止**手写 `json_part` / `PlacePart`
+- **器件选型先看候选再选（所有器件，含阻容）**：DSH 已装 `@huaqiu/dsh-tool-part-search`，选型 / 查参数 / 查供货一律用 `search_hqsch_parts` / `get_hqsch_part` / `get_hqsch_part_models` / `get_hqsch_supply_chain` 这几个 tool；只有 tool 不可用时才跑 `npx tsx scripts/search-parts.ts`（`QUERY=…`，只读、不连编辑器，是唯一不经 `hqMain` 的脚本）。从候选里明确选一颗（`hasSymbol` + `hasFootprint`、封装/值匹配），把 `manufacturerId` + `mpn` 写进放置脚本，用 `placePartByMpn`（单颗可用 `scripts/place-part.ts`）。**禁止**猜 `manufacturerId` / MPN，**禁止**放置脚本自己取「查询的第一个命中」（`searchAndPlace` 已废弃）。在线候选都没有符号才回退 `PlacePartFromLibrary`
 - 电源符号：`ListSymbolLibraries` → `PlaceSymbolFromLibrary`
   - `kind`：电源/地用 **`LibrarySymbolKind.GLOBAL`（=1）**；`OFF_PAGE=2`，`PORT=3`
   - **`symbolName`** = 库里的**图形符号名**（模糊匹配库符号）
@@ -54,7 +56,8 @@
 - 字母引脚（CC1、A5）：用 `pinName` / `pinNumber` **字符串**，禁止 `Number("A5")`
 - **pattern 的 host 电源引脚必须用 `pinName` 绑定**（如 `pinName:"VIN"`）；用 `pinNum` 会返回 `PIN_RESOLVE_FAILED`
 - **放置后必须等对象注册再 apply**：轮询 `getPageOccupancy` 直到所有新 id 出现，否则 apply 报 `OBJECT_NOT_FOUND` 或假 `PARTIAL`
-- **模块化布局**：用户要分区/模块框/中文标题时走 **P0→P4**（见 `modular-layout.md` + `modular-layout-compact.md`）；P1 坐标 **吸附 20 ext 网格**；P3.5 收拢 **之后**才在 P4a 画框；**禁止**用 union 外接矩形占比代替 `layout-audit.ts`
+- **模块化布局**：用户要分区/模块框/中文标题时走 **P0→P4**（见 `modular-layout.md` + `modular-layout-compact.md`）；**未说明层次时默认单页**，不要擅自走 H0–H4P1 坐标 **吸附 20 ext 网格**；P3.5 收拢 **之后**才在 P4a 画框；**禁止**用 union 外接矩形占比代替 `layout-audit.ts`
+- **层次布局**（与上一款互斥）：顶层用 **block** 表示模块，block pin 之间只许 **短 stub + 同名 NetAlias**；子页按单模块 P1–P3，**最小 A4**，port 必须 `placePortNearPin` 贴着要连的脚。不要在层次任务里跑整页 `placeGridFrames`
 - **网格版式**：P0 用 **`planCompactZones(模块清单)`**（默认 grid）反推页面与单元；**禁止**默认 1800×1400 + 固定 500×400 槽，**禁止**把外围模块平铺成一长行。每模块给 **`col`**（列号）+ `order`（列内顺序），同列小模块用同一 `group` **并排**，底部汇总模块可 `span` 跨列。**主控所在列不限**；外围模块按相连的 MCU 引脚就近选列、按引脚高度排序。所有列顶底对齐，整页外轮廓为矩形
 - **两遍收拢（必做）**：放完器件、pattern、模块内连线后 **`repackModules`**（按电气连通收集器件 + 导线 + 电源符号 + NetAlias → 重算网格 → setPageExt → 整批平移 → 前后网表对比，掉网自动补、并网抛错），**必须在跨模块标签之前**；之后一律用返回的新 plan。抛错时停下处理，**不要**接着画框
 - **移动模块 ≠ 移动器件**：导线、电源符号、NetAlias 是独立对象。**禁止**自己拿器件 id 调 `moveExtBatch` 搬模块（线被拖歪 → 并网；符号/标签留原地 → 掉网）
@@ -77,7 +80,9 @@
 ## Agent 执行流程（必须遵守）
 
 **先判任务类型**：
-- **画电路** → 按「流程 A」执行；不可跳过 pattern 规划直接写放置/接线代码。
+- **布局默认**：用户未明确要求 **层次 / 子原理图 / block 子页 / 多 schematic 文件夹** 时，模块化一律按 **单页 P0–P4**（`modular-layout.md`），**禁止**默认走层次 H0–H4。
+- **画电路（单页模块化，默认）** → 按「流程 A」执行；不可跳过 pattern 规划直接写放置/接线代码。
+- **画电路（层次 / 子原理图 / 用 block 表示模块）** → 仅当用户**明确**要求时，按「流程 A-H」：顶层只放 block，跨 block 用短 stub+NetAlias；每个子页按 **单个模块** 的 P1–P3（`hierarchical-schematic-playbook.md`）。**不要**在顶层再画单页那种多模块 placeRect 框，也 **不要**把已有单页 P0–P4 改成层次。
 - **读电路 / 理解已有设计**（如"VR201 有什么作用"、"这个网络为什么叫 +3.3V"）→ 按「流程 B」，**只读不改**。
 - **改部分电路**（如"把 C201 改成 1µF"、"把 R5 改接到 +3.3V"、"换掉 U3"）→ 按「流程 C」，**外科手术式**；禁止清页重画。
 - **已有模块化分区，只修某一模块**（如「复位模块有问题」「电源区改一下」）→ 仍是 **流程 C**，读 `modular-layout.md` §单模块修补 + `editing-a-circuit.md` § Modular designs。**修一块 ≠ 重画整页**；禁止整页重建脚本 / `clearActivePageFull` / 无确认整页删除；禁止 `prepareP4aDecorations`（会删掉全页框/字）。只需重画框时：只删该 `moduleKey` 的装饰再 `unionModuleBBox` → `frameAroundContent` → `placeModuleFrameAndTitle`（带 `note`）。
@@ -107,11 +112,13 @@
 
    **模块化整页（可选）**：用户要模块框/中文标题时，先出 **模块规划表**（key / 中文功能 title / note / refs / **col / order / group**；≤3 件小块 `attachTo`），再 **P0** `mergeSmallModules` → `planCompactZones` + `setPageExt`；顺序 **P0→P1→P2→P3→P3.5 收拢→P3c 跨模块标签→P4a 网格框/标题→P4b**（见 `modular-layout.md` 与 `modular-layout-compact.md`）。公共库：`template/scripts/modular-lib.ts`。
 
+2.5 **器件选型**（生成脚本前，必做）：对每个位号用 `search_hqsch_parts` 查候选（tool 不可用时用 `scripts/search-parts.ts`），在设计说明里列出 **选型表**：位号 / 值 / MPN / `manufacturerId` / 封装；同规格的阻容可共用一行。选型表里的 `(manufacturerId, mpn)` 原样写进脚本的 `placePartByMpn` 调用。
+
 3. **生成脚本**（脚本内电路步骤顺序固定）：
    ```
    connect → getActiveProject → createProjectContext
    → 【模块化】P0：MODULES = mergeSmallModules(模块清单) → planCompactZones(MODULES) → setPageExt(client, ctx, plan.pageW, plan.pageH)
-   → 放置 host / 独立器件（part-search → placeKicadSymbol；电源符号 → PlaceSymbolFromLibrary）
+   → 放置 host / 独立器件（生成脚本前已完成选型 → placePartByMpn；电源符号 → PlaceSymbolFromLibrary）
    → 【等待注册】轮询 getPageOccupancy 直到所有新 id 出现（关键！否则 apply 失败）
    → 规范位号 / 容值（覆盖引擎自动分配的 C1..C4）
    → applyCircuitPattern（每个适用 pattern 一次；先 planOnly 可选，再正式 apply）
@@ -124,6 +131,25 @@
    ```
    写入 `template/scripts/<名称>.ts`（或用户指定的 scripts 目录）。
    **禁止**跳过 `applyCircuitPattern` 用 autoConnect 糊全图；手布余网用 **PlaceWire**；**禁止**重连 `connections[].routed=true` 的 net。
+
+### 流程 A-H — 层次原理图（可选，不替代流程 A）
+
+仅当用户**明确**要 **层次 / 子页 / block 模块** 时（未说明则**不要**进本节），在 pattern 规划与选型之后按 H0–H4 生成脚本（详见 `hierarchical-schematic-playbook.md`）：
+
+```
+H0 规划表（含对外 pinName = 子页 port Name）
+H1 顶层：planCompactZones(..., withMinA4()) → setPageExtAtLeastA4
+   → placeHierarchicalBlock（box = plan.cells[key]）→ placeBlockPin
+   → 跨 block：aliasBlockPins / placeShortStubAlias（禁止长导线穿 block）
+   → placeText 标题+一行 note
+H2 ensureChildSheet → 重新 createProjectContext + calibratePageTop
+H3 子页：单模块 planCompactZones + withMinA4 → P1–P3
+   → placePortNearPin（port 贴所连引脚，约 80 ext；禁止甩到页边）
+   → 一行说明 → persistProject
+H4 回顶层 getPortPairing（BY_HIERARCHY）→ checkpointNets → save
+```
+
+子页 **不要** `placeGridFrames` 多模块；页不小于 A4 只约束层次页，单页模块化仍按内容估页。
 
 4. **自动执行**：立即在脚本所在目录运行 `npx tsx scripts/<名称>.ts`，读取 stdout/stderr。
    - **PowerShell 下判成败只看退出码**：`npx tsx scripts/x.ts; echo "exit=$LASTEXITCODE"`。Node 往 stderr 写的告警在 PowerShell 5 里会显示成红色 `NativeCommandError`，**不等于失败**；`exit=0` 且 stdout 有 `✓` 即成功。PowerShell 5 不支持 `&&`，用 `;`。

@@ -61,14 +61,20 @@ This rebuilds `skills/hqeda/scenario-b/` and copies it into
 > 1. `docs/script-lifetime.md` and `template/scripts/lib/hq.ts` (the `hqMain` /
 >    `hqMainWithProject` runtime shell) — keep them, upstream does not ship them.
 > 2. Template script entrypoints — re-wrap them in `hqMain` / `hqMainWithProject`
->    instead of upstream's bare `connect()` + `main().catch()`. `layout-audit.ts`
+>    instead of upstream's bare `connect()` + `main().catch()` (including
+>    `place-part.ts`; `search-parts.ts` never connects to the editor and stays
+>    as upstream ships it). `layout-audit.ts`
 >    then cannot rely on `openCtx()` to set `PAGE_TOP`, so it calls
 >    `refreshPageTop(client, ctx)` first; since 2026-10-08 upstream
 >    `modular-lib.ts` itself exports `calibratePageTop` + `refreshPageTop`, so no
 >    library patch is required any more.
 > 3. `SKILL.md` / `SYSTEM-PROMPT.md` (→ `AGENTS.md`, `CLAUDE.md`) — re-add the
->    `hqMain` hard rule, the `docs/script-lifetime.md` reading-list entry and the
->    `@huaqiu/huaqiu-client` `^0.1.9` requirement.
+>    `hqMain` hard rule (with the `search-parts.ts` exception), the
+>    `docs/script-lifetime.md` reading-list entry, the `@huaqiu/huaqiu-client`
+>    `^0.1.9` requirement, and the part-selection rule worded for DSH (the
+>    part-search tools are installed, so selection goes through them first).
+>    `docs/quickstart.md` also carries the DSH warning in its `connect()`
+>    section (never call bare `connect()` in a bundled script).
 > 4. `template/package.json` — keep `name: hqsch-scenario-b`, `typecheck` and the
 >    `^0.1.9` client pin; then refresh `template/package-lock.json`.
 >

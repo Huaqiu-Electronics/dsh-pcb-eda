@@ -43,10 +43,11 @@ Follow [SYSTEM-PROMPT.md](./SYSTEM-PROMPT.md) in full. The agent **must auto-run
 | --- | --- | --- |
 | 1 | [docs/placement-conventions.md](./docs/placement-conventions.md) | Placement, routing mode gate |
 | 2 | [docs/circuit-pattern-layout.md](./docs/circuit-pattern-layout.md) | Circuit patterns |
-| 3 | [docs/part-search.md](./docs/part-search.md) | Component search |
+| 3 | [docs/part-search.md](./docs/part-search.md) | Component search — DSH tools if available, else `scripts/search-parts.ts`; field reference in `docs/part-search/` |
 | 4 | [docs/quickstart.md](./docs/quickstart.md) | connect, context |
 | 5 | [docs/property-conventions.md](./docs/property-conventions.md) | Designator, pin coords |
 | 6 | [docs/reading-a-circuit.md](./docs/reading-a-circuit.md) | **Read/understand** — snapshot, neighborhood, series traversal |
+| 6b | [docs/hierarchical-schematic-playbook.md](./docs/hierarchical-schematic-playbook.md) | **Hierarchical H0–H4** — top-level blocks + stub/alias; child page = one module, min A4, ports near circuit |
 | 7 | [docs/editing-a-circuit.md](./docs/editing-a-circuit.md) | **Local edit (Flow C)** — diff, blast radius, verify |
 | 8 | [docs/rpc-availability.md](./docs/rpc-availability.md) | Which RPCs work / ban list / timing baselines |
 | 9 | [docs/troubleshooting-power-nets.md](./docs/troubleshooting-power-nets.md) | Power/net anomalies — geometry before semantics |
@@ -88,8 +89,9 @@ HQ EDA desktop must be running with a schematic project open.
 1. Connectivity check (`hello.ts`)
 2. **Pattern planning** — list applicable patterns before writing code
 3. Generate script: placement → `applyCircuitPattern` → module-internal hand-wire only
-4. **Modular whole-page (optional):** P0 `planCompactZones` → P1–P3 → **`repackModules` (P3.5, before cross-module labels)** → P3c stub+NetAlias → P4a **`placeGridFrames`** → P4b `layout-audit.ts` + save + export PDF — see [docs/modular-layout.md](./docs/modular-layout.md) and `template/scripts/modular-lib.ts`
-5. Auto-run → retry → verify (pattern status + netlist + zoomAll)
+4. **Modular whole-page (default when user wants modules but says nothing about hierarchy):** P0 `planCompactZones` → P1–P3 → **`repackModules` (P3.5, before cross-module labels)** → P3c stub+NetAlias → P4a **`placeGridFrames`** → P4b `layout-audit.ts` + save + export PDF — see [docs/modular-layout.md](./docs/modular-layout.md) and `template/scripts/modular-lib.ts`
+5. **Hierarchical (only if user explicitly asks):** H0–H4 — parent blocks + `aliasBlockPins`; each child sheet is **one** modular zone, min A4, `placePortNearPin` — [docs/hierarchical-schematic-playbook.md](./docs/hierarchical-schematic-playbook.md). **Do not** use this by default.
+6. Auto-run → retry → verify (pattern status + netlist + zoomAll)
 
 **Flow B — read:**
 
@@ -113,6 +115,7 @@ HQ EDA desktop must be running with a schematic project open.
 - Patterns before hand-wiring; do not re-wire `connections[].routed=true`.
 - Routing gate per net: short → **`PlaceWire`** (`connectPinsPlaceWire`); long → dual-end stub+NetAlias. **No autoConnect for hand-wiring.**
 - Parts: online search + `placeKicadSymbol` — never hand JSON parts.
+- **Part selection (every part, passives included):** list candidates first with the DSH tool `search_hqsch_parts` (fall back to `scripts/search-parts.ts` only if the tool is unavailable), pick one explicitly, then place it with `placePartByMpn(manufacturerId, mpn, …)`. Never guess ids, never let a script take "the first hit".
 - Do not bulk-delete without user confirmation after `getSnapshot`.
 - End scripts with `zoomAll` for visual verification when appropriate.
 - **Modules = functional circuits:** blocks with ≤ 3 parts (reset, BOOT, LED, CC pull-downs…) are never standalone — `attachTo` the connected module, then `mergeSmallModules`. Title inside frame top-left, one-line `note` inside frame bottom-left.

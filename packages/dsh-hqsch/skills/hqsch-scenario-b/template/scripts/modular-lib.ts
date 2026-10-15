@@ -249,6 +249,13 @@ export const MIN_CONTENT_CLEARANCE = 20;
 export const LABEL_CORRIDOR = 60;
 /** 页边距（page_box 到最外侧模块框） */
 export const PAGE_MARGIN = 80;
+/**
+ * A4 横向（ext，约 10 ext/mm）。层次图的 **顶层与每个子页** 不小于此值；
+ * 单页模块化 P0 **不**套这条下限，以免把本来紧凑的单页撑大。
+ */
+export const A4_LANDSCAPE_EXT = { w: 2970, h: 2100 };
+/** 层次子页：port 到所连器件引脚的目标距离（太远算不合格） */
+export const PORT_NEAR_GAP = 80;
 
 export const boxW = (b: ExtBox) => b.x2 - b.x1;
 export const boxH = (b: ExtBox) => b.y2 - b.y1;
@@ -822,6 +829,224 @@ export async function placeGridFrames(
 }
 
 /**
+ * 活动页层次 block 及其 block pin；box 为 ext 坐标 Y 向下。
+ * 部分客户端构建尚未生成该方法，故走 any 调用；调用方应先判存在或 try/catch。
+ */
+/** 层次页：plan 的 min 页不小于 A4 横向。单页模块化不要用。 */
+export function withMinA4(opts?: PlanOptions): PlanOptions {
+  return {
+    ...opts,
+    minPageW: Math.max(opts?.minPageW ?? 0, A4_LANDSCAPE_EXT.w),
+    minPageH: Math.max(opts?.minPageH ?? 0, A4_LANDSCAPE_EXT.h),
+  };
+}
+
+export async function setPageExtAtLeastA4(
+  client: C, ctx: P, w: number, h: number, opts?: { save?: boolean },
+) {
+  return setPageExt(
+    client, ctx,
+    Math.max(snapExt(w), A4_LANDSCAPE_EXT.w),
+    Math.max(snapExt(h), A4_LANDSCAPE_EXT.h),
+    opts,
+  );
+}
+
+export type BlockPinSide = "left" | "right" | "top" | "bottom";
+
+export async function placeHierarchicalBlock(
+  client: C, ctx: P,
+  opts: {
+    box: ExtBox;
+    contentsViewName: string;
+    blockReference: string;
+    blockValue?: string;
+    snapToGrid?: boolean;
+  },
+): Promise<{ id: bigint }> {
+  const res: any = await (client.componentPlace as any).placeBlock({
+    context: ctx,
+    box: {
+      min: { x: BigInt(Math.round(opts.box.x1)), y: BigInt(Math.round(opts.box.y1)) },
+      max: { x: BigInt(Math.round(opts.box.x2)), y: BigInt(Math.round(opts.box.y2)) },
+    },
+    snapToGrid: opts.snapToGrid !== false,
+    contentsViewName: opts.contentsViewName,
+    blockReference: opts.blockReference,
+    blockValue: opts.blockValue ?? opts.blockReference,
+  } as any);
+  const id = BigInt(String(res.objectId ?? 0));
+  if (!res.success || !id) throw new Error(`PlaceBlock 失败 ${opts.blockReference}: ${toJsonString(res)}`);
+  return { id };
+}
+
+export async function placeBlockPin(
+  client: C, ctx: P,
+  blockObjectId: bigint, pinName: string,
+  opts?: { pinType?: number; pinWidth?: number },
+): Promise<{ id: bigint }> {
+  const res: any = await (client.componentPlace as any).placeBlockPin({
+    context: ctx,
+    blockObjectId,
+    pinName,
+    pinType: opts?.pinType ?? 5, // BLOCK_PIN_PASSIVE
+    pinWidth: opts?.pinWidth ?? 1, // SCALAR
+  } as any);
+  const id = BigInt(String(res.objectId ?? 0));
+  if (!res.success || !id) throw new Error(`PlaceBlockPin 失败 ${pinName}: ${toJsonString(res)}`);
+  return { id };
+}
+
+/** 两个 block pin 各挂短 stub + **同名** NetAlias（顶层跨 block，禁止长导线穿 block）。 */
+export async function aliasBlockPins(
+  client: C, ctx: P,
+  a: { objectId: bigint; pin?: string | number },
+  b: { objectId: bigint; pin?: string | number },
+  netName: string,
+) {
+  const pa = a.pin ?? "0";
+  const pb = b.pin ?? "0";
+  await placeShortStubAlias(client, ctx, a.objectId, pa, netName);
+  await placeShortStubAlias(client, ctx, b.objectId, pb, netName);
+}
+
+export async function resolvePortLibrary(client: C, ctx: P) {
+  const r: any = await client.componentPlace.listSymbolLibraries({ context: ctx } as any);
+  const libs = r.libraries ?? r.symbolLibraries ?? [];
+  for (const lib of libs) {
+    const kind = Number(lib.kind ?? lib.symbolKind ?? lib.librarySymbolKind);
+    if (kind !== 3) continue;
+    const name = String(lib.name ?? lib.libraryName ?? "");
+    const file = String(lib.filePath ?? lib.libraryFilePath ?? "");
+    const symbols = lib.symbols ?? lib.items ?? [];
+    const symbolName = String(symbols[0]?.name ?? symbols[0]?.symbolName ?? "PORT");
+    if (name) return { libraryName: name, libraryFilePath: file, symbolName };
+  }
+  throw new Error("ListSymbolLibraries 没有 kind=PORT(3) 的库；先 list 再指定 libraryName/symbolName");
+}
+
+/**
+ * 在子页把层次 port 放到 **所连引脚附近**（默认 PORT_NEAR_GAP），再用 PlaceWire 直连。
+ * 禁止把 port 甩到页边远离电路。
+ */
+export async function placePortNearPin(
+  client: C, ctx: P,
+  opts: {
+    portName: string;
+    nearObjectId: bigint;
+    nearPin: string | number;
+    side?: BlockPinSide;
+    gap?: number;
+    libraryName?: string;
+    libraryFilePath?: string;
+    symbolName?: string;
+  },
+): Promise<{ id: bigint; ext: ExtPt }> {
+  const gap = opts.gap ?? PORT_NEAR_GAP;
+  const pins = await pinsOf(client, ctx, opts.nearObjectId);
+  const key = String(opts.nearPin);
+  const pin = pins.find((p) => p.num === key || p.name === key);
+  if (!pin) throw new Error(`placePortNearPin: 找不到引脚 ${opts.nearPin}`);
+  const side = opts.side ?? inferPortSide(pin.ext);
+  const ext = offsetBySide(pin.ext, side, gap);
+  const lib = (opts.libraryName && opts.symbolName)
+    ? { libraryName: opts.libraryName, libraryFilePath: opts.libraryFilePath ?? "", symbolName: opts.symbolName }
+    : await resolvePortLibrary(client, ctx);
+  const res: any = await client.componentPlace.placeSymbolFromLibrary({
+    context: ctx,
+    localPos: { x: BigInt(Math.round(ext.x)), y: BigInt(Math.round(ext.y)) },
+    libraryName: lib.libraryName,
+    libraryFilePath: lib.libraryFilePath,
+    symbolName: lib.symbolName,
+    kind: 3,
+    netName: opts.portName,
+  } as any);
+  const id = BigInt(String(res.objectId ?? 0));
+  if (!res.success || !id) throw new Error(`PlaceSymbolFromLibrary PORT ${opts.portName} 失败: ${toJsonString(res)}`);
+  await waitForIds(client, ctx, [id], opts.portName).catch(() => { /* occupancy 可能不含 port */ });
+  try {
+    await connectPinsPlaceWire(client, ctx, id, "0", opts.nearObjectId, opts.nearPin, { net: opts.portName });
+  } catch {
+    await placeShortStubAlias(client, ctx, opts.nearObjectId, opts.nearPin, opts.portName);
+    await placeShortStubAlias(client, ctx, id, "0", opts.portName);
+  }
+  return { id, ext };
+}
+
+function inferPortSide(p: ExtPt): BlockPinSide {
+  if (p.x < 400) return "left";
+  if (p.y < 300) return "top";
+  return "right";
+}
+
+function offsetBySide(p: ExtPt, side: BlockPinSide, gap: number): ExtPt {
+  const g = snapExt(gap);
+  if (side === "left") return { x: p.x - g, y: p.y };
+  if (side === "right") return { x: p.x + g, y: p.y };
+  if (side === "top") return { x: p.x, y: p.y - g };
+  return { x: p.x, y: p.y + g };
+}
+
+/**
+ * 保证子原理图文件夹 + PAGE1 存在并激活。
+ * `occPath` = parentOcc + "/" + blockReference（根页 parentOcc 为 `"/"`）。
+ */
+export async function ensureChildSheet(
+  client: C,
+  opts: {
+    schematicName: string;
+    blockReference: string;
+    projectName: string;
+    parentOccPath?: string;
+  },
+): Promise<{ occPath: string; pageName: string }> {
+  const editor = client.createEditorContext();
+  const parent = opts.parentOccPath ?? "/";
+  const occPath = `${parent.replace(/\/$/, "")}/${opts.blockReference}`;
+  try {
+    await (client.project as any).addSchematicToActiveProject({
+      context: editor, schematicName: opts.schematicName,
+    });
+  } catch { /* 已存在 */ }
+  let pageName = "PAGE1";
+  try {
+    const pageRes: any = await (client.project as any).addPageToProject({
+      context: editor,
+      projectName: opts.projectName,
+      schematicName: opts.schematicName,
+      pageName: "",
+    });
+    pageName = String(pageRes.pageName ?? "PAGE1");
+  } catch { /* PAGE1 已存在 */ }
+  await (client.project as any).activatePageInProject({
+    context: editor,
+    schematicName: opts.schematicName,
+    occPath,
+    pageName,
+  });
+  await sleep(400);
+  return { occPath, pageName };
+}
+
+export async function listPageBlocks(client: C, ctx: P) {
+  const resp: any = await (client.canvasOps as any).listPageBlocks({ context: ctx } as any);
+  return (resp.blocks ?? []) as Array<{
+    objectId: bigint;
+    blockReference?: string;
+    contentsViewName?: string;
+    blockValue?: string;
+    box?: { min?: { x?: bigint; y?: bigint }; max?: { x?: bigint; y?: bigint } };
+    pins?: Array<{
+      objectId: bigint;
+      blockObjectId: bigint;
+      pinName?: string;
+      pinType?: number;
+      pinWidth?: number;
+    }>;
+  }>;
+}
+
+/**
  * 活动页模块框 / 自由文本（含用户手动画的）；box 为 ext 坐标 Y 向下。
  * 部分客户端构建尚未生成该方法，故走 any 调用；调用方应先判存在或 try/catch。
  */
@@ -1012,6 +1237,56 @@ export function idOf(map: Map<string, { id: bigint }>, ref: string): bigint {
   return e.id;
 }
 
+export interface PlacePartSpec {
+  /** 选型时从 search_hqsch_parts / search-parts.ts 抄下的 manufacturer.id */
+  manufacturerId: string;
+  mpn: string;
+  ref: string;
+  value: string;
+  /** localPos（ext 坐标） */
+  x: number;
+  y: number;
+  /** 搜索结果里的封装，footprint 没有 fileName 时用作 Footprint 属性 */
+  pkg?: string;
+}
+
+/**
+ * 按已选定的 (manufacturerId, mpn) 放置器件：getEdaModels → placeKicadSymbol → 写 Reference/Value。
+ * 选型必须先看过候选（DSH 用 search_hqsch_parts，否则跑 scripts/search-parts.ts），
+ * 脚本里不要自己挑「第一个命中」。
+ */
+export async function placePartByMpn(client: C, ctx: P, spec: PlacePartSpec) {
+  const models = await client.parts.getEdaModels({ manufacturerId: spec.manufacturerId, mpn: spec.mpn });
+  if (!models.symbol?.url) {
+    throw new Error(`${spec.mpn}（厂商 ${spec.manufacturerId}）没有原理图符号，回到候选列表换一颗`);
+  }
+  const res: any = await client.componentPlace.placeKicadSymbol({
+    context: ctx,
+    localPos: { x: BigInt(Math.round(spec.x)), y: BigInt(Math.round(spec.y)) },
+    component: {
+      componentName: `${spec.ref}_${spec.mpn}`,
+      symbolResource: { uri: models.symbol.url },
+      footprintResources: models.footprint?.url
+        ? [{ uri: models.footprint.url, models: models.model3d?.url ? [{ uri: models.model3d.url }] : [] }]
+        : [],
+      attributes: [
+        { name: "Reference", value: spec.ref },
+        { name: "Value", value: spec.value },
+        { name: "Footprint", value: models.footprint?.fileName ?? spec.pkg ?? "" },
+        { name: "MPN", value: spec.mpn },
+      ],
+    },
+  } as any);
+  if (!res.success || !res.objectId) throw new Error(`PlaceKicadSymbol 失败 ${spec.ref}: ${toJsonString(res)}`);
+  const id = BigInt(String(res.objectId));
+  await setRefValue(client, ctx, id, spec.ref, spec.value);
+  return { id, mpn: spec.mpn };
+}
+
+/**
+ * @deprecated 会自动取查询的第一个合格候选，违反「先看候选再选」。新脚本用
+ * `placePartByMpn`；保留仅为兼容已生成的旧脚本。
+ */
 export async function searchAndPlace(
   client: C, ctx: P, queries: string[], mpnPreferred: string | undefined,
   ref: string, value: string, x: number, y: number,
@@ -1036,28 +1311,9 @@ export async function searchAndPlace(
     if (models) break;
   }
   if (!models?.symbol?.url || !hit) throw new Error(`part-search 无可用 symbol: ${queries[0]} ${lastErr}`);
-
-  const res: any = await client.componentPlace.placeKicadSymbol({
-    context: ctx,
-    localPos: { x: BigInt(Math.round(x)), y: BigInt(Math.round(y)) },
-    component: {
-      componentName: `${ref}_${hit.mpn}`,
-      symbolResource: { uri: models.symbol.url },
-      footprintResources: models.footprint?.url
-        ? [{ uri: models.footprint.url, models: models.model3d?.url ? [{ uri: models.model3d.url }] : [] }]
-        : [],
-      attributes: [
-        { name: "Reference", value: ref },
-        { name: "Value", value },
-        { name: "Footprint", value: models.footprint?.fileName ?? hit.package ?? "" },
-        { name: "MPN", value: hit.mpn },
-      ],
-    },
-  } as any);
-  if (!res.success || !res.objectId) throw new Error(`PlaceKicadSymbol 失败 ${ref}: ${toJsonString(res)}`);
-  const id = BigInt(String(res.objectId));
-  await setRefValue(client, ctx, id, ref, value);
-  return { id, mpn: hit.mpn };
+  return placePartByMpn(client, ctx, {
+    manufacturerId: hit.manufacturer.id, mpn: hit.mpn, ref, value, x, y, pkg: hit.package,
+  });
 }
 
 export async function waitForIds(client: C, ctx: P, ids: bigint[], label: string) {

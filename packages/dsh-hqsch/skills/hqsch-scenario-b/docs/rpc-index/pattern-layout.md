@@ -24,15 +24,15 @@ Total: **3** skills in the **pattern-layout** domain.
 
 | Skill | Description | Streaming |
 | --- | --- | --- |
-| [`apply-circuit-pattern`](apply-circuit-pattern/SKILL.md) | Lay out and wire one circuit pattern. plan_only = true is the dry-run. | no |
-| [`get-page-occupancy`](get-page-occupancy/SKILL.md) | Bounding boxes of what is already on the page, for floorplanning / avoidance. | no |
-| [`list-circuit-patterns`](list-circuit-patterns/SKILL.md) | Self-describing catalog — keeps the skill docs from drifting away from the
+| [`apply-circuit-pattern`](../rpc/pattern-layout-apply-circuit-pattern.md) | Lay out and wire one circuit pattern. plan_only = true is the dry-run. | no |
+| [`get-page-occupancy`](../rpc/pattern-layout-get-page-occupancy.md) | Bounding boxes of what is already on the page, for floorplanning / avoidance. | no |
+| [`list-circuit-patterns`](../rpc/pattern-layout-list-circuit-patterns.md) | Self-describing catalog — keeps the skill docs from drifting away from the
 implementation. Call it  | no |
 
 ## See Also
 
-- [All EDA skills](../SKILL.md)
-- [quickstart.md](../references/quickstart.md)
-- [serialization.md](../references/serialization.md)
+- All EDA skills
+- [quickstart.md](../quickstart.md)
+- [serialization.md](../serialization.md)
 - [`@huaqiu/hqeda` npm package](https://www.npmjs.com/package/@huaqiu/hqeda) — shared runtime + capability registry
 

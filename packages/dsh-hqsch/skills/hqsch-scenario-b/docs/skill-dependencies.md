@@ -8,8 +8,8 @@ Required by: `bom-get-bom`, `bom-watch-bom`, `netlist-*`, and most project-scope
 
 | Step | Skill | Purpose |
 | --- | --- | --- |
-| 1 | [`project-get-active-project`](../project/get-active-project/SKILL.md) | Read the currently active project |
-| alt | [`project-list-open-projects`](../project/list-open-projects/SKILL.md) | List all open projects when none is active |
+| 1 | [`project-get-active-project`](rpc/project-get-active-project.md) | Read the currently active project |
+| alt | [`project-list-open-projects`](rpc/project-list-open-projects.md) | List all open projects when none is active |
 
 ## Building context
 
@@ -30,18 +30,6 @@ See [quickstart.md](quickstart.md) for the full connect chain.
 connect → project-get-active-project → bom-get-bom
 ```
 
-### Select object then query property
-
-```
-connect → project-get-active-project → selection-set-selection → canvas-get-object-property
-```
-
-### Run ERC then show findings
-
-```
-connect → project-get-active-project → erc-run-checks → erc-show-findings
-```
-
 ### Place symbol on canvas
 
 ```
@@ -60,33 +48,43 @@ connect → project-get-active-project
   → kernel-get-snapshot / netlist-get-active-page-net-list
 ```
 
-| Step | Skill | Purpose |
-| --- | --- | --- |
-| 1 | [`pattern-layout-list-circuit-patterns`](../pattern-layout/list-circuit-patterns/SKILL.md) | Roles, terminals, options, typical_size |
-| 2 | [`pattern-layout-get-page-occupancy`](../pattern-layout/get-page-occupancy/SKILL.md) | Floorplan / pick a free `anchor` |
-| 3 | [`placement-place-kicad-symbol`](../placement/place-kicad-symbol/SKILL.md) | Place bound parts (position may be rough) |
-| 4 | [`pattern-layout-apply-circuit-pattern`](../pattern-layout/apply-circuit-pattern/SKILL.md) | Dry-run then execute; book-keep `occupied_box` |
-
-Guide: [circuit-pattern-layout.md](../../hqeda/guides/circuit-pattern-layout.md).
+Guide: [circuit-pattern-layout.md](circuit-pattern-layout.md).
 
 ### Connect distant pins via stub + Net Alias
 
-Use when Manhattan > **400** (cross-part), estimated L-route > **500**, crossings ≥ 3,
-or connecting **different parts** on the same net (SPI default). Full heuristics:
-[placement-conventions.md](../../hqeda/guides/placement-conventions.md#stub--net-alias-long-distance--many-crossings).
+See [placement-conventions.md](placement-conventions.md#stub--net-alias-long-distance--many-crossings).
 
 ```
 connect → project-get-active-project → kernel-get-snapshot (or canvas-list-wire-segments)
-  → [agent: distance / crossing check]
-  → per pin end (same netName at both ends): place-pin-stub-wire-and-net-alias
+  → obj-place-place-pin-stub-wire-and-net-alias
   → kernel-get-snapshot or netlist-get-active-page-net-list (verify)
+```
+
+### Build hierarchical block (parent ↔ child schematic)
+
+Guide: [hierarchical-schematic-playbook.md](hierarchical-schematic-playbook.md).
+
+```
+connect → project-get-active-project
+  → placement-place-block (parent page)
+  → [save block objectId OR canvas-list-page-blocks]
+  → placement-place-block-pin (per signal)
+  → aliasBlockPins / placeShortStubAlias (parent block pins, same netName; no long wires)
+  → project-activate-page-in-project (child occPath + schematicName)
+  → placement-list-symbol-libraries → placement-place-symbol-from-library (kind=PORT)
+  → obj-place-place-wire (child nets to ports)
+  → project-save-project
+  → netlist-get-port-pairing (expect BY_HIERARCHY)
 ```
 
 | Step | Skill | Purpose |
 | --- | --- | --- |
-| 1 | [`project-get-active-project`](../project/get-active-project/SKILL.md) | Build `ProjectContext` |
-| 2 | [`kernel-get-snapshot`](../kernel/get-snapshot/SKILL.md) or [`canvas-list-wire-segments`](../canvas/list-wire-segments/SKILL.md) | Pin positions, existing wires (crossing check) |
-| 3 | [`obj-place-place-pin-stub-wire-and-net-alias`](../obj-place/place-pin-stub-wire-and-net-alias/SKILL.md) | Per pin (`objectId`+`pinNum`): new stub unless wire **endpoint** at that pin; verify via NetAlias/netlist, not `wireSegments.netName` |
+| 1 | [`placement-place-block`](rpc/placement-place-block.md) | Child `contentsViewName` + `blockReference` |
+| 1b | [`canvas-list-page-blocks`](rpc/canvas-list-page-blocks.md) | Resolve `blockObjectId` when block already exists |
+| 2 | [`placement-place-block-pin`](rpc/placement-place-block-pin.md) | Border pins on block |
+| 3 | `project-activate-page-in-project` | Open child with correct `occPath` |
+| 4 | [`placement-place-symbol-from-library`](rpc/placement-place-symbol-from-library.md) | **PORT** symbols on child |
+| 5 | [`netlist-get-port-pairing`](rpc/netlist-get-port-pairing.md) | Verify hierarchy merge |
 
 ## Domain index
 

@@ -24,13 +24,13 @@ Total: **2** skills in the **find** domain.
 
 | Skill | Description | Streaming |
 | --- | --- | --- |
-| [`find-net`](find-net/SKILL.md) | Find Net via FindService.FindNet | no |
-| [`find-object`](find-object/SKILL.md) | Find Object via FindService.FindObject | no |
+| `find-net` | Find Net via FindService.FindNet | no |
+| [`find-object`](../rpc/find-find-object.md) | Find Object via FindService.FindObject | no |
 
 ## See Also
 
-- [All EDA skills](../SKILL.md)
-- [quickstart.md](../references/quickstart.md)
-- [serialization.md](../references/serialization.md)
+- All EDA skills
+- [quickstart.md](../quickstart.md)
+- [serialization.md](../serialization.md)
 - [`@huaqiu/hqeda` npm package](https://www.npmjs.com/package/@huaqiu/hqeda) — shared runtime + capability registry
 

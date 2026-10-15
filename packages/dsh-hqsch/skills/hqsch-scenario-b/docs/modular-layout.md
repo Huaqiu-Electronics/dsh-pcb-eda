@@ -6,9 +6,13 @@
 
 ## 何时启用
 
+**默认**：用户只说画电路、最小系统、模块化、分区、模块框等，**没有**明确要求层次 / 子原理图 / 用 block 表示模块时 → **一律走本文单页 P0–P4**，不要擅自改成层次。
+
 | 用户说法 | 动作 |
 | --- | --- |
+| （未说明层次）模块化 / 最小系统 / 模块框 / 分区 | **默认** 单页 P0–P4：本文 + `modular-layout-hq-mapping.md` |
 | MCU 最小系统、模块化、分区、模块框 | 先读本文 + `modular-layout-hq-mapping.md`，再画电路 |
+| **层次 / 子原理图 / block 模块** | **不要**走本文 P0–P4 整页多框；读 [hierarchical-schematic-playbook.md](hierarchical-schematic-playbook.md)（顶层 block + 子页按 **单模块** P1–P3） |
 | 仅补晶振/复位/去耦 | 仍用 `circuit-pattern-layout.md`，不必强行加框 |
 | 只读已有图 | 流程 B，**不要**加框 |
 | **已有模块化图，只修某一区**（如复位模块接错、换一颗电容） | **流程 C** — `editing-a-circuit.md`；**禁止**整页重画 |
@@ -154,6 +158,6 @@ plan = r.plan;   // P3c / P4a 一律用新 plan
 
 | 脚本 | 用途 |
 | --- | --- |
-| `modular-lib.ts` | **planCompactZones**（grid：`col`/`order`/`group`/`span`）/ `atZone` / `estimateModuleBox`（P0）、**placeDecapRow**（拓扑 B）、`setPageExt` / `calibratePageTop`（改页 / 坐标标定）、**repackModules** / `buildPageGraph` / `netMembership` / `diffNetMembership`（P3.5）、**placeShortStubAlias**（P3c 跨模块）、**placeGridFrames**（P4a）、**clearActivePageFull**、`unionModuleBBox` / `padUnionBox` / `placeModuleFrameAndTitle`、prepareP4aDecorations、recordDecoration / `saveDecorationLedger` / `loadDecorationLedger`、**moduleBlastRadius** / `deleteModuleBlastRadius` / `deleteModuleDecorations` / `moveExtBatch`（流程 C） |
+| `modular-lib.ts` | **planCompactZones**（grid：`col`/`order`/`group`/`span`）/ `atZone` / `estimateModuleBox`（P0）、**placeDecapRow**（拓扑 B）、`setPageExt` / `calibratePageTop`（改页 / 坐标标定）、**repackModules** / `buildPageGraph` / `netMembership` / `diffNetMembership`（P3.5）、**placeShortStubAlias**（P3c 跨模块）、**placeGridFrames**（P4a）、**clearActivePageFull**、`unionModuleBBox` / `padUnionBox` / `placeModuleFrameAndTitle`、prepareP4aDecorations、recordDecoration / `saveDecorationLedger` / `loadDecorationLedger`、**moduleBlastRadius** / `deleteModuleBlastRadius` / `deleteModuleDecorations` / `moveExtBatch`（流程 C）；层次：`withMinA4` / `setPageExtAtLeastA4` / `placeHierarchicalBlock` / `placeBlockPin` / `aliasBlockPins` / `placePortNearPin` / `ensureChildSheet` |
 | `layout-audit.ts` | 模块密度带、框净距与 mod20、**网格对齐与间距统一**、**导线穿框**、最大空白矩形、页边距（模块框自动发现） |
 | `export-layout-pdf.ts` | save → 导出当前页矢量 PDF，目视整页效果 |

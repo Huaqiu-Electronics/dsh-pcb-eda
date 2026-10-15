@@ -24,15 +24,15 @@ Total: **4** skills in the **netlist** domain.
 
 | Skill | Description | Streaming |
 | --- | --- | --- |
-| [`get-active-page-net-list`](get-active-page-net-list/SKILL.md) | / Gets the netlist for the currently active schematic page (real-time canvas state). | no |
-| [`get-port-pairing`](get-port-pairing/SKILL.md) | / Lists cross-page / cross-hierarchy Port and Off-page pairings on the same design net. | no |
-| [`get-project-net-list`](get-project-net-list/SKILL.md) | / Gets the complete netlist for the current project. | no |
-| [`get-selection-net-list`](get-selection-net-list/SKILL.md) | / Gets the netlist for the currently selected components. | no |
+| [`get-active-page-net-list`](../rpc/netlist-get-active-page-net-list.md) | / Gets the netlist for the currently active schematic page (real-time canvas state). | no |
+| [`get-port-pairing`](../rpc/netlist-get-port-pairing.md) | / Lists cross-page / cross-hierarchy Port and Off-page pairings on the same design net. | no |
+| `get-project-net-list` | / Gets the complete netlist for the current project. | no |
+| `get-selection-net-list` | / Gets the netlist for the currently selected components. | no |
 
 ## See Also
 
-- [All EDA skills](../SKILL.md)
-- [quickstart.md](../references/quickstart.md)
-- [serialization.md](../references/serialization.md)
+- All EDA skills
+- [quickstart.md](../quickstart.md)
+- [serialization.md](../serialization.md)
 - [`@huaqiu/hqeda` npm package](https://www.npmjs.com/package/@huaqiu/hqeda) — shared runtime + capability registry
 

@@ -88,7 +88,7 @@ Do **not** hand-craft engine-internal JSON for `PlacePart` / `PlaceSymbol`.
 
 **Do not use** `PlacePart` with hand-crafted `json_part` / `json_part_inst`.
 
-See [`../eda/part-search/SKILL.md`](../eda/part-search/SKILL.md) for search strategy.
+See `../eda/part-search/SKILL.md` for search strategy.
 
 ### TypeScript Example (0805 capacitor)
 
@@ -659,7 +659,7 @@ direction, **~10 ext** pin spacing — common on QFP/QFN left/right columns):
 - **`listWireSegments` / `wireSegments[].netName` ≠ NetAlias text** — stub + alias
   logical nets may show **zero** wire segments with the alias name; verify with
   NetAlias objects and `netlist-get-active-page-net-list` / ERC.
-- `PlaceNetAliasAt` has returned **REFUSED** in some API audits — if alias placement fails, fall back to direct `PlaceWire` between pins and report the failure. See [hqsch-api-slow-and-broken-rpcs.md](../../../docs/issues/hqsch-api-slow-and-broken-rpcs.md).
+- `PlaceNetAliasAt` has returned **REFUSED** in some API audits — if alias placement fails, fall back to direct `PlaceWire` between pins and report the failure. See hqsch-api-slow-and-broken-rpcs.md.
 - Snapshot may lag immediately after placement — retry `kernel-get-snapshot` briefly before verifying net membership.
 
 ### Pin lookup for PlaceWire

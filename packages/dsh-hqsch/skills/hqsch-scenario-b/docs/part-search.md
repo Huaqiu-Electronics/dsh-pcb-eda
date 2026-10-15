@@ -53,15 +53,15 @@ Use this capability when the user, a playbook, or another skill needs to:
 Do **not** use this skill for:
 
 - Placing a part you already fully identified onto the canvas — use
-  [`placement-place-kicad-symbol`](../placement/place-kicad-symbol/SKILL.md)
+  [`placement-place-kicad-symbol`](rpc/placement-place-kicad-symbol.md)
   after `get_hqsch_part_models` returns symbol/footprint URLs (maps to
   `SCH_PlaceKicadSymbolFromResource`). Fall back to
-  [`placement-place-part-from-library`](../placement/place-part-from-library/SKILL.md)
+  [`placement-place-part-from-library`](rpc/placement-place-part-from-library.md)
   only when online search has no suitable match.
 - Editing object properties of an already-placed part — use
-  [`canvas-set-object-property`](../canvas/set-object-property/SKILL.md).
+  [`canvas-set-object-property`](rpc/canvas-set-object-property.md).
 - BOM extraction from an existing schematic — use
-  [`bom-get-bom`](../bom/get-bom/SKILL.md). Part search is for *discovery*;
+  `bom-get-bom`. Part search is for *discovery*;
   BOM is for *what is already placed*.
 
 ## The Semantic Workflow
@@ -91,41 +91,84 @@ always start from `search_hqsch_parts` and drill down using the
 
 - `search` is fuzzy and paginated; it returns *just enough* to choose a
   candidate (MPN, manufacturer, package, model-availability flags). It is
-  cheap and cached for ~1 minute.
+  cheap.
 - `get_hqsch_part` requires the *exact* `(manufacturerId, mpn)` pair that
   `search` returned — partial identifiers are rejected. It returns the full
-  detail blob and is cached for ~10 minutes.
+  detail blob.
 - `get_hqsch_part_models` returns *only* the EDA model URLs — call it when
   you already know the part and just need to know which models exist and
-  where to fetch them. Cached ~10 minutes.
+  where to fetch them.
 - `get_hqsch_supply_chain` returns volatile stock/price data — call it last,
-  only when procurement or availability gating is actually needed. Cached
-  ~1 minute.
+  only when procurement or availability gating is actually needed.
+
+Both channels call the Huaqiu API directly with **no client-side cache**;
+only the optional HQ Edge gateway caches (search / supply-chain ~1 min,
+detail / models ~10 min). Don't re-issue identical calls in a loop.
 
 Skipping `search` and jumping to `get_hqsch_part` with a guessed MPN almost
 always fails: Huaqiu manufacturer IDs are opaque numeric strings (e.g.
 `7189` = STMicroelectronics) that the agent cannot guess. Always discover
 them through `search`.
 
-## Available Tools
+## Two Access Channels
 
-This skill is exposed to agents as four DSH tools registered by the
-`@huaqiu/dsh-tool-part-search` plugin. Each tool calls HQ Edge's internal
-`/api/hqsch/parts/*` API — **agents never contact the upstream Huaqiu host
-directly.** The underlying implementation lives in
-[`@huaqiu/huaqiu-client`](https://www.npmjs.com/package/@huaqiu/huaqiu-client)
-under the `parts` namespace (built on the reusable `@huaqiu/part-search`
-package), and HQ Edge is the single owner of the Huaqiu integration.
+The same four operations are reachable two ways. Both are backed by
+`@huaqiu/part-search`, talk directly to the public Huaqiu API
+(`https://kiapi.eda.cn`, unauthenticated), and return the **same normalized
+JSON** — only the calling convention differs.
 
-| Tool | Operation | Progressive step | Detail |
+| Channel | When | How |
+| --- | --- | --- |
+| **A · DSH tools** | The agent runtime exposes `search_hqsch_parts` & co. (DSH with `@huaqiu/dsh-tool-part-search` installed) | Call the tools from the conversation; snake_case parameters |
+| **B · `client.parts` in a script** | No part-search tools available (Codex, Claude, Work Buddy, plain scripts) | `@huaqiu/huaqiu-client` → `client.parts.searchParts(...)` etc.; camelCase parameters |
+
+**Pick A when the tools exist, otherwise B.** Do not mix them for the same
+lookup. Neither channel needs HQ Edge: Edge's `/api/hqsch/parts/*` is an
+optional gateway (caching + error envelope for HQSCH clients), not a
+prerequisite.
+
+`client.parts` is a plain HTTP client — it works before or without
+`connect()` to HQ EDA. Only **placement** needs the editor connection.
+
+### Channel A — DSH tools
 | --- | --- | --- | --- |
-| [`search_hqsch_parts`](references/search.md) | search | 1 — discover candidates | Keyword → paginated candidate list with model-availability flags |
-| [`get_hqsch_part`](references/part-detail.md) | detail | 2 — inspect a candidate | Full part detail by `(manufacturerId, mpn)` |
-| [`get_hqsch_part_models`](references/eda-models.md) | models | 3 — verify EDA coverage | Symbol / footprint / 3D / simulation URLs only |
-| [`get_hqsch_supply_chain`](references/supply-chain.md) | supply-chain | 4 — procurement | Stock / MOQ / lead time / price breaks (batched) |
+| [`search_hqsch_parts`](part-search/search.md) | search | 1 — discover candidates | Keyword → paginated candidate list with model-availability flags |
+| [`get_hqsch_part`](part-search/part-detail.md) | detail | 2 — inspect a candidate | Full part detail by `(manufacturerId, mpn)` |
+| [`get_hqsch_part_models`](part-search/eda-models.md) | models | 3 — verify EDA coverage | Symbol / footprint / 3D / simulation URLs only |
+| [`get_hqsch_supply_chain`](part-search/supply-chain.md) | supply-chain | 4 — procurement | Stock / MOQ / lead time / price breaks (batched) |
 
 Full parameter tables, response shapes, and worked examples for each tool
-are in the [references/](references/) subfolders.
+are in the [references/](part-search/) subfolders.
+
+### Channel B — `client.parts` (script)
+
+| Tool (channel A) | `client.parts` method (channel B) | Parameter mapping |
+| --- | --- | --- |
+| `search_hqsch_parts` | `searchParts({ query, page, pageSize, requireEdaModel, requirements, language })` | `page_size` → `pageSize`, `require_eda_model` → `requireEdaModel` |
+| `get_hqsch_part` | `getPart({ manufacturerId, mpn }, language?)` | `manufacturer_id` → `manufacturerId` |
+| `get_hqsch_part_models` | `getEdaModels({ manufacturerId, mpn })` | same |
+| `get_hqsch_supply_chain` | `getSupplyChain([{ manufacturerId, mpn }, ...])` | `parts[].manufacturer_id` → `manufacturerId` |
+
+```typescript
+import { connect } from "@huaqiu/huaqiu-client";
+
+const client = await connect();
+const page = await client.parts.searchParts({
+  query: "STM32F103",
+  requirements: { symbol: true, footprint: true },
+  pageSize: 10,
+});
+const hit = page.items.find((i) => i.hasSymbol && i.hasFootprint);
+if (!hit) throw new Error("no candidate with symbol + footprint");
+const models = await client.parts.getEdaModels({
+  manufacturerId: hit.manufacturer.id!,
+  mpn: hit.mpn,
+});
+```
+
+Return values are the TypeScript types exported by `@huaqiu/part-search`
+(`PartSearchPage`, `Part`, `EdaModels`, `SupplyOffer`); channel A returns the
+same objects as JSON with absent optional fields omitted.
 
 ## Query Strategy
 
@@ -208,37 +251,63 @@ Step 4 — (optional, procurement) check availability
 ```
 
 Once step 3 returns model URLs, hand off to
-[`placement-place-kicad-symbol`](../placement/place-kicad-symbol/SKILL.md)
+[`placement-place-kicad-symbol`](rpc/placement-place-kicad-symbol.md)
 (`PlaceKicadSymbol` → `SCH_PlaceKicadSymbolFromResource`) to drop the symbol on
 the canvas. Part search's job ends at returning the model metadata; only fall
-back to [`placement-place-part-from-library`](../placement/place-part-from-library/SKILL.md)
+back to [`placement-place-part-from-library`](rpc/placement-place-part-from-library.md)
 when online search finds no usable candidate.
+
+## Handing Off to Placement
+
+Placement always runs in a script against HQ EDA, whichever channel found the
+part. Map `EdaModels` onto `client.componentPlace.placeKicadSymbol` like this:
+
+| `EdaModels` / search hit | `placeKicadSymbol` field |
+| --- | --- |
+| `symbol.url` (required) | `component.symbolResource.uri` |
+| `footprint.url` | `component.footprintResources[0].uri` |
+| `model3d.url` | `component.footprintResources[0].models[0].uri` |
+| `footprint.fileName` (fallback: hit `package`; may be an opaque hash) | attribute `Footprint` |
+| `mpn` | attribute `MPN` |
+
+With channel A, carry the chosen `(manufacturerId, mpn)` into the script and
+re-fetch models there with one `getEdaModels` call instead of pasting URLs by
+hand.
+
+**Who picks the part — always the agent, after seeing candidates.** This
+applies to every part, passives included:
+
+1. Look at the candidates first — channel A: `search_hqsch_parts`; channel B:
+   run the read-only `search-parts.ts` script (prints MPN, `manufacturerId`,
+   package, model flags).
+2. Choose one explicitly (`hasSymbol && hasFootprint`, matching package /
+   value) and write the chosen `(manufacturerId, mpn)` into the placement
+   script.
+3. Never let a placement script pick "the first hit" of a query on its own.
 
 ## Underlying Implementation
 
-| Layer | Owner | Responsibility |
-| --- | --- | --- |
-| This skill (`skills/eda/part-search`) | AI Systems Team | Agent knowledge: when/how to search, workflow, query strategy |
-| `@huaqiu/huaqiu-client` (`.parts` namespace) | Huaqiu AI Platform | Thin executable client boundary for HQ EDA / HQSCH |
-| `@huaqiu/part-search` (this skill's runtime impl) | Huaqiu AI Platform | Raw Huaqiu HTTP client + normalized domain models + zod schemas |
-| HQ Edge `/api/hqsch/parts/*` | HQ Edge Server | HTTP API with caching, validation, error envelope — consumed by HQSCH and the DSH plugin |
-| `@huaqiu/dsh-tool-part-search` | HQ Edge Server | DSH adapter: registers the four agent tools, calls HQ Edge only |
+| Layer | Responsibility |
+| --- | --- |
+| This skill (`skills/eda/part-search`) | Agent knowledge: when/how to search, workflow, query strategy |
+| `@huaqiu/part-search` | The single implementation: Huaqiu HTTP client (direct to `kiapi.eda.cn`) + normalized domain models + zod schemas |
+| `@huaqiu/dsh-tool-part-search` | Channel A: DSH adapter registering the four tools; calls `@huaqiu/part-search` directly |
+| `@huaqiu/huaqiu-client` (`.parts`) | Channel B: exposes `PartSearchService` next to the HQ EDA gRPC clients |
+| HQ Edge `/api/hqsch/parts/*` | Optional gateway for HQSCH clients (caching, validation, error envelope); not required by either channel |
 
-Agents and skills must address part search **only** through the four tools
-above. They must not attempt to call `@huaqiu/huaqiu-client` directly from
-skill text, and the DSH plugin must not contact the upstream Huaqiu host —
-HQ Edge is the single integration owner.
+Never guess `manufacturerId` or an exact MPN — every downstream call starts
+from a search hit, in both channels.
 
 ## Related Skills
 
-- [`placement-place-kicad-symbol`](../placement/place-kicad-symbol/SKILL.md) — **preferred:** place part from online EDA models (`SCH_PlaceKicadSymbolFromResource`).
-- [`placement-place-part-from-library`](../placement/place-part-from-library/SKILL.md) — fallback: place from local/builtin part library.
-- [`bom-get-bom`](../bom/get-bom/SKILL.md) — extract the BOM of parts already placed (not discovery).
-- [`erc-run-checks`](../erc/run-checks/SKILL.md) — validate the design after parts are placed.
+- [`placement-place-kicad-symbol`](rpc/placement-place-kicad-symbol.md) — **preferred:** place part from online EDA models (`SCH_PlaceKicadSymbolFromResource`).
+- [`placement-place-part-from-library`](rpc/placement-place-part-from-library.md) — fallback: place from local/builtin part library.
+- `bom-get-bom` — extract the BOM of parts already placed (not discovery).
+- `erc-run-checks` — validate the design after parts are placed.
 
 ## References
 
-- [Search reference](references/search.md) — `search_hqsch_parts` parameters, response, examples.
-- [Part detail reference](references/part-detail.md) — `get_hqsch_part`.
-- [EDA models reference](references/eda-models.md) — `get_hqsch_part_models`.
-- [Supply chain reference](references/supply-chain.md) — `get_hqsch_supply_chain`.
+- [Search reference](part-search/search.md) — `search_hqsch_parts` parameters, response, examples.
+- [Part detail reference](part-search/part-detail.md) — `get_hqsch_part`.
+- [EDA models reference](part-search/eda-models.md) — `get_hqsch_part_models`.
+- [Supply chain reference](part-search/supply-chain.md) — `get_hqsch_supply_chain`.
