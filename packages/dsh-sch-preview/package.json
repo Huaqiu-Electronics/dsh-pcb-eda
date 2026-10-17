@@ -1,0 +1,61 @@
+{
+    "name": "@huaqiu/dsh-sch-preview",
+    "version": "0.1.0",
+    "type": "module",
+    "description": "DSH plugin: headless KiCad schematic preview — screenshot + structured content into the agent context",
+    "keywords": [
+        "dsh",
+        "deepseek-harness",
+        "plugin",
+        "kicad",
+        "schematic",
+        "preview",
+        "eda"
+    ],
+    "license": "MIT",
+    "main": "./lib/index.js",
+    "types": "./lib/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./lib/index.d.ts",
+            "default": "./lib/index.js"
+        },
+        "./cordis.patch.yml": "./cordis.patch.yml",
+        "./package.json": "./package.json"
+    },
+    "dsh": {
+        "bundle": {
+            "patch": "./cordis.patch.yml"
+        }
+    },
+    "files": [
+        "lib/index.js",
+        "lib/index.d.ts",
+        "lib/**/*.js",
+        "lib/**/*.d.ts",
+        "cordis.patch.yml",
+        "vendor/kicadpreview/dist/**",
+        "!vendor/kicadpreview/dist/*.map",
+        "vendor/kicadpreview/design_blocks/**",
+        "!vendor/kicadpreview/design_blocks/.hq/**"
+    ],
+    "scripts": {
+        "build": "tsc -p tsconfig.json",
+        "render": "node lib/cli.js",
+        "smoke": "node test/smoke.mjs"
+    },
+    "dependencies": {
+        "playwright": "^1.54.0"
+    },
+    "peerDependencies": {
+        "@deepseek-ai/cordis": "^4.0.0",
+        "@deepseek-ai/dsh-attachment": "^0.1.0-rc.0",
+        "@deepseek-ai/dsh-llm": "^0.1.0-rc.0",
+        "@deepseek-ai/dsh-tools": "^0.1.0-rc.0",
+        "@deepseek-ai/schemastery": "^3.18.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "typescript": "^5.6.0"
+    }
+}
