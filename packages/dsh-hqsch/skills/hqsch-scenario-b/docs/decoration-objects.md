@@ -36,7 +36,7 @@ await deleteModuleDecorations(client, ctx, "mcu");
 **硬性约定**
 
 - P4a 画框/标题：**禁止**跳过登记。
-- P4c union：**必须**用账本里的 id + `getObjectJsonById` 并入 bbox（见 `modular-layout-hq-mapping.md`）。
+- P3.5 收拢在 P4a **之前**，框/字不参与平移；若在已有框的页上重跑 P3.5，先 `deleteAllPageDecorations` 再收拢，P4a 重新 `placeGridFrames`。
 - 重跑脚本前：**先删旧框/字**（账本 id 或 **`listPageDecorations` 删全页装饰**），再 place —— **禁止**为找框而 `GetSnapshot`。
 - **清页重画**：occupancy 清器件 **不够**；必须 `deleteAllPageDecorations` / `clearActivePageFull`（见 `modular-layout.md`「清页/重跑」）。
 
@@ -84,4 +84,4 @@ Skill：`canvas-list-page-decorations`；`probe-rpc.ts` 含 `listPageDecorations
 
 - `obj-place-place-rect` / `obj-place-place-text` — 响应 **`objectId` 必填登记**
 - `canvas-delete-objects-by-ids` — 删除时只传账本或 **E** 返回的 id
-- `canvas-get-object-json-by-id` — P4c 算 union bbox
+- `canvas-get-object-json-by-id` — 按 id 读框的实际坐标（如审计时用 `FRAME_RECTS=`）

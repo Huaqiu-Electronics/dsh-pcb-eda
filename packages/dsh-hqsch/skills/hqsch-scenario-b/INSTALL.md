@@ -20,7 +20,7 @@
 cd skills/hqeda && pnpm run build:scenario-b
 ```
 
-`build:scenario-b` 会从 monorepo 拷贝 guides + RPC 文档（含 **set-page-size / place-rect / place-text** 等模块化 RPC）、`modular-placement` 长文，再合并 `onboarding/scenario-b/docs/`（含 **modular-layout**、**layout-quality-audit**）与 `onboarding/scenario-b/template/`（含 `modular-lib.ts`、`layout-audit.ts`）。
+`build:scenario-b` 会从 monorepo 拷贝 guides + RPC 文档（含 **set-page-size / place-rect / place-text** 等模块化 RPC）、`modular-placement` 长文，再合并 `onboarding/scenario-b/docs/`（含 **modular-layout**、**modular-layout-compact**、**layout-quality-audit**）与 `onboarding/scenario-b/template/`（含 `modular-lib.ts`、`layout-audit.ts`）。**SKILL.md / INSTALL.md / SYSTEM-PROMPT.md** 在发布目录内直接维护，构建时不会被覆盖。
 
 同步到 DSH 插件：
 
@@ -30,9 +30,39 @@ cd skills/hqeda && pnpm run build:scenario-b:dsh
 
 目标目录：`dsh-pcb-eda/packages/dsh-hqsch/skills/hqsch-scenario-b/`（SKILL 名改为 `hqsch-scenario-b`）。
 
-> **DSH 侧额外层**：`docs/script-lifetime.md` 与 `template/scripts/lib/hq.ts` 由 DSH 插件维护，
-> 不在 hq-edge 的 `build:scenario-b --dsh` 产物里。上游同步（该命令会清空目标目录）之后必须
-> 重新补回，并把模板脚本入口改回 `hqMain` / `hqMainWithProject`。
+> **DSH 侧额外层**（上游 `pnpm run build:scenario-b:dsh` 会清空目标目录，同步后必须补回）：
+>
+> 1. `docs/script-lifetime.md` 与 `template/scripts/lib/hq.ts`（`hqMain` / `hqMainWithProject`
+>    运行时外壳）—— 上游不提供。
+> 2. 模板脚本入口 —— 改回 `hqMain` / `hqMainWithProject`（上游是裸 `connect()` + `main().catch()`），
+>    含 `place-part.ts`。`search-parts.ts` 不连编辑器，保持上游原样。
+>    `layout-audit.ts` 走外壳后不再调用 `openCtx()`，改为在入口显式 `refreshPageTop(client, ctx)`。
+> 3. `SKILL.md` / `SYSTEM-PROMPT.md`（→ `AGENTS.md`、`CLAUDE.md`）—— 补回 `hqMain` 硬性规则（含
+>    `search-parts.ts` 例外）、`docs/script-lifetime.md` 阅读清单条目、`^0.1.9` 客户端版本要求，
+>    以及「本环境已装 part-search tool，选型优先用 tool」的选型规则措辞。
+> 4. `template/package.json` / `template/package-lock.json` —— 保留 `name: hqsch-scenario-b`、
+>    `typecheck` 脚本、`@types/node` 与 `^0.1.9` 依赖钉版。
+> 5. `docs/quickstart.md` —— 在 `connect()` 小节补一条「DSH bundle 里不要裸调 `connect()`，走 `hqMain`」的提示。
+> 6. 包内相对链接修复 —— 上游有少量按 monorepo 目录书写的链接会**跳出 skill 包**
+>    （`../../guides/…`、`../../../scenario-b/…`），改为包内相对路径：
+>    `docs/reading-a-circuit.md`、`docs/modular-layout-hq-mapping.md`、`docs/modular-layout-playbook.md`。
+>
+> 1–6 已脚本化，**优先用它**（幂等、带漂移校验；`--check` 只演练不落盘）：
+>
+> ```bash
+> cd packages/dsh-hqsch
+> node scripts/sync-skill-from-hq-edge.mjs --check     # 演练 + 校验
+> node scripts/sync-skill-from-hq-edge.mjs             # 同步本包
+> # 再把已部署的插件副本一起镜像（dist 的 dsh-plugins、DSH_HOME 的 builtin-plugins）：
+> node scripts/sync-skill-from-hq-edge.mjs --target <skills/hqsch-scenario-b 目录> ...
+> ```
+>
+> 脚本以**上游为准**：上游新增或改写的文件一律覆盖本包。因此上游重新生成过的
+> `docs/rpc-index/*`、`docs/skill-dependencies.md`、`docs/reading-a-circuit.md`、
+> `template/scripts/modular-lib.ts` 会丢掉本包早先那份较旧的文本 —— 这是预期行为。
+>
+> `refreshPageTop(client, ctx)` 自 2026-10-08 起已由上游 `modular-lib.ts` 导出
+> （`calibratePageTop` 的兼容别名），不再需要单独补丁。
 
 ---
 

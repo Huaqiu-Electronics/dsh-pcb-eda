@@ -8,9 +8,9 @@
  */
 import { hqMainWithProject } from "./lib/hq.js";
 import {
-  EXT_GRID, LABEL_CORRIDOR, MIN_CONTENT_CLEARANCE,
-  boxArea, boxH, boxW, boxesOverlap, gapBetweenBoxes,
-  listPageDecorations, objJson, occupancyMap, PAGE_TOP, refreshPageTop,
+  EXT_GRID, LABEL_CORRIDOR, MIN_CONTENT_CLEARANCE, MODULE_DENSITY_LOW, SMALL_MODULE_PARTS, MERGE_MAX_PARTS,
+  boxArea, boxH, boxW, boxesOverlap, gapBetweenBoxes, gridOccupancy as cellOccupancy,
+  listPageDecorations, listWireSegmentsExt, objJson, occupancyMap, PAGE_TOP, refreshPageTop,
   type ExtBox,
 } from "./modular-lib";
 
@@ -19,7 +19,6 @@ const MODULE_CELL = EXT_GRID; // 模块内密度网格
 const MIN_FRAME_AREA = 40000; // 小于此面积的矩形不当模块框
 
 // 起始经验带，可按项目调整（见 layout-quality-audit.md）
-const MODULE_DENSITY_LOW = 35;
 const MODULE_DENSITY_HIGH = 70;
 const ZONE_DENSITY_HIGH = 72;
 const MAX_EMPTY_RATIO = 10;
@@ -33,23 +32,6 @@ function rectExtFromJson(j: Record<string, unknown>): ExtBox {
   const x1 = Number(j.locX);
   const y1 = Number(j.locY);
   return { x1, y1, x2: x1 + (Number(j.x1) - Number(j.x2)), y2: y1 + (Number(j.y2) - Number(j.y1)) };
-}
-
-/** 网格占用率（%）：落在 box 内的 cell 有内容的比例 */
-function cellOccupancy(box: ExtBox, items: ExtBox[], cell: number) {
-  const cols = Math.max(1, Math.ceil(boxW(box) / cell));
-  const rows = Math.max(1, Math.ceil(boxH(box) / cell));
-  const grid = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
-  for (const it of items) {
-    const cx1 = Math.max(0, Math.floor((it.x1 - box.x1) / cell));
-    const cx2 = Math.min(cols - 1, Math.floor((it.x2 - 1 - box.x1) / cell));
-    const cy1 = Math.max(0, Math.floor((it.y1 - box.y1) / cell));
-    const cy2 = Math.min(rows - 1, Math.floor((it.y2 - 1 - box.y1) / cell));
-    for (let y = cy1; y <= cy2; y++) for (let x = cx1; x <= cx2; x++) grid[y][x] = 1;
-  }
-  let used = 0;
-  for (const row of grid) for (const c of row) used += c;
-  return { pct: (used / (cols * rows)) * 100, grid, cols, rows };
 }
 
 /** 二值矩阵内最大空矩形（直方图法），返回 cell 数 */
@@ -98,7 +80,6 @@ function segmentCrossesFrame(p1: { x: number; y: number }, p2: { x: number; y: n
 
 hqMainWithProject(async ({ client, projectContext: ctx }) => {
 await refreshPageTop(client, ctx);
-
 const { map, pageBox } = await occupancyMap(client, ctx);
 const PAGE: ExtBox = { x1: 0, y1: 0, x2: Number(pageBox.max.x), y2: Number(pageBox.max.y) };
 const PAGE_W = boxW(PAGE);
@@ -115,11 +96,7 @@ if (!devs.length) {
   return;
 }
 
-const wireResp: any = await client.canvasOps.listWireSegments({ context: ctx } as any);
-const wireSegs = (wireResp.wires ?? []).map((w: any) => ({
-  a: { x: Number(w.start.x), y: PAGE_TOP - Number(w.start.y) },
-  b: { x: Number(w.end.x), y: PAGE_TOP - Number(w.end.y) },
-}));
+const wireSegs = await listWireSegmentsExt(client, ctx);
 
 const content: ExtBox = {
   x1: Math.min(...devs.map((d) => d.x1), ...wireSegs.map((w: any) => Math.min(w.a.x, w.b.x))),
@@ -138,7 +115,7 @@ const margins = { 左: content.x1, 上: content.y1, 右: PAGE_W - content.x2, �
 const mVals = Object.values(margins);
 const mRatio = Math.max(...mVals) / Math.max(1, Math.min(...mVals));
 console.log(`  页边距 ${Object.entries(margins).map(([k, v]) => `${k} ${v}`).join("  ")}   max/min=${mRatio.toFixed(1)} ${ok(mRatio <= MARGIN_RATIO_MAX)}`);
-if (mRatio > MARGIN_RATIO_MAX) note(`页边距不均衡（max/min=${mRatio.toFixed(1)}）→ 整体平移内容居中，或 P4c 缩页`);
+if (mRatio > MARGIN_RATIO_MAX) note(`页边距不均衡（max/min=${mRatio.toFixed(1)}）→ 重跑 P3.5 repackModules（收拢 + setPageExt）`);
 
 console.log("\n=== 整页空白 ===");
 const pageOcc = cellOccupancy(PAGE, devs, CELL);
@@ -146,7 +123,7 @@ const emptyCells = largestEmptyRect(pageOcc.grid);
 const emptyRatio = (emptyCells * CELL * CELL / boxArea(PAGE)) * 100;
 console.log(`  ${CELL} ext 网格占用 ${pageOcc.pct.toFixed(1)}%`);
 console.log(`  最大空白矩形 ≈ ${emptyCells} cell = 占页 ${emptyRatio.toFixed(1)}% ${ok(emptyRatio <= MAX_EMPTY_RATIO)}`);
-if (emptyRatio > MAX_EMPTY_RATIO) note(`存在大片空白（占页 ${emptyRatio.toFixed(1)}%）→ 收紧模块走廊至 ${LABEL_CORRIDOR} ext 或 P4c 缩页`);
+if (emptyRatio > MAX_EMPTY_RATIO) note(`存在大片空白（占页 ${emptyRatio.toFixed(1)}%）→ 收紧模块走廊至 ${LABEL_CORRIDOR} ext，或重跑 P3.5 repackModules`);
 
 console.log("\n=== 六分区占用（2 行 × 3 列）===");
 for (let r = 0; r < 2; r++) {
@@ -184,8 +161,14 @@ if (frameIds.length) {
     if (it.text) continue;
     const box = toBox(it);
     if (!box || boxArea(box) < MIN_FRAME_AREA) continue;
-    const title = texts.find((t) => t.box && t.box.x1 >= box.x1 - EXT_GRID * 4 && t.box.x1 <= box.x2
-      && Math.abs(t.box.y2 - box.y1) <= EXT_GRID * 6);
+    const near = texts
+      .filter((t) => t.box && t.box.x1 >= box.x1 - EXT_GRID * 4 && t.box.x1 <= box.x2
+        && t.box.y1 >= box.y1 - EXT_GRID * 6 && t.box.y1 <= box.y1 + EXT_GRID * 4)
+      .sort((a, b) => Math.abs(a.box!.y1 - box.y1) - Math.abs(b.box!.y1 - box.y1));
+    const title = near[0];
+    if (title?.box && title.box.y1 < box.y1) {
+      note(`「${title.text}」标题在框外 → 放到框内左上角（placeModuleFrameAndTitle 默认 titleDy 向内）`);
+    }
     frames.push({ box, label: title?.text ?? `rect#${it.objectId}` });
   }
 }
@@ -202,11 +185,13 @@ if (!frames.length) {
       : Infinity;
     const mods = [f.box.x1, f.box.y1, f.box.x2, f.box.y2].map((v) => v % EXT_GRID);
     const aligned = mods.every((v) => v === 0);
-    const densOk = dens >= MODULE_DENSITY_LOW && dens <= MODULE_DENSITY_HIGH;
+    const small = inner.length > 0 && inner.length <= SMALL_MODULE_PARTS;
+    const densOk = (small || dens >= MODULE_DENSITY_LOW) && dens <= MODULE_DENSITY_HIGH;
     console.log(`  ${f.label}`);
-    console.log(`    ${boxW(f.box)}×${boxH(f.box)} 器件 ${inner.length}  密度 ${dens.toFixed(0)}% ${ok(densOk)}  内容净距 ${clearance === Infinity ? "-" : clearance} ${ok(clearance >= MIN_CONTENT_CLEARANCE)}  mod${EXT_GRID} ${aligned ? "✅" : "❌"}`);
+    console.log(`    ${boxW(f.box)}×${boxH(f.box)} 器件 ${inner.length}  密度 ${dens.toFixed(0)}% ${small && dens < MODULE_DENSITY_LOW ? "ℹ 小模块不判" : ok(densOk)}  内容净距 ${clearance === Infinity ? "-" : clearance} ${ok(clearance >= MIN_CONTENT_CLEARANCE)}  mod${EXT_GRID} ${aligned ? "✅" : "❌"}`);
     if (!inner.length) note(`「${f.label}」框内无器件 → 删掉空框`);
-    else if (dens < MODULE_DENSITY_LOW) note(`「${f.label}」密度 ${dens.toFixed(0)}% 偏空 → 缩小该框（减小 pad）或与邻模块合并`);
+    else if (inner.length <= MERGE_MAX_PARTS) note(`「${f.label}」只有 ${inner.length} 个器件 → 并入与之相连的功能模块（attachTo），不单独成框`);
+    else if (dens < MODULE_DENSITY_LOW && !small) note(`「${f.label}」密度 ${dens.toFixed(0)}% 偏空 → 缩小该框（减小 pad）或与邻模块合并`);
     else if (dens > MODULE_DENSITY_HIGH) note(`「${f.label}」密度 ${dens.toFixed(0)}% 偏挤 → 略扩框或拆分`);
     if (clearance < MIN_CONTENT_CLEARANCE) note(`「${f.label}」内容贴框/被框切 → 框边至少离内容 ${MIN_CONTENT_CLEARANCE} ext`);
     if (!aligned) note(`「${f.label}」框边未吸附 ${EXT_GRID} ext 网格`);
@@ -232,6 +217,57 @@ if (!frames.length) {
     else if (n.g > LABEL_CORRIDOR * 3) note(`「${n.label}」离最近模块 ${n.g} ext 过远 → 向主控方向收拢`);
   }
 
+  // ─── 网格对齐：每条框边要么贴整体外轮廓，要么与另一框同边对齐，要么与相邻框隔一个统一走廊
+  console.log(`\n=== 网格对齐（容差 ${EXT_GRID} ext）===`);
+  const TOL = EXT_GRID;
+  const env: ExtBox = {
+    x1: Math.min(...frames.map((f) => f.box.x1)), y1: Math.min(...frames.map((f) => f.box.y1)),
+    x2: Math.max(...frames.map((f) => f.box.x2)), y2: Math.max(...frames.map((f) => f.box.y2)),
+  };
+  const near = (a: number, b: number) => Math.abs(a - b) <= TOL;
+  const overlapX = (a: ExtBox, b: ExtBox) => Math.min(a.x2, b.x2) - Math.max(a.x1, b.x1) > 0;
+  const overlapY = (a: ExtBox, b: ExtBox) => Math.min(a.y2, b.y2) - Math.max(a.y1, b.y1) > 0;
+  type Side = "上" | "下" | "左" | "右";
+  const neighborGap = (f: ExtBox, side: Side): number | null => {
+    const cands = frames.map((o) => o.box).filter((o) => o !== f).flatMap((o) => {
+      if (side === "上" && o.y2 <= f.y1 && overlapX(o, f)) return [f.y1 - o.y2];
+      if (side === "下" && o.y1 >= f.y2 && overlapX(o, f)) return [o.y1 - f.y2];
+      if (side === "左" && o.x2 <= f.x1 && overlapY(o, f)) return [f.x1 - o.x2];
+      if (side === "右" && o.x1 >= f.x2 && overlapY(o, f)) return [o.x1 - f.x2];
+      return [];
+    });
+    return cands.length ? Math.min(...cands) : null;
+  };
+  const edge = (b: ExtBox, side: Side) => (side === "上" ? b.y1 : side === "下" ? b.y2 : side === "左" ? b.x1 : b.x2);
+  const envEdge = (side: Side) => edge(env, side);
+
+  const neighborGaps: number[] = [];
+  const misaligned: string[] = [];
+  for (const f of frames) {
+    const bad: Side[] = [];
+    for (const side of ["上", "下", "左", "右"] as Side[]) {
+      const g = neighborGap(f.box, side);
+      if (g != null && g <= LABEL_CORRIDOR * 3) neighborGaps.push(g);
+      const onEnvelope = near(edge(f.box, side), envEdge(side));
+      const sharesEdge = frames.some((o) => o !== f && near(edge(o.box, side), edge(f.box, side)));
+      const corridorNext = g != null && g <= LABEL_CORRIDOR + TOL;
+      if (!onEnvelope && !sharesEdge && !corridorNext) bad.push(side);
+    }
+    if (bad.length) misaligned.push(`${f.label}（${bad.join("/")}）`);
+  }
+  console.log(`  外轮廓 [${env.x1},${env.y1}]-[${env.x2},${env.y2}]`);
+  console.log(`  边未对齐的框 ${misaligned.length} ${misaligned.length ? "❌" : "✅"}${misaligned.length ? `  ${misaligned.join("，")}` : ""}`);
+  if (misaligned.length) {
+    note(`框边不齐：${misaligned.join("，")} → 先 repackModules 收拢，再用 placeGridFrames 按网格单元拉框`);
+  }
+  if (neighborGaps.length) {
+    const gMin = Math.min(...neighborGaps);
+    const gMax = Math.max(...neighborGaps);
+    const even = gMax - gMin <= TOL;
+    console.log(`  相邻框间距 ${gMin}～${gMax} ext ${even ? "✅" : "❌"}（目标统一为 ${LABEL_CORRIDOR}）`);
+    if (!even) note(`相邻框间距不一致（${gMin}～${gMax} ext）→ 用 planCompactZones grid 统一走廊 ${LABEL_CORRIDOR} ext`);
+  }
+
   console.log("\n=== 导线穿模块框（跨模块应只走 NetAlias）===");
   let crossing = 0;
   const crossers = new Set<string>();
@@ -251,4 +287,5 @@ if (!frames.length) {
 console.log("\n=== 结论 ===");
 if (!problems.length) console.log("  ✅ 未发现布局问题");
 else problems.forEach((p, i) => console.log(`  ${i + 1}. ${p}`));
+
 });

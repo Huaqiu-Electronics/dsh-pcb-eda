@@ -24,13 +24,13 @@ Total: **2** skills in the **kernel** domain.
 
 | Skill | Description | Streaming |
 | --- | --- | --- |
-| [`get-entity`](get-entity/SKILL.md) | Get Entity via KernelService.GetEntity | no |
-| [`get-snapshot`](get-snapshot/SKILL.md) | Get Snapshot via KernelService.GetSnapshot | no |
+| `get-entity` | Get Entity via KernelService.GetEntity | no |
+| [`get-snapshot`](../rpc/kernel-get-snapshot.md) | Get Snapshot via KernelService.GetSnapshot | no |
 
 ## See Also
 
-- [All EDA skills](../SKILL.md)
-- [quickstart.md](../references/quickstart.md)
-- [serialization.md](../references/serialization.md)
+- All EDA skills
+- [quickstart.md](../quickstart.md)
+- [serialization.md](../serialization.md)
 - [`@huaqiu/hqeda` npm package](https://www.npmjs.com/package/@huaqiu/hqeda) — shared runtime + capability registry
 

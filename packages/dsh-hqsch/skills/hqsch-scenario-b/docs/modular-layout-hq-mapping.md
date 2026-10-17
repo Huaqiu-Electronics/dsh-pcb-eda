@@ -1,6 +1,8 @@
 # KiCad 模块化文档 → HQ EDA 映射
 
-本文档说明如何把 [modular-placement.md](../../../../modular-placement.md) 里的概念落到 HQ EDA skill / RPC 上。**HQ 试跑以本文为准**；KiCad 的 `audit_schematic.py`、S 表达式解析在 hq-edge 仓库中**不存在**，不要调用。
+本文档说明如何把 modular-placement.md 里的概念落到 HQ EDA skill / RPC 上。**HQ 试跑以本文为准**；KiCad 的 `audit_schematic.py`、S 表达式解析在 hq-edge 仓库中**不存在**，不要调用。
+
+> **scenario-b 以 `modular-layout.md` 为准**：P3 之后插入 **P3.5 `repackModules`**（按电气连通两遍收拢 + `setPageExt`，取代 P4c 裁边；改页保持上边 `rbY = PAGE_TOP`，勿写 `ltY=0/rbY=pageH`）与 P3c 跨模块标签；P4a 用 **`placeGridFrames`**。
 
 > **维护说明**：`skills/hqeda/modular-placement/` 下文档为人工编写，**不会被** `pnpm capability:generate` 覆盖（生成器目标为 `skills/hqeda/generated/` 与 `skills/eda/**` 等）。
 
@@ -11,12 +13,13 @@
 | （规划） | **P0 定页** | 仅改活动页尺寸 | `canvas-set-page-size`（Custom 或 A4 等） |
 | Gate 1 放置 | **P1 布局** | 器件实例、Reference/Value | `placement-place-kicad-symbol`、`pattern-layout-get-page-occupancy` |
 | Gate 2 网络名 | **P2 命名** | 电源符号、GND、功能 **NetAlias** | `placement-place-symbol-from-library`、`obj-place-place-net-alias-at` |
-| Gate 3 布线 | **P3 连接** | 模块内短线；模块间标签 | `pattern-layout-apply-circuit-pattern`；余网 [routing mode gate](../../guides/placement-conventions.md) |
+| Gate 3 布线 | **P3 连接** | 模块内短线；模块间标签 | `pattern-layout-apply-circuit-pattern`；余网 [routing mode gate](placement-conventions.md) |
+| （收拢） | **P3.5 收拢** | 模块整体平移 + 改页 | `repackModules`（`moveExtBatch` + `canvas-set-page-size`）；跨模块标签在此之后 |
 | 收尾 | **P4a 框/标题** | 模块矩形、中文标题、清理孤儿线 | `obj-place-place-rect`、`obj-place-place-text`、`canvas-delete-objects-by-ids` |
 | ERC / 网络表 | **P4b 验电** | 只读 + 保存 + 视图 | `kernel-get-snapshot`、`netlist-get-*`、`canvas-zoom-all`、`project-save-project` |
 | （可选） | **P4c 裁边** | 微调 Custom 页矩形 | `canvas-set-page-size`（Custom，union 实际内容） |
 
-**规则（与 KiCad 一致）**：器件与模块框位置未稳定前，**不要**大量 `PlaceWire` / 长距离 `autoConnect`。
+**规则（与 KiCad 一致）**：器件与模块框位置未稳定前，**不要**大量布线；P3 之后 agent 手布用 **`PlaceWire`**（scenario-b 禁用 `autoConnect` 作默认）。
 
 P1 允许「零网络」或未连接引脚；进入 P3 后电源脚、NRST 等不应长期悬空。
 
@@ -27,8 +30,9 @@ P1 允许「零网络」或未连接引脚；进入 P3 后电源脚、NRST 等�
 | **不移动对象** | 只改页边框 / `page_box`；器件 ext 坐标不变 |
 | **P0** | 在 **空页或清页后** 设定布局画布，避免在默认巨页上拉距 |
 | **P4c** | 在 **P4b 验电通过后** 可选裁边；**不能**替代 P1 的 occupancy 放置 |
-| 标准纸型 | `pageSizeLabel: "A4"` 等，**勿手猜** lt/rb（见 [canvas-set-page-size](../../eda/canvas/set-page-size/SKILL.md)） |
+| 标准纸型 | `pageSizeLabel: "A4"` 等，**勿手猜** lt/rb（见 canvas-set-page-size） |
 | Custom | `pageSizeLabel: "Custom"` + **`ltX, ltY, rbX, rbY`**（与页面尺寸对话框同一矩形语义） |
+| **关页再开** | 尺寸来自工程 **`VxPage.m_pageSizeInfo`**；Custom RPC 须引擎写回该字段 + 脚本 **`project.saveProject`**，否则「当时对、重开回旧尺寸」 |
 
 ---
 
@@ -37,7 +41,7 @@ P1 允许「零网络」或未连接引脚；进入 P3 后电源脚、NRST 等�
 ### 输入
 
 1. Agent **模块规划表**（模块数、是否双 section MCU、各模块 pattern）；  
-2. `pattern-layout-list-circuit-patterns` 或 [circuit-pattern-layout.md](../../guides/circuit-pattern-layout.md) 中的 **`typical_size` / `anchor_semantics`**（估 reserved）；  
+2. `pattern-layout-list-circuit-patterns` 或 [circuit-pattern-layout.md](circuit-pattern-layout.md) 中的 **`typical_size` / `anchor_semantics`**（估 reserved）；  
 3. 标题栏预留（右下）。
 
 ### 复杂度档 → 初始 Custom 尺寸（ext，Y 向下）
@@ -184,7 +188,7 @@ HQ pattern 常用 **40 ext** 步进。临时对应：
 | 1 网格清距 | ≥ 40 ext 器件间距 |
 | 2 网格导线/文字 | 标题距框线 ≥ 80 ext |
 
-坐标换算见 [placement-conventions.md](../../guides/placement-conventions.md)（`PAGE_SIZE_START_Y`、ext 与 canvas Y）。
+坐标换算见 [placement-conventions.md](placement-conventions.md)（`PAGE_SIZE_START_Y`、ext 与 canvas Y）。
 
 ---
 
@@ -194,7 +198,7 @@ HQ pattern 常用 **40 ext** 步进。临时对应：
 | --- | --- |
 | `audit_schematic.py --profile placement` | **无**；用下列组合 |
 | SVG/PNG 人工看图 | `canvas-zoom-all` |
-| 符号策略 | [part-search](../../eda/part-search/SKILL.md) + `PlaceKicadSymbol` |
+| 符号策略 | part-search + `PlaceKicadSymbol` |
 
 **检查清单**
 
@@ -212,7 +216,7 @@ HQ pattern 常用 **40 ext** 步进。临时对应：
 
 1. 当前用户文字需求  
 2. 用户本次上传的原理图  
-3. 仓库 [modular-placement.md](../../../../modular-placement.md) 中的通用启发式  
+3. 仓库 modular-placement.md 中的通用启发式  
 4. **不要**从参考图复制 USB/CH340/OLED 等未要求模块  
 
 设计前输出 **继承 / 调整 / 忽略** 表；参考图页尺寸应 **换算为 P0 Custom**，勿 1:1 复制像素坐标。

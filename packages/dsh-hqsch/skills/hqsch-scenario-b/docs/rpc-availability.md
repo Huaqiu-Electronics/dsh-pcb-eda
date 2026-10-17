@@ -19,6 +19,8 @@ manual check from `template/`: `npx tsx scripts/probe-rpc.ts`.
 | --- | --- | --- |
 | `export.ExportSchematicPdf` | `exportSchematicPdf is not a function` | `export-layout-pdf.ts` detects it and exits with an upgrade hint — do P4b with `layout-audit.ts` numbers only, and tell the user PDF needs a client upgrade |
 | `canvasOps.ListPageDecorations` | method absent | `deleteAllPageDecorations` falls back to the ledger, then to `selectAll` + `getSelectedObjectsJson` (see `decoration-objects.md`) — frames/titles are still deletable |
+| `canvasOps.ListPageBlocks` | method absent | Use `placeBlock` → `objectId`, or `findObjectByProperty(Reference)` for `blockObjectId`; see `hierarchical-schematic-playbook.md` |
+| `project.AddSchematicToActiveProject` | method absent | Child schematic folder must exist before `AddPageToProject`; upgrade client after proto regen |
 
 Do **not** hand-write a Connect service descriptor to reach an RPC the installed
 package lacks; upgrade the package instead.
@@ -62,6 +64,8 @@ unimplemented RPCs historically blocked for minutes before returning a clean
 | `canvasOps` | `GetObjectsJsonByIds` / `GetObjectJsonById` | Optional deep object JSON (advanced) |
 | `find` | `FindObject` | Optional object query (advanced; not Flow B primary) |
 | `project` | `ListOpenProjects` / `GetProject` / `GetActiveProject` | Project identity |
+| `project` | `AddSchematicToActiveProject` | New `VxSchematic` on UI-active project (hierarchical child folder) |
+| `project` | `AddPageToProject` / `ActivatePageInProject` / `ListProjectTree` | Pages + navigation (see `docs/rpc/project-*.md`) |
 | `capability` | `GetCapabilities` | Optional probe; not required every task |
 | placement / pattern / part-search RPCs | (see placement + pattern docs) | Draw path |
 | `export` | `ExportSchematicPdf` | Active-page vector PDF after **save**; response `filePath` (see `layout-visual-review.md`). **Needs a client newer than 0.1.9** — see § Client / build alignment |
@@ -120,7 +124,7 @@ The skill documents the workaround; product may implement later.
 | --- | --- | --- |
 | No authoritative connectivity graph | `graph.GetConnectivity` unimplemented | Snapshot three-table join + client BFS for series C/R/L/FB ([reading-a-circuit.md](./reading-a-circuit.md) § Series traversal) |
 | Coupling vs decoupling cap | No `componentClass` / role | Heuristic: shunt cap with one leg on POWER/GROUND netClass → no series bridge |
-| Per-pin wire ids for disconnect | Not exposed | Prefer `autoConnectObjectsById` or `placePinStubWireAndNetAlias`; avoid blind bulk wire delete ([editing-a-circuit.md](./editing-a-circuit.md)) |
+| Per-pin wire ids for disconnect | Not exposed | Prefer **`connectPinsPlaceWire`** / `placePinStubWireAndNetAlias`; avoid blind bulk wire delete ([editing-a-circuit.md](./editing-a-circuit.md)) |
 | `FindNet` silent false | Misleading empty result | **Never use**; query `snapshot.nets` by name |
 | `selection.*` | Unimplemented | Locate by designator / net via snapshot + `FindObjectByProperty` |
 | Transaction / undo group | `transaction.Open` unimplemented | Each RPC `commitUndo: true`; accept multi-step undo |

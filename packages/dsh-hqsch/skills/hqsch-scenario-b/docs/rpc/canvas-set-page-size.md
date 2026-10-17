@@ -70,13 +70,13 @@ Representative response structure (field values are placeholders):
 
 ## Prerequisites
 
-- [project-get-active-project](../../project/get-active-project/SKILL.md) — Discover the active project before building project-scoped context.
+- [project-get-active-project](project-get-active-project.md) — Discover the active project before building project-scoped context.
 
-See also [skill-dependencies.md](../../references/skill-dependencies.md) for common workflows.
+See also [skill-dependencies.md](../skill-dependencies.md) for common workflows.
 
 ## How to Use
 
-Execute via the HQ EDA skill runtime with a connected `EditorClient`. See [quickstart.md](../../references/quickstart.md) for the full `listEditors` → `connect` → `getSkill` → `execute` chain.
+Execute via the HQ EDA skill runtime with a connected `EditorClient`. See [quickstart.md](../quickstart.md) for the full `listEditors` → `connect` → `getSkill` → `execute` chain.
 
 Pass a standard `pageSizeLabel` (`A4`/`A3`/`A2`/`A1`/`A0` or inches `A`/`B`/`C`/`D`/`E`).
 The host computes the canvas rect like the Page Size dialog (`OnOk`) — **do not invent lt/rb coordinates yourself**.
@@ -99,7 +99,7 @@ console.log(toJsonString(result, { prettySpaces: 2 }));
 
 For `Custom`: either pass a canvas rect (`ltX/ltY/rbX/rbY`), or pass width/height in mm as `ltX`/`ltY` with `rbX=rbY=0` (e.g. `ltX: 297, ltY: 210`).
 
-Serialize responses with `toJsonString()` — see [serialization.md](../../references/serialization.md).
+Serialize responses with `toJsonString()` — see [serialization.md](../serialization.md).
 
 ## Related Skills
 

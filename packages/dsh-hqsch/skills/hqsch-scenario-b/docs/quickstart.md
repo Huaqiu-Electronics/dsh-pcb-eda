@@ -52,7 +52,7 @@ const editorContext = client.createEditorContext();
 const projectContext = client.createProjectContext("my-project");
 ```
 
-Obtain `projectId` via [`project-get-active-project`](../project/get-active-project/SKILL.md) or [`project-list-open-projects`](../project/list-open-projects/SKILL.md).
+Obtain `projectId` via [`project-get-active-project`](rpc/project-get-active-project.md) or [`project-list-open-projects`](rpc/project-list-open-projects.md).
 
 ## Step 4 — Execute a skill
 

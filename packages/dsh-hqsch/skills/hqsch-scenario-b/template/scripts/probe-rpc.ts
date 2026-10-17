@@ -12,8 +12,13 @@ hqMain(async (client: any) => {
     { label: "componentPlace.placeKicadSymbol", fn: client?.componentPlace?.placeKicadSymbol },
     { label: "canvasOps.setPageSize", fn: client?.canvasOps?.setPageSize },
     { label: "objPlace.placeText", fn: client?.objPlace?.placeText },
+    // E — planned; see docs/decoration-objects.md
     { label: "canvasOps.listPageDecorations", fn: client?.canvasOps?.listPageDecorations },
+    { label: "canvasOps.listPageBlocks", fn: client?.canvasOps?.listPageBlocks },
+    { label: "componentPlace.placeBlock", fn: client?.componentPlace?.placeBlock },
+    { label: "componentPlace.placeBlockPin", fn: client?.componentPlace?.placeBlockPin },
     { label: "export.exportSchematicPdf", fn: client?.export?.exportSchematicPdf },
+    { label: "project.addSchematicToActiveProject", fn: client?.project?.addSchematicToActiveProject },
   ];
   let fail = 0;
   for (const { label, fn } of withClient) {

@@ -11,8 +11,8 @@ Coordinates are the same **external display** space as `Place*` RPCs: page
 top-left origin, Y down. See [placement-conventions.md](placement-conventions.md).
 
 > **After every `ApplyCircuitPattern`:** wire leftovers with the [routing mode gate](placement-conventions.md#routing-mode-gate-mandatory-before-every-net).
-> **Measure first:** short → `autoConnect`; long / crowded → dual-end stub+NetAlias.
-> Do **not** `autoConnect` far-apart modules without checking distance.
+> **Measure first:** short → **`PlaceWire`** (AI-planned segments); long / crowded → dual-end stub+NetAlias.
+> Do **not** use `AutoConnectObjectsById` for agent hand-wiring.
 
 ## When to use a pattern vs hand layout
 
@@ -28,14 +28,14 @@ top-left origin, Y down. See [placement-conventions.md](placement-conventions.md
 ## Mixed-circuit decomposition
 
 Most real sheets are **not** one catalog entry end-to-end. Before any hand
-layout or `autoConnect` pass, **decompose** the design into subnets and classify
+layout or hand `PlaceWire` pass, **decompose** the design into subnets and classify
 each subnet independently.
 
 ```
 Whole design
   ├─ subnet A  → matches catalog?  → ApplyCircuitPattern
   ├─ subnet B  → matches catalog?  → ApplyCircuitPattern
-  └─ subnet C  → no catalog match  → hand layout (gate: short autoConnect, long stub+NetAlias)
+  └─ subnet C  → no catalog match  → hand layout (gate: short PlaceWire, long stub+NetAlias)
 ```
 
 ### Rules
@@ -82,14 +82,14 @@ applies, as long as each apply targets a **different pin or role terminal**
 | One signal pin → one R → VCC | `pull_resistor` `polarity=up` | Bind `signal_host` + `resistor`; optional `rail` or auto-place VCC |
 | One signal pin → one R → GND | `pull_resistor` `polarity=down` | Same; optional `rail` = GND |
 | One power pin → bulk (+ optional bypass) → GND | `decoupling_cap` | See bulk/bypass bind table below |
-| **Dedicated decap module**: N caps in a row, **one** +rail + **one** GND, parallel | **Hand only** (P1 grid + autoConnect) | **Do not** use `decoupling_cap` at all in this submodule — see scenario-b `modular-layout.md` §去耦两种拓扑 |
+| **Dedicated decap module**: N caps in a row, **one** +rail + **one** GND, parallel | **Hand only** (P1 grid + `placeDecapRow` / PlaceWire) | **Do not** use `decoupling_cap` at all in this submodule — see scenario-b `modular-layout.md` §去耦两种拓扑 |
 | Master + slaves + SDA/SCL pull-ups | `i2c_bus` | Prefer over separate pull_resistor applies for the I2C cluster |
 | Master + slaves + SPI lanes | `spi_bus` | Apply with **`route_mode=NONE`** (layout only); AI routes each `connections[]` entry |
 | MCU xin/xout + **2-pin** crystal + load caps | `crystal` | Passive Pierce only |
 | 4-pin / active oscillator (VDD, GND, OUT, OE) | **Hand** | Do **not** apply `crystal`. Place and wire by hand (routing gate). |
 | MCU reset + pull-up + filter cap (+ button) | `reset_circuit` | Host stub+`reset_net`; internal autoconnect |
 | R between **two signal pins** (termination, series) | **Hand** | Not `pull_resistor` (that pattern is signal → R → rail) |
-| Two control pins shorted (e.g. RE + DE) | **Hand** | `autoConnect` + NetAlias |
+| Two control pins shorted (e.g. RE + DE) | **Hand** | `PlaceWire` + NetAlias if needed |
 | Net alias to off-page / MCU port | **Hand** | stub + `placeNetAliasAt` after patterns |
 
 When the catalog grows, call `list-circuit-patterns` again — do not rely only on
@@ -105,7 +105,7 @@ shortcut; the RPC is the source of truth for roles / terminals / options.
 | `CIRCUIT_PATTERN_DECOUPLING_CAP` | `decoupling_cap` | `host`(vcc), `cap[0]` bulk, optional `cap_bypass` or `cap[1]` | `cap` 1..8, `cap_bypass` 0..1 | `gnd`, `vcc` | `pitch=8`, `cap_gap=4`, `rail_offset=4`, `gnd_gap=4`, `power_net=VCC`, `power_symbol=VCC` |
 | `CIRCUIT_PATTERN_PULL_RESISTOR` | `pull_resistor` | `signal_host`(sig), `resistor[]`(a/b) | both 1..8 | `rail` | `polarity=up\|down`, `pitch=6`, `lane_gap=4`, `rail_gap=4` |
 | `CIRCUIT_PATTERN_I2C_BUS` | `i2c_bus` | `master`(sda/scl), `r_pullup_sda`, `r_pullup_scl` | `slave` 0..8 | `vcc` | `lane_gap=3`, `device_gap=10`, `pull_gap=4`, `pull_offset=4`, `sda_net=SDA`, `scl_net=SCL`, `lane_above=true` |
-| `CIRCUIT_PATTERN_SPI_BUS` | `spi_bus` | `master`(sck/mosi/miso/cs), `slave[]` | `slave` 1..8 | — | `lane_gap=3`, `device_gap=10`, `share_cs=false`; **default `PATTERN_ROUTE_NONE`** — response `connections[]` lists pending nets (`note=pending AI routing`); agent chooses `autoConnect` vs dual-end `placePinStubWireAndNetAlias` per [placement-conventions.md](placement-conventions.md) |
+| `CIRCUIT_PATTERN_SPI_BUS` | `spi_bus` | `master`(sck/mosi/miso/cs), `slave[]` | `slave` 1..8 | — | `lane_gap=3`, `device_gap=10`, `share_cs=false`; **default `PATTERN_ROUTE_NONE`** — response `connections[]` lists pending nets (`note=pending AI routing`); agent chooses `PlaceWire` vs dual-end `placePinStubWireAndNetAlias` per [placement-conventions.md](placement-conventions.md) |
 | `CIRCUIT_PATTERN_CRYSTAL` | `crystal` | `host`(xin/xout), `xtal`(a/b), `cap_load_1`, `cap_load_2` | — | `r_feedback`, `gnd` | **Passive 2-pin only** — never bind a 4-pin / active oscillator. `layout_origin=host\|anchor`, `osc_in_net=OSC_IN`, `osc_out_net=OSC_OUT`, `host_stub_length=3`, `circuit_stub_length=3`, `cap_gap=4`, `xtal_offset=4`, `cap_spread=2` |
 | `CIRCUIT_PATTERN_RESET_CIRCUIT` | `reset_circuit` | `host`(rst), `pull_up`(a/b), `filter_cap`(a/b) | — | `reset_sw`, `vcc`, `gnd` | `layout_origin=host\|anchor`, `reset_net=RESET`, `stub_length=3`, `circuit_stub_length=3`, `pitch=6`, `branch_offset=4`, … |
 
@@ -300,9 +300,9 @@ list-circuit-patterns
   → book-keep response.occupied_box
   → for each connections[] with routed=false OR cross-block leftovers:
        run routing gate per net
-       short (≤300 ext, low crossings) → autoConnect
+       short (≤300 ext, low crossings) → PlaceWire
        long / crowded → dual-end placePinStubWireAndNetAlias (same netName)
-  → layout other leftovers (power rails: autoConnect if adjacent, stub+alias if far)
+  → layout other leftovers (power rails: PlaceWire if adjacent, stub+alias if far)
   → kernel-get-snapshot or netlist-get-active-page-net-list
 ```
 
@@ -317,8 +317,20 @@ Rules:
 - `PATTERN_STATUS_PARTIAL` means layout was kept but some wires failed. Do not
   undo; finish those nets with PlaceWire / stub+alias.
 - `PATTERN_STATUS_LAYOUT_FAILED` aborted the undo group — the page is unchanged.
-- After a successful apply, treat `occupied_box` as reserved. Later placements
-  and later patterns must stay outside it (plus a small grid margin).
+- After a successful apply, treat `occupied_box` as reserved **for placement
+  only**: later parts and later patterns must not be placed inside it (plus a
+  small grid margin).
+  - It is **not** a wiring keep-out. Wires (including stubs out of the host's own
+    pins) may cross it; collisions with existing wires are checked by the wire
+    helpers, not by this box.
+  - It includes the **host part body**. When computing free space around the
+    host, subtract the host's own bbox first — otherwise the host's pins look
+    blocked and every escape route fails.
+- The pattern may **rotate or mirror** cluster parts (e.g. a cap turned 180°),
+  so which pin number faces the host is not fixed. After apply, verify by **net
+  membership** (`netMembership` / `getActivePageNetList`), never by hard-coded
+  pin numbers of the cluster parts; read pin positions with `pinsOf` before
+  hand-wiring to them.
 
 ## Binding roles
 
@@ -360,7 +372,8 @@ Type-C CC pins: bind with `pinNumber: "A5"` / `"B5"` or `pinName: "CC1"` /
 
 1. Floorplan several patterns before placing anything.
 2. Choose an `anchor` whose `typical_size` box is empty.
-3. After apply, merge `occupied_box` into the agent's reserved-rect list.
+3. After apply, merge `occupied_box` into the agent's reserved-rect list
+   (placement only — see the apply rules above).
 
 Empty `area` (all zeros) means the whole page.
 

@@ -2,7 +2,7 @@
  * Flow C 配方：删旧放新（骨架 — 需补 part-search 与 pin 重连列表）
  * OLD_REF=U3 CONFIRM=1 npx tsx scripts/replace-part-by-ref.ts
  *
- * 完整替换需：searchParts → placeKicadSymbol → 按 OLD 的 pin→net 逐脚 autoConnect
+ * 完整替换需：searchParts → placeKicadSymbol → 按 OLD 的 pin→net 逐脚 connectPinsPlaceWire
  */
 import { hqMainWithProject, sleep } from "./lib/hq.js";
 
@@ -27,9 +27,10 @@ hqMainWithProject(async ({ client, projectId, projectContext: ctx }) => {
   await client.canvasOps.deleteObjectsByIds({ context: ctx, objectIds: [id] });
   for (let i = 0; i < 10; i++) {
     await sleep(300);
+    // getPageOccupancy 在 patternLayout 服务上；响应为 items[]（objectId / designator / bbox）
     const occ = await client.patternLayout.getPageOccupancy({ context: ctx });
     const ids = (occ.items ?? []).map((it) => String(it.objectId));
     if (!ids.includes(String(id))) break;
   }
-  console.log(`✓ 已删除 ${OLD_REF} — 请 placeKicadSymbol 并 autoConnect 各 pin`);
+  console.log(`✓ 已删除 ${OLD_REF} — 请 placeKicadSymbol 并用 connectPinsPlaceWire 各 pin`);
 });

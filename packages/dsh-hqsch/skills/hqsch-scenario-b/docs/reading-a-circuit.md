@@ -90,11 +90,12 @@ Until the published SDK regenerates those top-level fields, they are also presen
 
 ### Cross-page / cross-hierarchy port pairing (do not guess)
 
-Different page ports can share one design net **even when names differ**
-(e.g. `/TYPE-C` `USB_D+` ↔ `/ESP32-C3FH4` `GPIO18`). That comes from hierarchical
-block-pin ↔ port merge on the parent sheet — **not** from GUID matching.
+Different **endpoints** on one design net can show **different `name` fields** in
+`GetPortPairing` (e.g. parent-side label vs child port). Hierarchical merge uses
+engine **block pin keys** ↔ child **hierarchical port** names (`ConnectBlockPinAndPort`
+after `ReadPageNet`) — see [hierarchical-schematic-playbook.md](hierarchical-schematic-playbook.md).
 
-**Never** invent same-name rules for this case. Call:
+**Never** invent same-name rules for cross-layer nets. Call:
 
 ```typescript
 const pairing = await client.netList.getPortPairing({});
