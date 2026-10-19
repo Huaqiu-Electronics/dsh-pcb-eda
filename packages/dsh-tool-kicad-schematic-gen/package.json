@@ -27,18 +27,19 @@
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "build": "tsdown && tsdown --config tsdown.client.config.ts",
+    "test:bundle": "node scripts/test-self-contained.mjs",
+    "build": "tsup && tsdown --config tsdown.client.config.ts && node scripts/vendor-runtime.mjs",
     "test": "node ../dsh-plugin-manager/scripts/test-local-kicad-plugins.mjs --package dsh-tool-kicad-schematic-gen",
     "prepack": "pnpm build"
   },
   "dependencies": {
-    "pdfjs-dist": "6.3.289",
-    "undici": "^8.10.0",
-    "@huaqiu/part-search": "0.2.6",
-    "kicad-sexpr-parser": "1.5.3",
     "@deepseek-ai/schemastery": "^3.18.1",
+    "@huaqiu/part-search": "0.2.6",
     "fflate": "^0.8.2",
-    "sharp": "0.35.4"
+    "kicad-sexpr-parser": "1.5.3",
+    "pdfjs-dist": "6.3.289",
+    "sharp": "0.35.4",
+    "undici": "^8.10.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.2",
@@ -60,6 +61,7 @@
     "@deepseek-ai/dsh-fs": "0.0.1-rc.1",
     "@deepseek-ai/dsh-fs-local": "0.0.1-rc.1",
     "@deepseek-ai/dsh-sandbox-policy": "0.0.1-rc.1",
-    "@deepseek-ai/dsh-skill": "0.0.1-rc.1"
+    "@deepseek-ai/dsh-skill": "0.0.1-rc.1",
+    "tsup": "^8.5.0"
   }
 }
