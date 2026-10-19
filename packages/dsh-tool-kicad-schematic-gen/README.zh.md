@@ -1,5 +1,7 @@
 # @local/dsh-tool-kicad-schematic-gen
 
+服务端使用 `tsup.config.ts` 打包，`kicad-sexpr-parser`、`undici`、器件客户端等 JavaScript 依赖内联进 `lib/index.js`。DSH 宿主接口保留为 external；`sharp` 原生模块及 PDF.js worker、字体等资源由 `scripts/vendor-runtime.mjs` 连同已安装的传递依赖复制到 `lib/node_modules`，运行时无需额外安装。必须交付完整 `lib/` 及 `skills/`。原生资源对应构建机的平台与架构，需在目标平台构建。执行 `pnpm --filter @local/dsh-tool-kicad-schematic-gen build` 后用 `pnpm --filter @local/dsh-tool-kicad-schematic-gen test:bundle` 在临时独立目录验证插件注册、builder、PNG 渲染和 PDF 文本解析。语义类型检查仍单独运行 `typecheck`。
+
 将四个原理图插件统一安装为一个插件，内部继续分为 components、modules、schematic 与设计技能。
 
 | 模块 | 工具 |
