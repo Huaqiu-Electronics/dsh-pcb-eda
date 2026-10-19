@@ -1,0 +1,4 @@
+# local artifacts (repo-root .gitignore already covers node_modules/, lib/, *.tgz)
+.sch-preview-out/
+vendor/kicadpreview/design_blocks/.hq/
+vendor/kicadpreview/dist/*.map
