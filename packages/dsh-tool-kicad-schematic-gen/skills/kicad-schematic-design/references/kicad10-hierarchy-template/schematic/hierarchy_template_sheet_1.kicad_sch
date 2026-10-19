@@ -1,0 +1,14 @@
+(kicad_sch
+  (version 20250114) (generator "eeschema") (generator_version "10.0")
+  (uuid "33f1710e-daca-4a0b-9e1d-87b10bfba324") (paper "A4")
+  (lib_symbols)
+  (hierarchical_label "IN" (shape input) (at 76.2 50.8 180)
+    (effects (font (size 1.27 1.27))) (uuid "d764d163-6772-4576-8021-a2b705622091"))
+  (hierarchical_label "OUT" (shape output) (at 101.6 50.8 0)
+    (effects (font (size 1.27 1.27))) (uuid "fd8706f2-ee92-44b8-82f1-0a315dd2ec9b"))
+  (wire (pts (xy 76.2 50.8) (xy 101.6 50.8))
+    (stroke (width 0) (type default)) (uuid "99ca0e0c-6968-4b00-9407-e962f9d03cc8"))
+
+  (title_block (title "Example"))
+  
+)

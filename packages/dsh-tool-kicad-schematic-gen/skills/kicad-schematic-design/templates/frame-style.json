@@ -1,0 +1,11 @@
+{
+  "inset": 2.54,
+  "titleOffset": 3.81,
+  "descriptionBottom": 3.81,
+  "lineHeight": 2.54,
+  "wireWidth": 0.1524,
+  "contentPadding": 2.54,
+  "grid": 1.27,
+  "textWidthFactor": 1.25,
+  "textHeightFactor": 1.5
+}

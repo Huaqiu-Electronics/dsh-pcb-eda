@@ -1,0 +1,4 @@
+- insert:
+    - id: dsh-tool-kicad-schematic-gen
+      name: '@local/dsh-tool-kicad-schematic-gen'
+      inject: ['tools', 'fs', 'sandboxPolicy', 'skills', 'webServer']

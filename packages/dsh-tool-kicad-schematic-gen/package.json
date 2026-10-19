@@ -1,0 +1,65 @@
+{
+  "name": "@local/dsh-tool-kicad-schematic-gen",
+  "version": "0.1.0",
+  "description": "KiCad 原理图设计：电路模块搜索、器件模型与手册、符号导入、编辑预览、脚本构建及设计技能",
+  "private": true,
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./builder": {
+      "types": "./lib/builder.d.ts",
+      "default": "./lib/builder.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json",
+    "./client": "./lib/client.js"
+  },
+  "files": [
+    "lib",
+    "src",
+    "skills",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown && tsdown --config tsdown.client.config.ts",
+    "test": "node ../dsh-plugin-manager/scripts/test-local-kicad-plugins.mjs --package dsh-tool-kicad-schematic-gen",
+    "prepack": "pnpm build"
+  },
+  "dependencies": {
+    "pdfjs-dist": "6.3.289",
+    "undici": "^8.10.0",
+    "@huaqiu/part-search": "0.2.6",
+    "kicad-sexpr-parser": "1.5.3",
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "fflate": "^0.8.2",
+    "sharp": "0.35.4"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2",
+    "@deepseek-ai/dsh-tools": "^0.1.0-rc.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-agent": "^0.1.0-rc.0",
+    "@deepseek-ai/dsh-fs": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-fs-local": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-sandbox-policy": "0.0.1-rc.1",
+    "@deepseek-ai/dsh-skill": "0.0.1-rc.1"
+  }
+}

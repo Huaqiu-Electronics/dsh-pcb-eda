@@ -1,0 +1,6 @@
+(rectangle (start {{X1}} {{Y1}}) (end {{X2}} {{Y2}})
+  (stroke (width 0.254) (type default)) (fill (type none)) (uuid {{FRAME_UUID}}))
+(text {{TITLE}} (exclude_from_sim no) (at {{TITLE_X}} {{TITLE_Y}} 0)
+  (effects (font (size 1.8 1.8)) (justify left)) (uuid {{TITLE_UUID}}))
+(text {{DESCRIPTION}} (exclude_from_sim no) (at {{DESCRIPTION_X}} {{DESCRIPTION_Y}} 0)
+  (effects (font (size 1.27 1.27)) (justify left)) (uuid {{DESCRIPTION_UUID}}))
