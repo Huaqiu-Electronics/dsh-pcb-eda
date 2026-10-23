@@ -33,6 +33,14 @@ describe('isTrackedTool', () => {
     expect(isTrackedTool('match_bom')).toBe(true)
     expect(isTrackedTool('run_erc')).toBe(true)
   })
+
+  it('includes in-repo tools declared as direct tool definitions', () => {
+    expect(isTrackedTool('analyze_kicad_module')).toBe(true)
+  })
+
+  it('includes defineTool names declared by same-file constants', () => {
+    expect(isTrackedTool('kicad_drc_run')).toBe(true)
+  })
 })
 
 describe('toToolAnalyticsEvent', () => {

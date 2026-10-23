@@ -3,10 +3,11 @@
  * Generate the Sensors Analytics built-in business-tool allowlist.
  *
  * Discovers every DSH plugin under `packages/`, scans its Host-side TypeScript
- * sources for tools created with `defineTool()`, and writes the deterministic
- * tool-name list consumed by `@huaqiu/dsh-analytics`. Client sources are
- * excluded so tool-view registrations are never mistaken for executable
- * tools. Local helper functions that forward a literal tool name into
+ * sources for tools created with `defineTool()` or direct tool-definition
+ * objects, and writes the deterministic tool-name list consumed by
+ * `@huaqiu/dsh-analytics`. Client sources are excluded so tool-view
+ * registrations are never mistaken for executable tools. Same-file string
+ * constants and local helper functions that forward a literal tool name into
  * `defineTool()` are supported as well.
  *
  * The analytics package runs this script automatically before each build, so
@@ -103,6 +104,20 @@ function collectTools(filename) {
   const source = ts.createSourceFile(filename, readFileSync(filename, 'utf8'), ts.ScriptTarget.Latest, true)
   const names = new Set()
   const helpers = new Map()
+  const constants = new Map()
+
+  function visitConstants(node) {
+    if (ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.initializer
+      && ts.isStringLiteralLike(node.initializer)
+      && ts.isVariableDeclarationList(node.parent)
+      && (node.parent.flags & ts.NodeFlags.Const) !== 0) {
+      constants.set(node.name.text, node.initializer.text)
+    }
+    ts.forEachChild(node, visitConstants)
+  }
+  visitConstants(source)
 
   function visitDefinitions(node) {
     if (ts.isCallExpression(node) && callName(node.expression) === 'defineTool') {
@@ -116,11 +131,16 @@ function collectTools(filename) {
           const literal = literalName(initializer)
           if (literal) names.add(literal)
           else if (ts.isIdentifier(initializer)) {
-            const fn = enclosingFunction(node)
-            const name = fn && helperName(fn)
-            const index = fn?.parameters.findIndex(parameter => ts.isIdentifier(parameter.name)
-              && parameter.name.text === initializer.text) ?? -1
-            if (name && index >= 0) helpers.set(name, index)
+            const constant = constants.get(initializer.text)
+            if (constant !== undefined) {
+              names.add(constant)
+            } else {
+              const fn = enclosingFunction(node)
+              const name = fn && helperName(fn)
+              const index = fn?.parameters.findIndex(parameter => ts.isIdentifier(parameter.name)
+                && parameter.name.text === initializer.text) ?? -1
+              if (name && index >= 0) helpers.set(name, index)
+            }
           }
         }
       }
@@ -310,6 +330,7 @@ for (const plugin of dshPlugins()) {
   try {
     for (const file of sourceFiles(join(plugin.dir, 'src'))) {
       for (const name of collectTools(file)) names.add(name)
+      for (const name of collectRegisteredTools(file)) names.add(name)
     }
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error
