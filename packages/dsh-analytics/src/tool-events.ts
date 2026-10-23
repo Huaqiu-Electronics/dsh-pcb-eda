@@ -28,14 +28,25 @@ const TRACKED_TOOLS = createTrackedToolSet(
   EXCLUDED_TRACKED_TOOLS,
 )
 
-export function isTrackedTool(name: string): boolean {
-  return TRACKED_TOOLS.has(name)
-}
-
 interface ToolExecutionLike {
   callId: string | { toString(): string }
   name: string
   arguments?: unknown
+}
+
+const TRACKED_SKILLS = new Set(['pcb-initial-placement'])
+
+function skillName(exec: ToolExecutionLike): string | undefined {
+  if (exec.name !== 'skill' || typeof exec.arguments !== 'object' || exec.arguments === null) {
+    return undefined
+  }
+  const name = (exec.arguments as { name?: unknown }).name
+  return typeof name === 'string' && name.length > 0 ? name : undefined
+}
+
+export function isTrackedTool(tool: string | ToolExecutionLike): boolean {
+  if (typeof tool === 'string') return TRACKED_TOOLS.has(tool)
+  return TRACKED_TOOLS.has(tool.name) || TRACKED_SKILLS.has(skillName(tool) ?? '')
 }
 
 interface ToolResultLike {
@@ -49,10 +60,12 @@ export function toToolAnalyticsEvent(
   result: ToolResultLike,
   responseTime: number,
 ): AnalyticsEvent {
+  const skill = skillName(exec)
   return {
     event: 'tool_call',
     properties: {
       tool_name: exec.name,
+      ...(skill === undefined ? {} : { skill_name: skill }),
       success: !result.isError,
       response_time: responseTime,
       err_msg: result.isError ? String(result.error?.message ?? '') : '',

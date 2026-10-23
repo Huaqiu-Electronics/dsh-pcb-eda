@@ -15,11 +15,12 @@
  * without editing the analytics plugin by hand. Exceptional external tools
  * remain opt-in through `EXTRA_TRACKED_TOOLS` in `src/tool-events.ts`.
  *
- * A second source is merged in: the HQ Edge DSH built-in plugins
+ * External sources are merged in for the HQ Edge DSH built-in plugins
  * (`apps/server/dsh-plugins/` in the *hq-edge* repository). They are not
  * published from here and live outside `packages/`, so they are pinned below in
  * `HQ_EDGE_BUILTIN_TOOLS` and verified against the real sources whenever an
- * hq-edge checkout is reachable. See the block comment on that constant.
+ * hq-edge checkout is reachable. The standalone freerouting plugin follows the
+ * same pinned-plus-verified model.
  *
  * Usage:
  *   node scripts/generate-analytics-tools.mjs
@@ -28,6 +29,9 @@
  *   HQ_EDGE_ROOT — path to the hq-edge checkout used for the drift check.
  *                  Defaults to a sibling `../hq-edge`. Absent checkout = the
  *                  check is skipped (CI checks out this repo only).
+ *   FREEROUTING_ROOT — path to the dsh-tool-freerouting checkout used for the
+ *                      drift check. Defaults to sibling
+ *                      `../dsh-tool-freerouting`.
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
@@ -61,6 +65,15 @@ const HQ_EDGE_BUILTIN_TOOLS = [
   'get_eda_bom',
   'match_bom',
   'run_erc',
+]
+
+/** Agent tools shipped by the standalone @huaqiu/dsh-tool-freerouting plugin. */
+const FREEROUTING_BUILTIN_TOOLS = [
+  'pcb_cancel_route',
+  'pcb_confirm_board_checked',
+  'pcb_repair_route',
+  'pcb_route',
+  'pcb_route_nets',
 ]
 
 function sourceFiles(dir) {
@@ -324,6 +337,62 @@ function verifyHqEdgeBuiltinTools(discovered) {
   }
 }
 
+/** Resolve the standalone freerouting checkout used for drift verification. */
+function freeroutingRoot() {
+  const override = process.env.FREEROUTING_ROOT
+  const root = override && override.length > 0
+    ? resolve(override)
+    : resolve(repoRoot, '..', 'dsh-tool-freerouting')
+  return existsSync(root) ? root : undefined
+}
+
+/** Discover the executable tools registered by the standalone plugin. */
+function discoverFreeroutingBuiltinTools() {
+  const root = freeroutingRoot()
+  if (root === undefined) return undefined
+  const src = join(root, 'src')
+  if (!existsSync(src)) return new Set()
+
+  const names = new Set()
+  for (const file of sourceFiles(src)) {
+    for (const name of collectTools(file)) names.add(name)
+    for (const name of collectRegisteredTools(file)) names.add(name)
+  }
+  return names
+}
+
+/** Verify that the pinned release-safe list matches a reachable checkout. */
+function verifyFreeroutingBuiltinTools(discovered) {
+  if (discovered === undefined) {
+    console.log(
+      'generate-analytics-tools: no freerouting checkout found (set FREEROUTING_ROOT to verify) — ' +
+      `using the pinned ${FREEROUTING_BUILTIN_TOOLS.length} freerouting tools as-is`,
+    )
+    return
+  }
+  if (discovered.size === 0) {
+    console.warn('generate-analytics-tools: freerouting checkout has no discoverable tools — skipping the pin check')
+    return
+  }
+
+  const pinned = new Set(FREEROUTING_BUILTIN_TOOLS)
+  const missing = [...discovered].filter(name => !pinned.has(name)).sort()
+  if (missing.length > 0) {
+    throw new Error(
+      'generate-analytics-tools: FREEROUTING_BUILTIN_TOOLS is stale — the standalone plugin registers ' +
+      `tools not listed here: ${missing.join(', ')}. Add them to FREEROUTING_BUILTIN_TOOLS in this script ` +
+      '(analytics would otherwise not track those calls).',
+    )
+  }
+
+  const stale = FREEROUTING_BUILTIN_TOOLS.filter(name => !discovered.has(name))
+  if (stale.length > 0) {
+    console.warn(
+      `generate-analytics-tools: FREEROUTING_BUILTIN_TOOLS lists tools no plugin registers any more: ${stale.join(', ')}`,
+    )
+  }
+}
+
 const names = new Set()
 for (const plugin of dshPlugins()) {
   if (plugin.name === '@huaqiu/dsh-analytics') continue
@@ -341,6 +410,11 @@ for (const plugin of dshPlugins()) {
 // checkout when one is reachable).
 verifyHqEdgeBuiltinTools(discoverHqEdgeBuiltinTools())
 for (const name of HQ_EDGE_BUILTIN_TOOLS) names.add(name)
+
+// Merge the standalone freerouting tools. The checkout is optional because CI
+// publishes this repository without cloning the external plugin.
+verifyFreeroutingBuiltinTools(discoverFreeroutingBuiltinTools())
+for (const name of FREEROUTING_BUILTIN_TOOLS) names.add(name)
 
 const sorted = [...names].sort()
 if (sorted.length === 0) throw new Error('generate-analytics-tools: no built-in tools discovered')

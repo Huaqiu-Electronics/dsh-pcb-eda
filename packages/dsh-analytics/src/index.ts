@@ -35,12 +35,12 @@ export function apply(ctx: Context): void {
     handler: createAnalyticsHandler(queue),
   }))
   ctx.on('tools/pre-execute', async (exec, next) => {
-    const tracked = isTrackedTool(exec.name)
+    const tracked = isTrackedTool(exec)
     if (tracked) toolStartTimes.set(exec, Date.now())
     return next()
   })
   ctx.on('tools/result', (exec, result) => {
-    const tracked = isTrackedTool(exec.name)
+    const tracked = isTrackedTool(exec)
     if (!tracked) return
     const startedAt = toolStartTimes.get(exec)
     toolStartTimes.delete(exec)

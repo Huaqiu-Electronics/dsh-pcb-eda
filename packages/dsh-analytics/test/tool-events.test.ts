@@ -17,6 +17,19 @@ describe('createTrackedToolSet', () => {
 })
 
 describe('isTrackedTool', () => {
+  it('tracks only the selected business skill', () => {
+    expect(isTrackedTool({
+      callId: 'call-placement',
+      name: 'skill',
+      arguments: { name: 'pcb-initial-placement' },
+    })).toBe(true)
+    expect(isTrackedTool({
+      callId: 'call-other-skill',
+      name: 'skill',
+      arguments: { name: 'unrelated-skill' },
+    })).toBe(false)
+  })
+
   it('includes built-in business tools and excludes other tools', () => {
     expect(isTrackedTool('generate_symbol_from_image')).toBe(true)
     expect(isTrackedTool('search_hqsch_parts')).toBe(true)
@@ -34,6 +47,14 @@ describe('isTrackedTool', () => {
     expect(isTrackedTool('run_erc')).toBe(true)
   })
 
+  it('includes the out-of-repo freerouting plugin tools', () => {
+    expect(isTrackedTool('pcb_route')).toBe(true)
+    expect(isTrackedTool('pcb_route_nets')).toBe(true)
+    expect(isTrackedTool('pcb_repair_route')).toBe(true)
+    expect(isTrackedTool('pcb_cancel_route')).toBe(true)
+    expect(isTrackedTool('pcb_confirm_board_checked')).toBe(true)
+  })
+
   it('includes in-repo tools declared as direct tool definitions', () => {
     expect(isTrackedTool('analyze_kicad_module')).toBe(true)
   })
@@ -44,6 +65,20 @@ describe('isTrackedTool', () => {
 })
 
 describe('toToolAnalyticsEvent', () => {
+  it('reports the selected business skill in a separate property', () => {
+    expect(toToolAnalyticsEvent(
+      { callId: 'call-skill', name: 'skill', arguments: { name: 'pcb-initial-placement' } },
+      { isError: false, content: [] },
+      80,
+    ).properties).toEqual({
+      tool_name: 'skill',
+      skill_name: 'pcb-initial-placement',
+      success: true,
+      response_time: 80,
+      err_msg: '',
+    })
+  })
+
   it('keeps only safe tool metadata', () => {
     expect(toToolAnalyticsEvent(
       { callId: 'call-1', name: 'generate_schematic', arguments: { prompt: 'private' } },
