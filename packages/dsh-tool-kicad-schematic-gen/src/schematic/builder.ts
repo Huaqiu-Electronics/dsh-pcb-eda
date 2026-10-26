@@ -9,6 +9,9 @@ import { flatTextSize } from './flat-layout.ts'
 import { normalizeCommonUnits } from './symbol-units.ts'
 import { planPowerLabels, type PowerPlanningOptions, type PowerPlacementPlan, type PowerGeometry } from './power-layout.ts'
 import {assignFootprintText} from './footprint-links.ts'
+import {loadDesignPlan,type DesignPlanReference} from './design-plan.ts'
+import {gridPoint,onGrid} from './grid.ts'
+import {assertSchematicGrid} from './grid-check.ts'
 export type { PowerPlanningOptions, PowerPlacementPlan } from './power-layout.ts'
 
 /** Explicit instance placement in millimetres; library files must be trusted project inputs. */
@@ -20,6 +23,8 @@ export interface SymbolPlacement {
 }
 /** Explicit deployment templates and page choice; no implicit file discovery. */
 export interface SchematicOptions {
+  /** Saved plan version reviewed before generation; runner supplies this via environment. */
+  designPlan?: DesignPlanReference
   projectName: string; templateDir: string; paper: 'A4' | 'A3' | 'A2' | 'A1' | 'A0'; title: string
   /** Explicit shared power nets required before render/save; never inferred from names. */
   requiredPowerSymbols?: Record<string, string>
@@ -99,7 +104,7 @@ export class ModuleRegion {
 
 function point(at: FlatPoint): FlatPoint {
   if (at.length !== 2 || at.some(n => !Number.isFinite(n))) throw new Error('coordinates require two finite millimetre values')
-  return at
+  return gridPoint(at)
 }
 function definition(source: string, name: string, chain: string[] = []): string {
   const root = parse(source)
@@ -223,8 +228,15 @@ export class Schematic {
   private readonly objectModules = new Map<string, string>()
   private readonly requiredPowerSymbols: Record<string, string>
   private readonly templates: ReturnType<typeof loadFlatTemplates>
+  private readonly designPlan: DesignPlanReference
   /** Load validated templates. @param options Project identity, page and template directory. */
   constructor(private readonly options: SchematicOptions) {
+    const {path,sha256}=loadDesignPlan(options.designPlan)
+    if(options.designPlan&&process.env.DSH_DESIGN_BRIEF_PATH){
+      const runnerPlan=loadDesignPlan()
+      if(path!==runnerPlan.path||sha256!==runnerPlan.sha256)throw new Error('DESIGN_PLAN_MISMATCH: script and runner must use the same saved plan version')
+    }
+    this.designPlan={path,sha256}
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/u.test(options.projectName)) throw new Error('projectName must be an ASCII filename without an extension')
     if (!['A4', 'A3', 'A2', 'A1', 'A0'].includes(options.paper)) throw new Error('unsupported paper size')
     this.requiredPowerSymbols = { ...options.requiredPowerSymbols }
@@ -268,9 +280,11 @@ export class Schematic {
    * @returns Reference map, translated label anchors, net names and object UUIDs for frames.
    */
   importModule(spec: FlatImportSpec & { sourcePath: string;footprintMappingPath?:string }): FlatImportResult {
+    spec={...spec,offset:gridPoint(spec.offset)}
     if (this.importedModules.has(spec.name)) throw new Error(`duplicate imported module: ${spec.name}`)
     const used = new Set([...this.references.keys()].map(key => key.slice(0, key.lastIndexOf(':'))))
     const sourceText=readFileSync(spec.sourcePath,'utf8');
+    assertSchematicGrid(sourceText)
     const prepared = prepareFlatImport(sourceText, spec, this.options.projectName, this.rootId, used)
     const footprints:Record<string,string>={};
     if(spec.footprintMappingPath){
@@ -313,6 +327,14 @@ export class Schematic {
     const symbolName = spec.libId.slice(separator + 1)
     const raw = normalizeCommonUnits(definition(readFileSync(spec.libraryPath, 'utf8'), symbolName)), form = parse(raw)
     const sections = children(form, 'symbol')
+    for(const section of sections){
+      const suffix=/_(\d+)_(\d+)$/u.exec(value(section))
+      if(!suffix||![0,unit].includes(Number(suffix[1]))||![0,1].includes(Number(suffix[2])))continue
+      for(const pin of children(section,'pin')){
+        const at=children(pin,'at')[0]
+        if(!at||![Number(value(at,1)),Number(value(at,2))].every(onGrid))throw new Error(`SYMBOL_PIN_OFF_GRID: ${spec.libId} pin ${value(children(pin,'number')[0]!)} requires a 50 mil (1.27 mm) compatible library symbol. Do not round pin geometry independently of the circuit.`)
+      }
+    }
     if (!sections.some(s => { const m = /_(\d+)_(\d+)$/u.exec(value(s)); return m && Number(m[1]) === unit && [0, 1].includes(Number(m[2])) })) throw new Error(`symbol ${spec.libId} has no unit ${unit}`)
     const rename = (f: Form, name: string) => {
       const first = raw.indexOf(quote(value(f)), f.start)
@@ -382,6 +404,8 @@ export class Schematic {
    */
   wire(from: FlatEndpoint, to: FlatEndpoint, via: FlatPoint[] = []): string[] {
     const points = [this.endpoint(from), ...via.map(point), this.endpoint(to)]
+      .filter((p,i,all)=>i===0||p[0]!==all[i-1]![0]||p[1]!==all[i-1]![1])
+    if(points.length<2)throw new Error('wire collapses on the 50 mil (1.27 mm) grid; increase the lead length')
     const segments: string[] = [], ids: string[] = []
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1]!, b = points[i]!
@@ -588,7 +612,9 @@ export class Schematic {
    * @returns Schematic text, project JSON text, resolved frames and edit counts.
    */
   render(): ReturnType<typeof buildFlatCopy> {
+    loadDesignPlan(this.designPlan)
     this.checkPowerSymbols()
+    assertSchematicGrid(this.source())
     if (!this.instances.length) throw new Error('place at least one symbol before rendering')
     return buildFlatCopy(this.source(), this.options.projectName, { removeReferences: [], removeUuids: [], removeTextUuids: [], setValues: [], setLabels: [], addWires: [], frames: this.frames }, this.templates)
   }
@@ -596,12 +622,12 @@ export class Schematic {
    * @param directory Explicit output directory; created recursively when absent.
    * @returns Written paths, resolved frames and conservative power-layout warnings from the saved design. Errors may leave a partial pair.
    */
-  save(directory: string): { schematicPath: string; projectPath: string; frames: ResolvedFlatFrame[]; layoutWarnings: PowerLayoutWarning[] } {
+  save(directory: string): { schematicPath: string; projectPath: string; frames: ResolvedFlatFrame[]; layoutWarnings: PowerLayoutWarning[]; designPlan:DesignPlanReference } {
     const result = this.render(), schematicPath = join(directory, `${this.options.projectName}.kicad_sch`), projectPath = join(directory, `${this.options.projectName}.kicad_pro`)
     if (existsSync(schematicPath) || existsSync(projectPath)) throw new Error(`output already exists: ${directory}; choose a unique candidate directory`)
     mkdirSync(directory, { recursive: true })
     writeFileSync(schematicPath, result.schematic, { flag: 'wx' })
     writeFileSync(projectPath, result.project, { flag: 'wx' })
-    return { schematicPath, projectPath, frames: result.resolvedFrames, layoutWarnings: this.powerLayoutWarnings() }
+    return { schematicPath, projectPath, frames: result.resolvedFrames, layoutWarnings: this.powerLayoutWarnings(),designPlan:{...this.designPlan} }
   }
 }

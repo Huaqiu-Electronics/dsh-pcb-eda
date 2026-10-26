@@ -73,6 +73,8 @@ export function schematicGenSectionText(): string {
       'Schematic Gen chip — the user explicitly chose it for that request. ' +
       'Produce the design with the `kicad-schematic-design` skill, which ' +
       'starts from the hardware design brief when none exists yet.',
+    'For every new schematic project, first show the requirements summary, scope, key unknowns and recommended choices. Ask with ask_user_question and wait for an actual user reply BEFORE writing formal design documents or generation scripts. If the tool is unavailable, ask in chat and end the turn to wait. Silence, timeout, cancellation or a preselected option is not confirmation. Reuse an already confirmed requirements baseline for the same project; do not ask again unless core requirements change.',
+    'Before writing or running a schematic generation script, save the hardware design document and read it back with run-design.mjs --read-plan. Implement that document; pass its path and sha256 to generation. Never postpone the plan until after drawing. ',
     'Never hand-write .kicad_sch files or KiCad project files yourself; go ' +
       'through the skill and its tools.',
     "Use the user's own words as the design description — if they have not " +
@@ -80,6 +82,7 @@ export function schematicGenSectionText(): string {
       'assuming them.',
     'Follow-up messages in the same conversation continue that work without ' +
       'repeating the token.',
+    'For a simple schematic, plan layout before the first build, collect concrete readability defects and fix them together once, then verify and deliver. Stop layout edits when connections, grid, readability, page fit and project files meet the delivery criteria. Further iterations require an identified blocking defect; do not rebuild for cosmetic preferences or to drive conservative layout warnings to zero. Real errors must still be fixed, regardless of iteration count.',
   ].join('\n')
 }
 

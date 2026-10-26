@@ -80,3 +80,4 @@ plannedAnchor 和 plannedTextAt 来自当前设计的布局计划。网络可能
 - POWER_LABEL_INVALID 若提示 placement 未选中标签，重新查询本次 catalog；不要从候选文件或上一轮日志复制 UUID，不绕过校验、不取消转换。
 - 文字重叠时改 valueAt；符号图形遮挡时调整 at/angle/via，然后重新构建并预览。不撤掉交付要求、不将全部电源换回标签。无法满足时报告具体未解决的位置。
 - 这些检查不核对供电拓扑、电气连通性或全部图形遮挡。layoutWarnings 是提示，局部预览仍需确认；不自动加 PWR_FLAG 或运行 ERC。
+- 按 [布局修复与交付停止条件](layout-delivery.md) 一次核对所需局部图并集中修改。保守警告经核对不影响关键文字和接点时可保留；不追求 layoutWarnings 或 unresolved 清零，不为已判断的边界重叠反复读取库源码、编写 UUID 定位脚本或重建。零警告也不代表自动通过；仍按实际图纸和已核实连接判断。

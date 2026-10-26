@@ -20,6 +20,8 @@ import {inspectPinConnections} from './connections.ts'
 import {createOverview,registerOverview} from './overview.ts'
 import {previewConfig} from './preview-config.ts'
 import {auditFootprints} from './footprint-links.ts'
+import {assertSchematicGrid} from './grid-check.ts'
+import {designPlanReference,matchDesignPlan,DESIGN_PLAN_MAX_BYTES} from './design-plan.ts'
 
 import type { Config } from './config.ts'
 
@@ -28,6 +30,17 @@ type WorkspaceFileSystem = Pick<FileSystem, 'resolve' | 'contains' | 'stat' | 'w
 }
 type WritePolicy = Parameters<FileSystem['writeText']>[4]
 type WorkspacePath = Awaited<ReturnType<WorkspaceFileSystem['resolve']>>
+
+const designPlanSchema:JsonSchemaNode={type:'object',description:'Required saved hardware design document and exact version returned by run-design.mjs --read-plan. Read and implement this plan before generation.',additionalProperties:false,properties:{path:{type:'string'},sha256:{type:'string'}},required:['path','sha256']}
+
+/** Read the exact plan version through workspace policy before any generation writes. */
+export async function readWorkspaceDesignPlan(fs:WorkspaceFileSystem,workspace:string,input:unknown,signal:AbortSignal){
+ const reference=designPlanReference(input)
+ const root=await fs.resolve(workspace,{signal}),target=await fs.resolve(reference.path,{cwd:workspace,signal})
+ if(!fs.contains(root,target)||(await fs.stat(target,signal))?.type!=='file')throw new Error('DESIGN_PLAN_UNAVAILABLE: designPlan.path must be an existing document inside the workspace')
+ const text=new TextDecoder('utf-8',{fatal:true}).decode(await fs.readBytes(target,signal,DESIGN_PLAN_MAX_BYTES))
+ return matchDesignPlan({...reference,path:target.displayPath},text)
+}
 
 async function writeOutputs(
   fs: WorkspaceFileSystem, targets: readonly { target: WorkspacePath; content: string }[],
@@ -361,6 +374,7 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
           const resolved = await ctx.fs.resolve(project,{cwd:workspace,signal:exec.signal})
           for(const item of sources){
             const sheet=item.schematicPath===source.path?source:await readWorkspaceSchematic(ctx.fs,workspace,item.schematicPath,config.maxSchematicBytes,exec.signal);
+            assertSchematicGrid(sheet.text)
             const footprints=await auditFootprints(sheet.text,resolved.displayPath,ctx.fs,exec.signal)
             if(footprints.status!=='ready')throw new Error(`FOOTPRINTS_UNRESOLVED: ${footprints.unresolved.length} of ${footprints.total} physical instances in ${item.schematicPath} lack project-local footprints. Run localize_kicad_module_footprints check/import and persist script mappings before delivery.`)
           }
@@ -386,6 +400,7 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
     description: 'Create a KiCad 10 hierarchical schematic from 1-9 single-sheet modules with explicit hierarchy ports. Connect by port name and root net; all generated hierarchy pins and copied labels are passive. For every port, supply a connection or list it in unconnectedPorts. Preflight reports port and symbol problems across all sheets before writing. The tool does not choose electrical connections, add ports, export a netlist, or run ERC. targetDir is an existing design root, for example designs/alarm_clock (not its schematic subfolder). The schematic subfolder is created during publication; output filenames must be unused.',
     parameters: { type: 'object', additionalProperties: false,
       properties: {
+        designPlan:designPlanSchema,
         projectName: { type: 'string', description: 'ASCII filename stem: letters, digits, underscores, and hyphens; starts with a letter.' },
         title: { type: 'string' }, targetDir: { type: 'string', description: 'Existing design root, e.g. designs/alarm_clock. Children go into targetDir/schematic, created automatically. Do not pass designs/alarm_clock/schematic.' },
         sheets: { type: 'array', items: { type: 'object', additionalProperties: false,
@@ -395,9 +410,10 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
               properties: { port: { type: 'string' }, net: { type: 'string' } }, required: ['port', 'net'] } },
             unconnectedPorts: { type: 'array', items: { type: 'string' }, description: 'Explicit hierarchy ports intentionally left without a root net.' },
           }, required: ['name', 'sourcePath', 'connections'] } },
-      }, required: ['projectName', 'title', 'targetDir', 'sheets'] },
+      }, required: ['projectName', 'title', 'targetDir', 'sheets','designPlan'] },
     output: { schema: { type: 'object', additionalProperties: false,
       properties: {
+        designPlan:designPlanSchema,
         projectPath: { type: 'string' }, rootPath: { type: 'string' },
         symbolLibraryPath: { type: 'string' }, symbolTablePath: { type: 'string' },
         warnings: { type: 'array', items: { type: 'string' } },
@@ -413,7 +429,7 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
       }, required: ['projectPath', 'rootPath', 'symbolLibraryPath', 'symbolTablePath', 'sheets'] },
       render: (_args, output) => [{ type: 'text', text: JSON.stringify(output) }] },
     async execute(args, exec) {
-      const input = validateKeys(args, ['projectName', 'title', 'targetDir', 'sheets'], 'create_kicad_hierarchy')
+      const input = validateKeys(args, ['projectName', 'title', 'targetDir', 'sheets','designPlan'], 'create_kicad_hierarchy')
       const projectName = requiredString(input, 'projectName', 64)
       if (!/^[A-Za-z][A-Za-z0-9_-]*$/u.test(projectName)) {
         throw new Error('projectName must start with an ASCII letter and contain only letters, digits, underscores, or hyphens')
@@ -424,6 +440,7 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
         throw new Error('sheets must contain 1 to 9 modules')
       }
       const workspace = workspaceRoot(exec.agent)
+      const designPlan=await readWorkspaceDesignPlan(ctx.fs,workspace,input.designPlan,exec.signal)
       const workspacePath = await ctx.fs.resolve(workspace, { signal: exec.signal })
       const directory = await ctx.fs.resolve(targetDir, { cwd: workspace, signal: exec.signal })
       if (!ctx.fs.contains(workspacePath, directory)) {
@@ -446,9 +463,11 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
           unconnectedPorts: parseUnconnectedPorts(sheet.unconnectedPorts, `sheets[${index}].unconnectedPorts`) }
       }))
       const files = buildAssembly(projectName, title, sheets)
+      assertSchematicGrid(files.root)
+      for(const child of files.children)assertSchematicGrid(child.text)
       const paths = await publishAssembly(ctx.fs, workspace, targetDir, projectName, files,
         undefined, exec.signal)
-      return { projectPath: paths.projectPath, rootPath: paths.rootPath,
+      return { designPlan:{path:designPlan.path,sha256:designPlan.sha256},projectPath: paths.projectPath, rootPath: paths.rootPath,
         symbolLibraryPath: paths.symbolLibraryPath, symbolTablePath: paths.symbolTablePath, warnings: files.warnings,
         sheets: sheets.map((sheet, index) => ({ name: sheet.name, sourcePath: sheet.sourcePath,
           schematicPath: paths.childPaths[index]!, portCount: sheet.connections.length + sheet.unconnectedPorts.length,
@@ -462,6 +481,7 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
     name: 'edit_kicad_flat_schematic',
     description: 'Adapt a single-sheet schematic during implementation: read geometry/UUIDs or create an edited copy. During design planning use analyze_kicad_module for components, BOM and electrical nets; do not routinely call this tool or duplicate available results. Planning reads need a specific unanswered question, such as a missing drawing note; use list with types/references. Defer geometry queries and create until implementation. List/connections are read-only. Connections requires reference and pin number, follows visible wires only, not label aliases, hidden power or hierarchy. List returns objects, pin coordinates, image placement and conservative bounds. Create supports deletions, value/label edits, explicit orthogonal wires and frames; no new/moved symbols or automatic routing. Prefer frames autoBounds:true without start/end; objectUuids selects content, excludeUuids omits retained decoration from bounds. Use manual bounds for unsupported geometry. removeTextUuids only accepts text/text_box; images use removeUuids. Preserve necessary notes; select wires around deleted symbols explicitly. targetDir must exist; new outputs go under schematic/, preserving the source. No ERC or connectivity audit.',
     parameters: { type: 'object', additionalProperties: false, properties: {
+      designPlan:{...designPlanSchema,description:'Required for action:create. Saved and reviewed hardware plan path and exact sha256 returned by run-design.mjs --read-plan. Not used for list/connections.'},
       action: { type: 'string', enum: ['list', 'connections', 'create'] }, sourcePath: { type: 'string' },
       references: {type: 'array', items: {type: 'string'}, description: 'List only selected symbol references.'},
       reference: {type: 'string', description: 'connections: exact placed reference'}, pin: {type: 'string', description: 'connections: pin number, not name'},
@@ -488,6 +508,7 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
           { required: ['autoBounds'], properties: { autoBounds: { const: true } } }] } },
     }, required: ['action', 'sourcePath'] },
     output: { schema: { type: 'object', additionalProperties: false, properties: {
+      designPlan:designPlanSchema,
       sha256: {type: 'string'}, connection: {type: 'object'},
       status: { type: 'string' }, sourcePath: { type: 'string' }, totalObjects: { type: 'integer' },
       nextOffset: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
@@ -522,7 +543,9 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
             layout: summarizeFlatLayout(allObjects, flatTemplates.style),
             nextAction: 'Reuse the requested information; fetch nextOffset only if needed. Planning reads do not require an edited copy. Only when implementing edits, use these UUIDs/coordinates and prefer frames autoBounds:true. Image sizes are in mm; bounds describe layout, not electrical connectivity.' }
         }
+        const designPlan=await readWorkspaceDesignPlan(ctx.fs,workspace,request.designPlan,exec.signal)
         const files = buildFlatCopy(source.text, request.projectName, request.plan, flatTemplates)
+        assertSchematicGrid(files.schematic)
         const directory = await ctx.fs.resolve(request.targetDir, { cwd: workspace, signal: exec.signal })
         const workspaceDirectory = await ctx.fs.resolve(workspace, { signal: exec.signal })
         if (!ctx.fs.contains(workspaceDirectory, directory) || (await ctx.fs.stat(directory, exec.signal))?.type !== 'directory') throw new Error('targetDir must be an existing design directory inside the workspace')
@@ -535,7 +558,7 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
           return { target, content: content! }
         }))
         await writeOutputs(ctx.fs, targets, undefined, exec.signal)
-        return { status: 'created', sourcePath: source.path, schematicPath: targets[0]!.target.displayPath,
+        return { designPlan:{path:designPlan.path,sha256:designPlan.sha256},status: 'created', sourcePath: source.path, schematicPath: targets[0]!.target.displayPath,
           projectPath: targets[1]!.target.displayPath, changes: files.changes, frames: files.resolvedFrames,
           nextAction: 'Render schematicPath and read a returned PNG. The source is unchanged. No endpoint audit, ERC, or netlist verification was run. Further copies need unused output names.' }
       } catch (error) {

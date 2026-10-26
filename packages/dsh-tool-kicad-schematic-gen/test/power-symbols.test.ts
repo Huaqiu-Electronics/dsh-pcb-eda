@@ -1,3 +1,4 @@
+import {testDesignPlan} from './design-plan-fixture.ts'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -21,7 +22,7 @@ async function fixture(run: (root: string, library: string) => Promise<void>) {
   await writeFile(library, `(kicad_symbol_lib (version 20211014) (generator kicad_symbol_editor) ${power('GND')} ${power('+3V3')})`)
   try { await run(root, library) } finally { await rm(root, { recursive: true, force: true }) }
 }
-const build = (requiredPowerSymbols?: Record<string, string>) => new Schematic({
+const build = (requiredPowerSymbols?: Record<string, string>) => new Schematic({designPlan:testDesignPlan,
   projectName: 'power_delivery', title: 'Power delivery', paper: 'A4', templateDir, requiredPowerSymbols,
 })
 
@@ -37,14 +38,14 @@ test('fresh UUIDs are selected by current module/net/coordinates on every build'
     sch.frame({ name: 'core', description: 'Power', autoBounds: true, objectUuids: imported.objectUuids })
     const catalog = sch.powerLabelCatalog(['GND', '+3V3'])
     const target = catalog.filter(label => label.module === 'core' && label.net === 'GND'
-      && Math.abs(label.at[0] - 40) < 0.001 && Math.abs(label.at[1] - 40) < 0.001)
+      && Math.abs(label.at[0] - 40.64) < 0.001 && Math.abs(label.at[1] - 40.64) < 0.001)
     assert.equal(target.length, 1)
     const ground = target[0]!
     const copy = sch.powerLabelCatalog(['GND']); copy[0]!.at[0] = -999
-    assert.equal(sch.powerLabelCatalog(['GND'])[0]!.at[0], 40)
+    assert.equal(sch.powerLabelCatalog(['GND'])[0]!.at[0], 40.64)
     const converted = sch.replacePowerLabels({ libraryPath: library, nets: { GND: 'power:GND', '+3V3': 'power:+3V3' },
-      placements: { [ground.uuid]: { at: [40, 45], angle: 0, valueAt: [40, 49] } } })
-    assert.equal(converted.find(symbol => symbol.uuid === ground.uuid)?.at[1], 45)
+      placements: { [ground.uuid]: { at: [ground.at[0], 45], angle: 0, valueAt: [ground.at[0], 49] } } })
+    assert.equal(converted.find(symbol => symbol.uuid === ground.uuid)?.at[1], 44.45)
     assert.equal(sch.powerLabelCatalog(['GND', '+3V3']).length, 0)
     assert.ok(sch.checkPowerSymbols().every(status => status.symbolCount > 0))
     const saved = sch.save(join(root, `run-${iteration}`))
@@ -52,7 +53,7 @@ test('fresh UUIDs are selected by current module/net/coordinates on every build'
     const form = parse(content)
     assert.ok(children(form, 'wire').some(wire => {
       const pts = children(wire, 'pts')[0]!
-      return children(pts, 'xy').some(xy => Number(value(xy)) === 40 && Number(value(xy, 2)) === 45)
+      return children(pts, 'xy').some(xy => Number(value(xy)) === 40.64 && Number(value(xy, 2)) === 44.45)
     }))
     assert.ok(children(form, 'label').some(label => value(label) === 'core__AGND'))
     results.push({ uuid: ground.uuid, content })
@@ -104,9 +105,9 @@ test('catalog includes global and flattened port labels while excluding unrelate
   const text = await readFile(source, 'utf8')
   const rootForm = parse(text)
   const extra = `
-    (global_label "GND" (shape input) (at 20 30 90) (effects (font (size 1.27 1.27))) (uuid "global-ground"))
-    (hierarchical_label "GND" (shape input) (at 40 30 0) (effects (font (size 1.27 1.27))) (uuid "hier-ground"))
-    (label "AGND" (at 50 30 0) (effects (font (size 1.27 1.27))) (uuid "analog-ground"))
+    (global_label "GND" (shape input) (at 20.32 30.48 90) (effects (font (size 1.27 1.27))) (uuid "global-ground"))
+    (hierarchical_label "GND" (shape input) (at 40.64 30.48 0) (effects (font (size 1.27 1.27))) (uuid "hier-ground"))
+    (label "AGND" (at 49.53 30.48 0) (effects (font (size 1.27 1.27))) (uuid "analog-ground"))
   `
   await writeFile(source, `${text.slice(0, rootForm.end - 1)}${extra}${text.slice(rootForm.end - 1)}`)
   const sch = build()
@@ -116,6 +117,6 @@ test('catalog includes global and flattened port labels while excluding unrelate
   assert.equal(labels.length, 2)
   const global = labels.find(label => label.type === 'global_label')!
   assert.equal(global.module, 'global_module')
-  assert.deepEqual(global.at, [25, 35]); assert.equal(global.angle, 90)
+  assert.deepEqual(global.at, [25.4, 35.56]); assert.equal(global.angle, 90)
   assert.ok(labels.every(label => label.net === 'GND'))
 }))

@@ -1,3 +1,4 @@
+import {testDesignPlan} from './design-plan-fixture.ts'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, rm, writeFile, symlink,rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -44,9 +45,9 @@ test('common-only import preserves pin/pad association, places unit 1 and repeat
   assert.equal(result.validation.pinPadMatch, 'number_sets_match')
   const text = await readFile(result.libraryPath, 'utf8')
   assert.ok(text.includes('Demo_1_1')); assert.ok(!text.includes('Demo_0_1'))
-  const sch = new Schematic({ projectName: 'common', title: 'Common', paper: 'A4', templateDir })
+  const sch = new Schematic({designPlan:testDesignPlan, projectName: 'common', title: 'Common', paper: 'A4', templateDir })
   sch.addSymbol({ libraryPath: result.libraryPath, libId: result.libId, footprint: result.footprintId, reference: 'U1', at: [50, 50] })
-  assert.deepEqual(sch.pin('U1', '1'), [50, 50])
+  assert.deepEqual(sch.pin('U1', '1'), [49.53, 49.53])
   sch.save(root)
   const second = await run()
   assert.equal(second.library, 'existing'); assert.equal(second.footprintLibrary, 'existing')
@@ -75,7 +76,7 @@ test('imports both libraries, preserves table entries, returns association and i
   assert.equal(await readFile(result.footprintPath, 'utf8'), `${footprint}\n`)
   const table = await readFile(result.footprintTablePath, 'utf8')
   assert.ok(table.includes('Other.pretty')); assert.ok(table.includes('${KIPRJMOD}/libraries/footprints/DSH_7189_Demo_8a2cc0673b1c.pretty'))
-  const sch = new Schematic({ projectName: 'paired', title: 'Paired', paper: 'A4', templateDir })
+  const sch = new Schematic({designPlan:testDesignPlan, projectName: 'paired', title: 'Paired', paper: 'A4', templateDir })
   sch.addSymbol({ libraryPath: result.libraryPath, libId: result.libId, footprint: result.footprintId, reference: 'U1', at: [50, 50] })
   const saved = sch.save(root)
   assert.ok((await readFile(saved.schematicPath, 'utf8')).includes(`(property "Footprint" "${result.footprintId}"`))

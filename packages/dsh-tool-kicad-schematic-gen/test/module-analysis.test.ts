@@ -1,3 +1,4 @@
+import {testDesignPlan} from './design-plan-fixture.ts'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {mkdtemp, writeFile, readFile, readdir, rm} from 'node:fs/promises'
@@ -29,7 +30,7 @@ async function fixture(fn: (f: any) => Promise<void>) {
       (symbol "Demo" (property "Reference" "U" (at 0 0 0) (effects (font (size 1.27 1.27))))
       (symbol "Demo_1_1" (pin input line (at 0 0 0) (length 2.54)
       (name "IN" (effects (font (size 1.27 1.27)))) (number "1" (effects (font (size 1.27 1.27))))))))`)
-    const sch = new Schematic({projectName: 'demo', title: 'demo', paper: 'A4',
+    const sch = new Schematic({designPlan:testDesignPlan,projectName: 'demo', title: 'demo', paper: 'A4',
       templateDir: fileURLToPath(new URL('../skills/kicad-schematic-design/templates', import.meta.url))})
     sch.addSymbol({libraryPath: library, libId: 'Local:Demo', reference: 'U1', at: [30, 30], footprint: 'Local:Demo'})
     sch.addSymbol({libraryPath: library, libId: 'Local:Demo', reference: 'U2', at: [60, 30], footprint: 'Local:Demo'})

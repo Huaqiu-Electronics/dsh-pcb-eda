@@ -26,3 +26,5 @@ sch.frame({ name: '控制', description: '控制接口说明',
 当前导入接受单页电路，不能自动展开多层级来源；总线、组对象、嵌入附件等不支持的对象失败而不丢弃。用户要求平铺时准备各单页或从零实现缺少部分，不能静默改成层次或删除 sheet 块。导入只做平移和整合，不自动缩放、放置或布线，不决定电气连接。
 
 来源冗余 text/text_box、旧框和图片用明确 UUID 在副本中先删除。保留必要限制与说明，再用统一短标题和说明重建框；电气标签和器件属性不当作说明删除。布局见 [module-layout.md](module-layout.md)。自动框按保留内容估计范围，程序不会自动移动电路或避免两个模块内容重叠，最终预览必须检查。脚本和固定输出规则见 [programming.md](programming.md)。
+
+生成副本（action:create）必须传 `designPlan:{path,sha256}`，来自已保存方案的 `run-design.mjs --read-plan` 返回值。先按方案核实连接和改动；list/connections 的只读查询不要求该参数。

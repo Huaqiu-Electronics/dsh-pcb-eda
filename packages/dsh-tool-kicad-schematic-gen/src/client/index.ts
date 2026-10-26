@@ -1,40 +1,25 @@
 /** Browser-only tool card, loaded by the existing Harness module loader. */
 import type * as ReactTypes from 'react'
-import {parseCard} from './overview-result.ts'
+import {overviewForTurn,NO_OVERVIEW,type OverviewTurn,type OverviewChat} from './turn-overview.ts'
 import {placementHost,placeOverview,type PlacementHost} from './place.ts'
-import {supersededOverviews} from './latest-overview.ts'
 import {registerSchematicGenSourceWhenReady} from './schematic-ref.ts'
 import {mountSchematicGenSidebarEntry} from './sidebar-entry.ts'
 import {insertSchematicChip,currentSessionId,resolveSessionScope,type ChipInserterDeps,type ConversationLike,type SessionsLike} from './composer-chip.ts'
 
 interface ClientContext {
  get?:(name:string)=>unknown
- slots:{inject:(name:string,fn:()=>unknown)=>unknown;register:(spec:{name:string;key:string},component:unknown)=>unknown}
+ slots:{inject:(name:string,fn:()=>unknown)=>unknown;register:(spec:{name:string;key?:string;id?:string;order?:number},component:unknown)=>unknown}
  effect?:(fn:()=>unknown)=>unknown
-}
-/** Harness compacts finished tool calls; keep only our delivery card visible. */
-function keepDeliveryVisible(){
- if(typeof document==='undefined'||typeof MutationObserver==='undefined')return()=>{}
- let frame=0,disposed=false
- const reveal=()=>{frame=0;if(disposed)return;
- const cards=Array.from(document.querySelectorAll<HTMLElement>('.dsh-local-overview'));
- const hidden=supersededOverviews(cards.map(card=>({session:card.dataset.overviewSession??'',project:card.dataset.overviewProject??'',createdAt:Number(card.dataset.overviewCreated??0)})));
- for(const [index,card] of cards.entries()){
-  if(card.hidden!==hidden[index])card.hidden=hidden[index]!;
-  if(hidden[index])continue;
-  let parent=card.parentElement
-  while(parent){if(parent.hasAttribute('data-turn-process-hidden'))parent.removeAttribute('hidden');parent=parent.parentElement}
- }}
- const observer=new MutationObserver(()=>{if(!frame)frame=requestAnimationFrame(reveal)})
- observer.observe(document.documentElement,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','data-turn-process-hidden']})
- reveal();return()=>{disposed=true;observer.disconnect();if(frame)cancelAnimationFrame(frame)}
 }
 const loader=(window as unknown as {__ModuleLoader__:{load:(options:unknown)=>void}}).__ModuleLoader__
 loader.load({id:'@huaqiu/dsh-tool-kicad-schematic-gen',factory:(require:(name:string)=>typeof ReactTypes)=>{
  const React=require('react'),{createElement:h,useState,useEffect}=React
  let getHost:(()=>PlacementHost|undefined)|undefined
- function Card(props:{block?:unknown;sessionId?:string}){
-  const state=parseCard(props.block),result=state.result
+ function Card(props:{turn?:OverviewTurn;sessionId?:string;useChat?:<T>(select:(snapshot:OverviewChat)=>T)=>T}){
+  // The hook belongs to this slot's session binding. Read synchronously so history replay,
+  // session switches and completion cannot race a separate watcher/effect cache.
+  const chat=props.useChat?.(snapshot=>snapshot)
+  const state=chat?overviewForTurn(props.turn,chat):NO_OVERVIEW,result=state.result
   const [page,setPage]=useState(0),[zoom,setZoom]=useState(1),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
   useEffect(()=>{setPage(0);setZoom(1);setMessage('')},[result?.downloadUrl])
   if(state.kind==='review'||state.kind==='running'||(state.kind==='error'&&!state.formal))return null
@@ -73,7 +58,6 @@ loader.load({id:'@huaqiu/dsh-tool-kicad-schematic-gen',factory:(require:(name:st
  }
  return {inject:['slots','inputTriggers'],apply:(ctx:ClientContext)=>{
   getHost=()=>ctx.get?.('hqEdge') as PlacementHost|undefined
-  const stopVisibility=keepDeliveryVisible()
   // Trace the two things that decide whether the plugin is visible at all:
   // the trigger registry (the `@` menu) and the mounted sidebar row. When the
   // node half fails to import, DSH never loads this file — so silence here
@@ -113,8 +97,8 @@ loader.load({id:'@huaqiu/dsh-tool-kicad-schematic-gen',factory:(require:(name:st
    notifyComposer(ctx,result.reason)
   },position:'after'})
   try{console.debug('[schematic-gen:client] sidebar row',{rows:document.querySelectorAll('[data-hqcg-schematic-entry]').length})}catch{}
-  const dispose=ctx.slots.inject('tool.call.toolview',()=>ctx.slots.register({name:'tool.call.toolview',key:'render_kicad_module_preview'},Card))
-  ctx.effect?.(()=>()=>{stopVisibility();source.dispose();stopEntry();if(typeof dispose==='function')dispose()})
+  const dispose=ctx.slots.inject('conversation.chat.turnTail',()=>ctx.slots.register({name:'conversation.chat.turnTail',id:'huaqiu-schematic-overview',order:100},Card))
+  ctx.effect?.(()=>()=>{source.dispose();stopEntry();if(typeof dispose==='function')dispose()})
  }}
  /** Surface why a chip insertion did not happen, through the composer's own notice channel. Best-effort by design. */
  function notifyComposer(context:ClientContext,reason:string){

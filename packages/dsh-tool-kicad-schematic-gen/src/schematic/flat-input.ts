@@ -1,11 +1,13 @@
 /** Resolve the flat editor's model JSON into bounded, explicit operations. */
 import { requiredString, validateKeys } from './input.ts'
 import type { FlatEndpoint, FlatPlan, FlatPoint } from './flat.ts'
+import {designPlanReference,type DesignPlanReference} from './design-plan.ts'
+import {gridPoint} from './grid.ts'
 
 /** Read-only catalog or creation of a new edited project copy. */
 export type FlatRequest = { action: 'list'; sourcePath: string; offset: number; limit: number; types: string[]; references: string[] }
   | { action: 'connections'; sourcePath: string; reference: string; pin: string; offset: number; limit: number }
-  | { action: 'create'; sourcePath: string; targetDir: string; projectName: string; plan: FlatPlan }
+  | { action: 'create'; sourcePath: string; targetDir: string; projectName: string; plan: FlatPlan; designPlan:DesignPlanReference }
 
 function list(value: unknown, name: string): unknown[] {
   if (value === undefined) return []
@@ -17,7 +19,7 @@ function point(value: unknown, field: string): FlatPoint {
   if (!Array.isArray(value) || value.length !== 2 || value.some(item => typeof item !== 'number' || !Number.isFinite(item) || Math.abs(item) > 2000)) {
     throw new Error(`${field} must be two finite coordinates in millimetres, each within +/-2000`)
   }
-  return value as FlatPoint
+  return gridPoint(value)
 }
 function endpoint(value: unknown, field: string): FlatEndpoint {
   if (Array.isArray(value)) return point(value, field)
@@ -37,7 +39,7 @@ function uuid(value: unknown): string {
  */
 export function parseFlatRequest(args: unknown, listLimit: number): FlatRequest {
   const input = validateKeys(args, ['action', 'sourcePath', 'offset', 'types', 'references', 'reference', 'pin', 'targetDir', 'projectName',
-    'removeReferences', 'removeUuids', 'removeTextUuids', 'setValues', 'setLabels', 'addWires', 'frames'], 'edit_kicad_flat_schematic')
+    'removeReferences', 'removeUuids', 'removeTextUuids', 'setValues', 'setLabels', 'addWires', 'frames','designPlan'], 'edit_kicad_flat_schematic')
   const sourcePath = requiredString(input, 'sourcePath')
   if (input.action === 'connections') {
     validateKeys(input, ['action', 'sourcePath', 'reference', 'pin', 'offset'], 'flat connections')
@@ -96,5 +98,5 @@ export function parseFlatRequest(args: unknown, listLimit: number): FlatRequest 
     }),
   }
   return { action: 'create', sourcePath, targetDir: requiredString(input, 'targetDir'),
-    projectName: requiredString(input, 'projectName'), plan }
+    projectName: requiredString(input, 'projectName'), plan,designPlan:designPlanReference(input.designPlan) }
 }

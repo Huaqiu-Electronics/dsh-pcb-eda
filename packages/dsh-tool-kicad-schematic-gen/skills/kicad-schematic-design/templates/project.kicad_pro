@@ -24,5 +24,6 @@
   },
   "pcbnew": { "page_layout_descr_file": "" },
   "sheets": [],
+  "schematic": { "connection_grid_size": 50.0 },
   "text_variables": {}
 }

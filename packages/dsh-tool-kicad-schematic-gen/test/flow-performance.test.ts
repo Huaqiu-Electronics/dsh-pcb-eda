@@ -1,3 +1,4 @@
+import {testDesignPlan} from './design-plan-fixture.ts'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {mkdtemp,writeFile,readFile,rm} from 'node:fs/promises'
@@ -39,7 +40,7 @@ test('script launcher preserves Unicode UTF-8 reports, stderr and nonzero exit w
  try{
   const script=join(root,'test design.mjs'),report=join(root,'report.json')
   await writeFile(script,"console.log(JSON.stringify({title:'电源',output:process.argv[2]}));console.error('诊断');process.exitCode=3",'utf8')
-  const run=spawnSync(process.execPath,[fileURLToPath(new URL('../skills/kicad-schematic-design/scripts/run-design.mjs',import.meta.url)),script,join(root,'candidate'),report],{encoding:'utf8'})
+  const run=spawnSync(process.execPath,[fileURLToPath(new URL('../skills/kicad-schematic-design/scripts/run-design.mjs',import.meta.url)),script,join(root,'candidate'),report,'--plan',testDesignPlan.path,'--plan-sha256',testDesignPlan.sha256],{encoding:'utf8'})
   assert.equal(run.status,3);const data=JSON.parse(await readFile(report,'utf8'));assert.equal(data.exitCode,3);assert.equal(JSON.parse(data.stdout).title,'电源');assert.match(data.stderr,/诊断/)
  }finally{await rm(root,{recursive:true,force:true})}
 })
@@ -47,7 +48,7 @@ test('label leads work in real region coordinates and reject invalid plans befor
  const root=await mkdtemp(join(tmpdir(),'label-leads-'))
  try{
   const library=join(root,'demo.kicad_sym');await writeFile(library,'(kicad_symbol_lib (version 20211014) (generator test) (symbol "Demo" (property "Reference" "U" (at 0 0 0) (effects (font (size 1 1)))) (symbol "Demo_1_1" (pin input line (at 0 0 0) (length 2.54) (name "IN" (effects (font (size 1 1)))) (number "1" (effects (font (size 1 1))))))))')
-  const sch=new Schematic({projectName:'demo',title:'demo',paper:'A4',templateDir:fileURLToPath(new URL('../skills/kicad-schematic-design/templates',import.meta.url))})
+  const sch=new Schematic({designPlan:testDesignPlan,projectName:'demo',title:'demo',paper:'A4',templateDir:fileURLToPath(new URL('../skills/kicad-schematic-design/templates',import.meta.url))})
   const region=sch.region({name:'test',description:'test',origin:[30,30],size:[80,80]});region.addSymbol({libraryPath:library,libId:'Demo:Demo',reference:'U1',at:[20,20]})
   const normalize=(text:string)=>text.replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/g,'UUID');const before=normalize(sch.render().schematic)
   assert.throws(()=>attachPinLabel(region,{reference:'U1',pin:'1',net:'NET',direction:'left',length:0}),/positive/);assert.equal(normalize(sch.render().schematic),before)

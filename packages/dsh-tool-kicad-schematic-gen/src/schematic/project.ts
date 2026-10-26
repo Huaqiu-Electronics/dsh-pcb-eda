@@ -445,7 +445,7 @@ export function buildProject(
     net_settings: { classes: [{ name: 'Default', clearance: 0.2, track_width: 0.25,
       via_diameter: 0.6, via_drill: 0.3, wire_width: 6 }] },
     pcbnew: { last_paths: {}, page_layout_descr_file: '' },
-    schematic: { legacy_lib_dir: '', legacy_lib_list: [], ...imported.schematic },
+    schematic: { legacy_lib_dir: '', legacy_lib_list: [], ...imported.schematic,connection_grid_size:50.0 },
     sheets: [], text_variables: {},
     ...(imported.textVariables === undefined ? {} : { text_variables: imported.textVariables }),
   }, null, 2) + '\n'

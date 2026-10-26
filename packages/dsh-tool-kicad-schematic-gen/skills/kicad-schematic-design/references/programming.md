@@ -68,16 +68,17 @@ attachPinLabel(region, {reference:'U1',pin:'1',net:'MOT_PWM',direction:'left',le
 优先使用技能目录的 `scripts/run-design.mjs`：
 
 ```text
-node <skill目录>/scripts/run-design.mjs <design.mjs绝对路径> <唯一候选目录> <构建报告.json>
+node <skill目录>/scripts/run-design.mjs --read-plan <已保存方案.md绝对路径>
+node <skill目录>/scripts/run-design.mjs <design.mjs绝对路径> <唯一候选目录> <构建报告.json> --plan <方案绝对路径> --plan-sha256 <读回的sha256>
 ```
 
-启动器用当前 Node、参数数组启动项目脚本，自动提供插件目录，并将退出码、stdout/stderr 保存为 UTF-8 JSON，终端只返回摘要。读取报告中的 stdout 得到 save 返回值；不要用 PowerShell `>` 重定向后猜 UTF-8/UTF-16/BOM，不用复杂 node -e 内联正则、Select-Object 截断诊断或为打印状态重新构建。沿用 get_eda_host_info 已知路径，需要时在进程环境提供 KICAD_SYMBOL_DIR；首次预览传已知 kicadCliPath，避免先运行找不到的裸 kicad-cli 再重试。
+第一条命令返回方案全文和 designPlan（path、sha256），先阅读并据此编写脚本。第二条命令在启动脚本前校验同一方案版本；缺失或版本变化直接阻止启动。启动器用当前 Node、参数数组启动项目脚本，自动提供插件目录，并将退出码、stdout/stderr 保存为 UTF-8 JSON，终端只返回摘要。读取报告中的 stdout 得到 save 返回值；不要用 PowerShell `>` 重定向后猜 UTF-8/UTF-16/BOM，不用复杂 node -e 内联正则、Select-Object 截断诊断或为打印状态重新构建。沿用 get_eda_host_info 已知路径，需要时在进程环境提供 KICAD_SYMBOL_DIR；首次预览传已知 kicadCliPath，避免先运行找不到的裸 kicad-cli 再重试。
 
 `importModule({sourcePath,name,offset,nets})` 把已准备的单页电路整体放入当前 Schematic，返回 references、ports、netNames、objectUuids。具体网络隔离和映射见 [平铺整合](flat-reuse.md)。它与 addSymbol 可以共用同一页；新增实例编号须避开导入返回的编号。多个来源先导入全部模块，再从统一编号表分配新增引用，不让每个模块从 R1/U1 重新计数。
 
 `hierarchicalLabel(name,at,angle=0)` 在实际引脚或明确坐标添加 passive 层次标签，返回 UUID；region.hierarchicalLabel 使用局部坐标。用于从零生成层次子页，标签必须确实位于目标引脚或网络导线上。保存子页后重新调用端口工具，确认能作为 create_kicad_hierarchy 的 sourcePath。
 
-所有坐标单位为毫米；库内符号 Y 轴转换和正交旋转由程序完成。不要自己用图片坐标猜引脚位置。
+所有坐标单位为毫米；默认电气栅格为 50 mil（1.27 mm）。runtime 导出 `gridPoint([x,y])` 和 `snapGrid(n)`；器件和线路规划用它们对齐，布线端点优先使用 `sch.pin/region.pin` 的实际坐标。不要使用 0.05 mm 或把整数毫米当作默认格点。库符号实际引脚不兼容 50 mil 时会拒绝放置；已有模块偏离格点时会拒绝导入或交付，不能分别舍入引脚与导线来修复。库内符号 Y 轴转换和正交旋转由程序完成。不要自己用图片坐标猜引脚位置。
 
 - `addSymbol({libraryPath,libId,reference,at,value?,angle?,mirror?,unit?,footprint?,referenceAt?,valueAt?})`：库文件必须含实际符号定义。`libId` 为 `库名:符号名`，例如 `Device:R`。默认角度 0、unit 1、无镜像，默认值和封装来自符号库，referenceAt/valueAt 可指定水平文字的绝对位置，省略时放在器件上方；返回对象 UUID。同一引用的不同 unit 要使用相同符号；重复 reference/unit、缓存差异或缺少 unit 会报错。
 - `pin(reference,number)`：返回 `[x,y]`；不存在或多 unit 中无法唯一匹配的引脚报错。实例放置后再查询。点数组和 `{reference,pin}` 均可作为下面接口的端点。
@@ -85,6 +86,7 @@ node <skill目录>/scripts/run-design.mjs <design.mjs绝对路径> <唯一候选
 - `label(name,at,angle=0)`：写本页局部网络标签，返回 UUID。同名局部标签表示同一页网络；标签要位于预期引脚或导线上，跨功能组可用短导线和标签连接，避免大段交叉线。
 - `marker('junction'|'no_connect',at)`：返回 UUID。不连接标记表示设计意图，不补充外围电路。
 - `frame({name,description,autoBounds:true,objectUuids?,excludeUuids:[]})` 或 `frame({name,description,start:[x,y],end:[x,y]})`：沿用现有模板，计算范围和写文字；不自动分组或移动内容。
+- `Schematic` 构造器要求已有方案：启动器自动传入方案环境；独立调用必须显式提供 `designPlan:{path,sha256}`。构造和 render/save 均检查方案，缺失、空文档或版本过期不能生成。方案是 Markdown 文件，有标题、实质章节且至少 200 字符；程序只作结构检查，电气内容仍须读回审核。
 - `render()`：返回 `schematic`、`project` 文本、`resolvedFrames` 和修改统计，不写文件。
 - `save(directory)`：写同名 `.kicad_sch` 和 `.kicad_pro`，返回 `schematicPath`、`projectPath`。不覆盖任一现有输出；每轮生成使用唯一候选目录。写入异常可能留下部分输出，以异常和目录实际内容为准。
 
@@ -93,6 +95,8 @@ node <skill目录>/scripts/run-design.mjs <design.mjs绝对路径> <唯一候选
 生成错误会抛出具体原因；不存在引脚需改引脚标识或放置相应 unit，非正交路径需补折点，缓存差异需统一实际库定义。调试先修生成脚本，再重跑至新的候选目录，然后预览。库不执行电气正确性审计或 ERC。
 
 ## 固定工程与候选输出
+
+候选收敛按 [布局修复与交付停止条件](layout-delivery.md) 执行。启动器每次返回 nextAction 提醒集中检查和停止条件，它不是“已就绪”证明；构建成功或零警告都不能替代看图与连接检查。首版满足条件就发布，不为完成固定轮数重建；同一批问题一次修改，额外构建要有具体阻塞缺陷。先完成收尾再正式 delivery。
 
 一个设计只交付一个可打开的 KiCad 工程：
 

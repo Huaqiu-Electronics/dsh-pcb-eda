@@ -1,3 +1,4 @@
+import {testDesignPlan} from './design-plan-fixture.ts'
 import {test} from 'node:test'
 import assert from 'node:assert/strict'
 import {mkdtemp,mkdir,writeFile,readFile,rm,readdir} from 'node:fs/promises'
@@ -20,7 +21,7 @@ const footprint=`(footprint "Demo_Package" (version 20240108) (layer "F.Cu")
  (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu" "F.Paste" "F.Mask")))`;
 const options={requestTimeoutMs:1000,maxModelBytes:10000};
 const templateDir=fileURLToPath(new URL('../skills/kicad-schematic-design/templates',import.meta.url));
-function builder(){return new Schematic({projectName:'demo',title:'demo',paper:'A4',templateDir})}
+function builder(){return new Schematic({designPlan:testDesignPlan,projectName:'demo',title:'demo',paper:'A4',templateDir})}
 async function fixture(fn:(x:any)=>Promise<void>){
  const root=await mkdtemp(join(tmpdir(),'module-footprints-')),ctx=new Context();
  try{

@@ -6,6 +6,7 @@
 
 ```js
 create_kicad_hierarchy({
+  designPlan: {path: "<已保存并读回的方案绝对路径>", sha256: "<读回的sha256>"},
   projectName: 'example', title: '设计标题', targetDir: '<design>/.candidate/<run-id>',
   sheets: [{ name: 'power', sourcePath: '<design>/work/power.kicad_sch',
     connections: { VOUT: 'VCC_3V3', GND: 'GND' }, unconnectedPorts: ['STATUS'] }],

@@ -70,20 +70,23 @@ test('cache uses user data and old snapshots remain readable without writing int
  }finally{await new Promise<void>(resolve=>server.close(()=>resolve()))}
 })
 
-test('built browser module registers the preview tool card without regeneration or detail actions',async()=>{
+test('built browser module renders formal previews only in the completed turn tail',async()=>{
  const {runInNewContext}=await import('node:vm')
  let module:any,view:any
  const react={createElement:(type:unknown,props:unknown,...children:unknown[])=>({type,props,children}),useState:(value:unknown)=>[value,()=>{}],useEffect:()=>{}}
  const script=await readFile(new URL('../lib/client.js',import.meta.url),'utf8')
  runInNewContext(script,{window:{__ModuleLoader__:{load:(options:any)=>{module=options.factory(()=>react)}}}})
- module.apply({get:()=>({context:{getEditorType:()=> 'sch'},placeArtifact:async()=>({ok:true})}),slots:{inject:(_name:string,fn:()=>unknown)=>fn(),register:(spec:any,component:any)=>{assert.equal(spec.key,'render_kicad_module_preview');view=component;return()=>{}}},effect:(fn:()=>unknown)=>fn()})
- assert.equal(view({block:{content:[{type:'text',text:JSON.stringify({status:'ok',overview:null})}]}}),null)
- assert.equal(view({block:{content:[{type:'text',text:JSON.stringify({status:'error',overview:null})}]}}),null)
- assert.equal(view({block:{isError:true,content:[{type:'text',text:'preview failed'}]}}),null)
+ module.apply({get:()=>({context:{getEditorType:()=> 'sch'},placeArtifact:async()=>({ok:true})}),slots:{inject:(_name:string,fn:()=>unknown)=>fn(),register:(spec:any,component:any)=>{assert.equal(spec.name,'conversation.chat.turnTail');assert.equal(spec.id,'huaqiu-schematic-overview');view=component;return()=>{}}},effect:(fn:()=>unknown)=>fn()})
+ const turn={turn:4,status:'closed',end:{data:{reason:{kind:'completed'}}}}
+ const render=(block:unknown,owner=turn)=>view({turn:owner,useChat:(select:any)=>select({locations:{getTurn:()=>['tool']},nodes:{get:()=>({kind:'tool-call',data:{root:{kind:'tool-result',seq:20,call:{name:'render_kicad_module_preview'},...(block as object)}}})}})})
+ assert.equal(render({content:[{type:'text',text:JSON.stringify({status:'ok',overview:null})}]}),null)
+ assert.equal(render({isError:true,content:[{type:'text',text:'preview failed'}]}),null)
  assert.equal(view({}),null)
- assert.match(JSON.stringify(view({block:{content:[{type:'text',text:JSON.stringify({overviewError:'formal snapshot failed'})}]}})),/formal snapshot failed/)
+ assert.match(JSON.stringify(render({content:[{type:'text',text:JSON.stringify({overviewError:'formal snapshot failed'})}]})),/formal snapshot failed/)
  const id='12345678-1234-1234-1234-123456789abc'
  const block={content:[{type:'text',text:JSON.stringify({status:'ok',overview:{title:'demo',filename:'demo.zip',size:2048,fileCount:3,downloadUrl:`${OVERVIEW_ROUTE}/${id}/project.zip`,pages:[{name:'root',imageUrl:`${OVERVIEW_ROUTE}/${id}/page-0.png`}]}})}]}
- const tree=JSON.stringify(view({block}))
+ assert.equal(render(block,{turn:4,status:'open',end:undefined} as any),null)
+ assert.equal(render(block,{...turn,end:{data:{reason:{kind:'aborted'}}}}),null)
+ const tree=JSON.stringify(render(block))
  assert.match(tree,/原理图概览/);assert.match(tree,/下载工程 ZIP/);assert.match(tree,/放置到编辑器/);assert.ok(!tree.includes('重新生成'));assert.ok(!tree.includes('详情'))
 })
