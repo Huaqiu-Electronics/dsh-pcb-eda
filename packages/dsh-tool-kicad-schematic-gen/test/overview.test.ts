@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {mkdtemp,mkdir,writeFile,readFile} from 'node:fs/promises'
 import {join} from 'node:path'
-import {tmpdir} from 'node:os'
+import {tmpdir,homedir} from 'node:os'
 import {createHash} from 'node:crypto'
 import {createServer} from 'node:http'
 import {unzipSync} from 'fflate'
@@ -53,19 +53,31 @@ test('card distinguishes review, delivery and failure and rejects nonlocal asset
  assert.equal(parseCard(block({status:'partial',overview})).result?.status,'partial')
  assert.equal(parseCard(block({overview:{...overview,downloadUrl:'https://external.example/file'}})).kind,'error')
  assert.equal(parseCard(block({overviewError:'archive unavailable'})).kind,'error')
+ assert.deepEqual(parseCard(block({status:'error',renderStatus:'ok',deliveryStatus:'not_requested',footprintCheck:{status:'blocked',error:'Missing U1 footprint'}})),{kind:'error',message:'Missing U1 footprint'})
 })
 
-test('cache uses user data and old snapshots remain readable without writing into the installed plugin',async()=>{
- const root=await mkdtemp(join(tmpdir(),'kicad-cache-')),home=join(root,'user-home');
- assert.equal(overviewCacheDirectory({DSH_HOME:home}),join(home,'plugin-data','dsh-tool-kicad-schematic-gen','overview-cache'));
- assert.ok(overviewCacheDirectory({LOCALAPPDATA:home}).startsWith(home));
+test('cache follows the current user HQ Edge home independently of runtime and install directories',()=>{
+ const suffix=['plugin-data','dsh-tool-kicad-schematic-gen','overview-cache'];
+ const expected=join(homedir(),'.hq-edge',...suffix);
+ assert.equal(overviewCacheDirectory({}),expected);
+ assert.equal(overviewCacheDirectory({DSH_HOME:join(tmpdir(),'runtime'),LOCALAPPDATA:join(tmpdir(),'app-data')}),expected);
+ assert.equal(overviewCacheDirectory({HQ_EDGE_HOME:'relative-home'}),expected);
+ assert.equal(overviewCacheDirectory({HQ_EDGE_HOME:''}),expected);
+ for(const user of ['user-a','user-b']){
+  const home=join(tmpdir(),user,'.hq-edge');
+  assert.equal(overviewCacheDirectory({HQ_EDGE_HOME:home,DSH_HOME:join(tmpdir(),'runtime')}),join(home,...suffix));
+ }
+})
+
+test('missing snapshots return 404 even when the snapshot exists outside the configured store',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'kicad-cache-'));
  const store=join(root,'new-cache'),legacy=join(root,'old-cache'),id='12345678-1234-1234-1234-123456789abc';
  await mkdir(join(legacy,id),{recursive:true});await writeFile(join(legacy,id,'page-0.png'),'old-image');
- const server=createServer(overviewHandler(store,legacy));await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
+ const server=createServer(overviewHandler(store));await new Promise<void>(resolve=>server.listen(0,'127.0.0.1',resolve));
  try{
   const address=server.address() as {port:number};
   const response=await fetch(`http://127.0.0.1:${address.port}${OVERVIEW_ROUTE}/${id}/page-0.png`);
-  assert.equal(response.status,200);assert.equal(await response.text(),'old-image');
+  assert.equal(response.status,404);
   assert.equal(await readFile(join(legacy,id,'page-0.png'),'utf8'),'old-image');
  }finally{await new Promise<void>(resolve=>server.close(()=>resolve()))}
 })

@@ -3,7 +3,7 @@ export const point = ([x, y]) => [x, y].map(n => Math.round(n * 1e6) / 1e6);
 export function vertical(region, part, reference, at, upper, lower) {
   const { pins, ...symbol } = part;
   region.addSymbol({ ...symbol, reference, at,
-    referenceAt: [at[0] + 4, at[1] - 1.8], valueAt: [at[0] + 4, at[1] + 1.8] });
+    referenceAt: [at[0] + 6.35, at[1] - 1.8], valueAt: [at[0] + 6.35, at[1] + 1.8] });
   const top = point(region.pin(reference, pins[upper]));
   const bottom = point(region.pin(reference, pins[lower]));
   if (top[0] !== bottom[0] || top[1] >= bottom[1]) {

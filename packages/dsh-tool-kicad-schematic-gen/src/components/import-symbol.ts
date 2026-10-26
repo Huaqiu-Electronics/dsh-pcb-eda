@@ -145,10 +145,8 @@ export async function importSymbol(
     throw new Error('upstream Symbol name must be non-empty and must not contain a colon')
   }
   const nickname = libraryName(mfgId, mpn)
-  const legacy = await fs.resolve(join(project.displayPath, `${nickname}.kicad_sym`), { signal })
-  const legacyExists = await fs.stat(legacy, signal) !== undefined
-  const library = legacyExists ? legacy : await fs.resolve(join(project.displayPath, 'libraries', 'symbols', `${nickname}.kicad_sym`), { signal })
-  const uri = `\${KIPRJMOD}/${legacyExists ? '' : 'libraries/symbols/'}${nickname}.kicad_sym`
+  const library = await fs.resolve(join(project.displayPath, 'libraries', 'symbols', `${nickname}.kicad_sym`), { signal })
+  const uri = `\${KIPRJMOD}/libraries/symbols/${nickname}.kicad_sym`
   const table = await fs.resolve(join(project.displayPath, 'sym-lib-table'), { signal })
   if (!fs.contains(project, library) || !fs.contains(project, table)) {
     throw new Error('project library targets must stay inside projectDir')

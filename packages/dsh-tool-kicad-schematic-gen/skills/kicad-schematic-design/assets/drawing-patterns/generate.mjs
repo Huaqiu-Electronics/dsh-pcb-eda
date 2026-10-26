@@ -1,5 +1,7 @@
 /** Maintainer fixture: node generate.mjs <unique-output-root>. Not a production parts list. */
 import { resolve, join } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { readDesignPlan } from '../../../../lib/builder.js';
 import { Schematic, templateDir, symbolLibrary } from '../runtime.mjs';
 import { place as led } from './led-power-indicator.mjs';
 import { place as button } from './pullup-button.mjs';
@@ -8,6 +10,11 @@ import { labelSide } from './label-alignment.mjs';
 import { place as ldo } from './ldo-fixed-on.mjs';
 if (!process.argv[2]) throw new Error('Usage: node generate.mjs <unique-output-root>');
 const output = resolve(process.argv[2]);
+if (existsSync(output)) throw new Error('Choose an unused output root; existing references are preserved');
+mkdirSync(output, { recursive: true });
+const planPath = join(output, 'drawing-maintenance-plan.md');
+writeFileSync(planPath, '# Original drawing reference maintenance\n\n## Scope\nRender existing LED, button, decoupling, enabled LDO and label examples from their actual place/connect scripts and KiCad reference libraries. Parameters demonstrate typography and layout, not a production hardware design.\n\n## Constraints\nKeep 50 mil electrical geometry and real pin identity; preserve distinct nets, use standard power and GND symbols, render with the shared KiCad SVG pipeline and visually inspect the generated reference images.\n');
+const plan = readDesignPlan(planPath), designPlan = { path: plan.path, sha256: plan.sha256 };
 const resistor = { libraryPath: symbolLibrary('Device'), libId: 'Device:R', value: '10k',
   pins: { top: '1', bottom: '2' }, angle: 0 };
 const capacitor = { libraryPath: symbolLibrary('Device'), libId: 'Device:C', value: '100n',
@@ -32,7 +39,7 @@ const fixtures = [
 for (const [id, place, parts, references, extra] of fixtures) {
   const nets = { supply: '+3V3', ground: 'GND', ...extra };
   const powers = { '+3V3': 'power:+3V3', GND: 'power:GND', ...(id === 'ldo-fixed-on' ? { '+5V': 'power:+5V' } : {}) };
-  const sch = new Schematic({ projectName: id, title: id, paper: 'A4', templateDir, requiredPowerSymbols: powers });
+  const sch = new Schematic({ designPlan, projectName: id, title: id, paper: 'A4', templateDir, requiredPowerSymbols: powers });
   const region = sch.region({ name: id, description: 'Drawing example; values are illustrative', origin: [25, 25], size: [id === 'ldo-fixed-on' ? 130 : 85, 80] });
   const unit = place({ region, at: [10, 12], parts, references, nets, enableToVin: id === 'ldo-fixed-on' });
   unit.connect();
@@ -41,8 +48,9 @@ for (const [id, place, parts, references, extra] of fixtures) {
   console.log(JSON.stringify({ id, ...sch.save(join(output, id)) }));
 }
 // Rotate the same known fixture to exercise real label text in all four directions.
+if (process.argv.includes('--circuits-only')) process.exit(0);
 for (const [id, angle] of [['label-sides', 0], ['label-vertical', 90]]) {
-  const sch = new Schematic({ projectName: id, title: id, paper: 'A4', templateDir });
+  const sch = new Schematic({ designPlan, projectName: id, title: id, paper: 'A4', templateDir });
   sch.addSymbol({ libraryPath: symbolLibrary('Connector_Generic'), libId: 'Connector_Generic:Conn_02x08_Odd_Even',
     reference: 'J1', value: 'LABEL_DEMO', at: [65, 60], angle, fieldAngle: angle,
     referenceAt: angle === 0 ? [65, 38] : [88, 57],

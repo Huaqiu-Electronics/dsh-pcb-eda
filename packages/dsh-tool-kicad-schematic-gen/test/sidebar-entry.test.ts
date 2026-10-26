@@ -50,7 +50,7 @@ function mountShell(): HTMLElement {
 
 /** The sibling family rows, mounted in the order the other plugins render them. */
 function mountFamily(root: HTMLElement): void {
-  for (const attribute of ['data-hq-plugin-update-entry', 'data-hqcg-footprint-entry', 'data-hqcg-symbol-entry']) {
+  for (const attribute of ['data-hqcg-footprint-entry', 'data-hqcg-symbol-entry', 'data-hq-plugin-update-entry']) {
     const row = document.createElement('button')
     row.setAttribute(attribute, '')
     root.appendChild(row)

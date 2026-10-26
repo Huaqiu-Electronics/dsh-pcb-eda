@@ -2,20 +2,17 @@
 import {randomUUID,createHash} from 'node:crypto'
 import {mkdir,readFile,writeFile,readdir,realpath,rename,rm} from 'node:fs/promises'
 import {basename,dirname,join,relative,isAbsolute,extname} from 'node:path'
-import {fileURLToPath,pathToFileURL} from 'node:url'
+import {pathToFileURL} from 'node:url'
 import type {IncomingMessage,ServerResponse} from 'node:http'
 import {zipSync} from 'fflate'
 import type {Context} from '@deepseek-ai/cordis'
 import {homedir} from 'node:os'
 
 export const OVERVIEW_ROUTE='/api/v1/kicad-schematic-overview'
-const legacyCache=fileURLToPath(new URL('../.overview-cache/',import.meta.url))
-/** Store generated data outside installed code, including read-only plugin installations. */
+/** Persist snapshots across sessions and runtime upgrades under the current user's HQ Edge home. */
 export function overviewCacheDirectory(env:NodeJS.ProcessEnv=process.env):string{
- const home=env.DSH_HOME;
- if(home&&isAbsolute(home))return join(home,'plugin-data','dsh-tool-kicad-schematic-gen','overview-cache');
- const userData=env.LOCALAPPDATA&&isAbsolute(env.LOCALAPPDATA)?env.LOCALAPPDATA:join(homedir(),'.local','share');
- return join(userData,'deepseek-harness','dsh-tool-kicad-schematic-gen','overview-cache');
+ const home=env.HQ_EDGE_HOME&&isAbsolute(env.HQ_EDGE_HOME)?env.HQ_EDGE_HOME:join(homedir(),'.hq-edge');
+ return join(home,'plugin-data','dsh-tool-kicad-schematic-gen','overview-cache');
 }
 const MAX_BYTES=64*1024*1024
 export interface Overview {
@@ -73,19 +70,13 @@ export async function createOverview(input:{workspace:string;projectDir:string;s
   downloadUrl:`${OVERVIEW_ROUTE}/${id}/project.zip`,filename:`${basename(schematicPath,'.kicad_sch')}.zip`,fileCount:Object.keys(files).length,size:zip.length}
 }
 
-export function overviewHandler(store=overviewCacheDirectory(),legacyStore:string|undefined=store===overviewCacheDirectory()?legacyCache:undefined){return async(req:IncomingMessage,res:ServerResponse)=>{
+export function overviewHandler(store=overviewCacheDirectory()){return async(req:IncomingMessage,res:ServerResponse)=>{
  if(req.method!=='GET'&&req.method!=='HEAD'){res.writeHead(405);res.end();return}
  const path=(req.url??'').split('?')[0]??''
  const match=path.slice(OVERVIEW_ROUTE.length).match(/^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(project\.zip|placement\.json|page-\d+\.png)$/)
  if(!path.startsWith(OVERVIEW_ROUTE)||!match){res.writeHead(404);res.end();return}
  try{
-  let bytes:Buffer;
-  try{bytes=await readFile(join(store,match[1]!,match[2]!))}
-  catch(error){
-   if((error as NodeJS.ErrnoException).code!=='ENOENT'||!legacyStore)throw error;
-   // Existing conversation cards remain readable; never write into installed code.
-   bytes=await readFile(join(legacyStore,match[1]!,match[2]!))
-  }
+  const bytes=await readFile(join(store,match[1]!,match[2]!))
   res.writeHead(200,{'content-type':match[2]==='project.zip'?'application/zip':match[2]==='placement.json'?'application/json':'image/png','content-length':bytes.length,'cache-control':'private, max-age=31536000, immutable','x-content-type-options':'nosniff',...(match[2]==='project.zip'?{'content-disposition':'attachment; filename="project.zip"'}:{})})
   res.end(req.method==='HEAD'?undefined:bytes)
  }catch{res.writeHead(404);res.end()}

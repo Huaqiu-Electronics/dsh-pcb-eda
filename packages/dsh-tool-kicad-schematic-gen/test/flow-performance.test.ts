@@ -12,10 +12,15 @@ import {Schematic} from '../src/schematic/builder.ts'
 import {attachPinLabel} from '../src/schematic/label-leads.ts'
 
 const legacy='(module "SOD-123" (layer F.Cu) (tedit 0) (fp_line (start -1 0) (end 1 0) (layer F.SilkS) (width 0.15)) (pad "1" smd rect (at -1 0) (size 1 1) (layers F.Cu F.Mask)) (pad "2" smd rect (at 1 0) (size 1 1) (layers F.Cu F.Mask)))'
-test('legacy module footprint pads are read without rewriting geometry',()=>{
- assert.deepEqual(summarizeFootprint(legacy),{status:'parsed',name:'SOD-123',padCount:2,pads:[{number:'1',type:'smd'},{number:'2',type:'smd'}]})
- assert.throws(()=>summarizeFootprint(legacy.slice(0,-1)),/unbalanced/)
+const footprint='(footprint "SOD-123" (layer "F.Cu") (pad "1" smd rect (at -1 0) (size 1 1) (layers "F.Cu" "F.Mask")) (pad "2" smd rect (at 1 0) (size 1 1) (layers "F.Cu" "F.Mask")))'
+test('modern footprints are parsed and obsolete module roots are rejected',()=>{
+ const summary=summarizeFootprint(footprint)
+ assert.equal(summary.status,'parsed')
+ if(summary.status!=='parsed')throw new Error('Expected parsed footprint')
+ assert.equal(summary.padCount,2)
+ assert.throws(()=>summarizeFootprint(legacy),/Unsupported footprint format/)
 })
+
 test('preparation bounds concurrent work, settles failures, and preserves input order',async()=>{
  let active=0,max=0,finished=0
  await assert.rejects(prepareBatch([0,1,2,3,4,5],async n=>{active++;max=Math.max(max,active);await new Promise(r=>setTimeout(r,5));active--;finished++;if(n===2)throw new Error('invalid model');return n}),/FOOTPRINT_BATCH_FAILED/)
@@ -25,7 +30,7 @@ test('preparation bounds concurrent work, settles failures, and preserves input 
 test('successful downloads survive another item failing, with bounded cache and no failure caching',async()=>{
  let gets=0
  const fetcher=(async(url:any,init:any)=>{
-  gets++;if(String(url).endsWith('.kicad_mod'))return new Response(legacy)
+  gets++;if(String(url).endsWith('.kicad_mod'))return new Response(footprint)
   const mpn=JSON.parse(init.body).mpn;if(mpn==='bad')throw new Error('network')
   return Response.json({code:200000,result:{mpn,cadUrlList:[{type:'footprint',fileUrl:'https://example.test/model.kicad_mod'}]}})
  }) as typeof fetch

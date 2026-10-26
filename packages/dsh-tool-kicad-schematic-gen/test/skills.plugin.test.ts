@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import {test} from 'node:test'
 import {access} from 'node:fs/promises'
-import {apply} from '../src/skills.ts'
+import {isAbsolute,join} from 'node:path'
+import {apply,skillResourcePaths} from '../src/skills.ts'
 test('migrated skill resolves resources and instructs the split component flow',async()=>{
  let provider:any
  apply({effect:(fn:()=>unknown)=>fn(),skills:{registerProvider:(fn:()=>unknown)=>{provider=fn();return()=>{}}}} as never)
@@ -22,4 +23,13 @@ test('migrated skill resolves resources and instructs the split component flow',
  assert.match(skill.content,/已有 `get_eda_host_info` 返回值时复用/)
  assert.match(skill.content,/正常生成、读取和渲染原理图不依赖 PCB IPC/)
  assert.match(skill.content,/kicadCliPath/)
+ const paths=skillResourcePaths()
+ assert.equal(paths.skillDir,candidate.resourceBase.path)
+ assert.equal(paths.geometryPath,join(paths.skillDir,'assets','drawing-patterns','geometry.mjs'))
+ for(const path of Object.values(paths)){
+  assert.ok(isAbsolute(path))
+  await access(path)
+ }
+ // The path object shown to the model must be exactly the verified resources.
+ assert.ok(skill.content.includes(JSON.stringify(paths,null,2)))
 })

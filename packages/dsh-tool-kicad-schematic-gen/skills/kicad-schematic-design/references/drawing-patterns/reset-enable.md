@@ -25,7 +25,7 @@
 
 ## 使用现有代码
 
-[上拉按键](pullup-button.md) 的 [place 示例](../../assets/drawing-patterns/pullup-button.mjs) 已实现竖向电阻、按键和信号分支，可直接用于已确认的 BOOT 拓扑。复位 RC 尚无独立可执行模板：在功能模块内参照该画法定制，或在已放置的上拉按键右侧增加实际电容，以真实引脚坐标连接，不伪称存在 reset 专用 API。
+[上拉按键](pullup-button.md) 的 [place 示例](../../assets/drawing-patterns/pullup-button.mjs) 已实现竖向电阻、按键和信号分支，可直接用于已确认的 BOOT 拓扑。复位 RC 已补充独立的 [说明](reset-rc.md) 与 [place 示例](../../assets/drawing-patterns/reset-rc.mjs)。仅在已核实有效低上拉/按键/电容拓扑时传 activeLowRcConfirmed:true，按真实模型填写引脚角色；它是项目可复制的范例，不是 builder 内置 reset API。
 
 1. 先核实所选按键的引脚/触点关系和旋转后的真实坐标；示例 pins.top/bottom 不是所有按键通用的物理编号。四脚按键尤其要确认同侧内部连通关系。
 2. 完成器件放置后读取实际 pin，按图建立上拉节点、按键支路和电容支路；T 形分支显式加 junction，不能根据图像位置猜连接。

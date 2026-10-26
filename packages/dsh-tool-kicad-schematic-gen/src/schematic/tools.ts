@@ -311,7 +311,7 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
         schematicPath: { type: 'string' },
         delivery: { type: 'boolean', description: 'True only for final saved project delivery: show an overview card and snapshot a downloadable project ZIP. Omit during layout review.' },
         kicadCliPath: {type:'string',description:'Optional absolute kicad-cli path already returned by get_eda_host_info. Reuse known host information; omit to use plugin configuration.'},
-        projectDir: { type: 'string', description: 'With delivery:true, project folder containing the schematic, local symbol/footprint libraries and library tables. Defaults to the schematic folder. Must stay inside workspace.' },
+        projectDir: { type: 'string', description: 'Project folder containing local libraries and library tables. On ordinary candidate previews, pass this to check footprints against the prepared project before publishing. With delivery:true defaults to the schematic folder and must also contain all sheets. Must stay inside workspace.' },
         regions: { type: 'array', items: regionSchema, description: 'Optional module crops in schematic millimetres; defaults to annotated root-sheet rectangles. [] disables region crops.' },
         pageNames: { type: 'array', items: { type: 'string' }, description: 'Optional exact exported page names to render; defaults to root first. Use omittedPages names to request missing pages.' },
         outputDir: { type: 'string', description: 'Optional preview folder inside the workspace; defaults to a previews folder beside the schematic.' },
@@ -324,6 +324,9 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
         pages:{type:'array',items:{type:'object',properties:{name:{type:'string'},imageUrl:{type:'string'}},required:['name','imageUrl']}},
       },required:['title','revision','downloadUrl','filename','fileCount','size','pages']}] },
       overviewError: {oneOf:[{type:'string'},{type:'null'}]},
+      renderStatus: {type:'string',enum:['ok','partial','error']},
+      deliveryStatus: {type:'string',enum:['not_requested','ready','blocked']},
+      footprintCheck: {oneOf:[{type:'null'},{type:'object',additionalProperties:true}]},
       manifestPath: { type: 'string' }, cached: { type: 'boolean' },
       regionManifestPath: { type: 'string' },
       regionImages: { type: 'array', items: { ...regionSchema, properties: { ...regionSchema.properties,
@@ -342,13 +345,12 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
         svgPath: { type: 'string' }, pngPath: { type: 'string' },
       }, required: ['pageIndex', 'exportedPageName', 'pageSchematicPath', 'svgPath', 'pngPath'] } },
     }, required: ['schematicPath', 'revision', 'outputDir', 'manifestPath', 'cached',
-      'pageCount', 'truncated', 'pages', 'failures', 'status', 'rootImagePath', 'omittedPages', 'readImageInstruction', 'regionImages', 'regionManifestPath'] },
+      'pageCount', 'truncated', 'pages', 'failures', 'status', 'renderStatus', 'deliveryStatus', 'footprintCheck', 'rootImagePath', 'omittedPages', 'readImageInstruction', 'regionImages', 'regionManifestPath'] },
     render: (_args, output) => [{ type: 'text', text: JSON.stringify(output, null, 2) }] },
     async execute(args, exec) {
       const input = validateKeys(args, ['schematicPath', 'outputDir', 'pageNames', 'regions', 'delivery', 'projectDir','kicadCliPath'], 'render_kicad_module_preview')
       const renderConfig=previewConfig(config,input.kicadCliPath)
       if(input.delivery !== undefined && typeof input.delivery !== 'boolean')throw new Error('delivery must be boolean')
-      if(input.projectDir !== undefined && input.delivery !== true)throw new Error('projectDir requires delivery:true')
       const workspace = workspaceRoot(exec.agent)
       const source = await readWorkspaceSchematic(ctx.fs, workspace,
         requiredString(input, 'schematicPath'), config.maxSchematicBytes, exec.signal)
@@ -360,6 +362,30 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
       const pageNames = input.pageNames === undefined ? [] : parseUnconnectedPorts(input.pageNames, 'pageNames')
       if (pageNames.length > config.previewMaxPages) throw new Error(`code=PREVIEW_PAGE_LIMIT; retryUnchanged=false; request at most ${config.previewMaxPages} pageNames per call.`)
       const regions = resolvePreviewRegions(input.regions, source.text, basename(source.path, '.kicad_sch'), config.flatListLimit)
+      // Check prepared libraries before rendering; ordinary candidate previews can
+      // point at projectDir without copying libraries into each candidate folder.
+      let footprintCheck: {status:'ready'|'blocked';sheets:Array<{schematicPath:string}&Awaited<ReturnType<typeof auditFootprints>>>;error:string|null}|null=null
+      let checkedProject: string|undefined
+      if(input.delivery === true || input.projectDir !== undefined){
+        footprintCheck={status:'ready',sheets:[],error:null}
+        try{
+          const project=input.projectDir===undefined?dirname(source.path):requiredString(input,'projectDir')
+          const [root,resolved]=await Promise.all([ctx.fs.resolve(workspace,{signal:exec.signal}),ctx.fs.resolve(project,{cwd:workspace,signal:exec.signal})])
+          if(!ctx.fs.contains(root,resolved)||(await ctx.fs.stat(resolved,exec.signal))?.type!=='directory')throw new Error('projectDir must be an existing directory inside the workspace')
+          checkedProject=resolved.displayPath
+          for(const item of sources){
+            const sheet=item.schematicPath===source.path?source:await readWorkspaceSchematic(ctx.fs,workspace,item.schematicPath,config.maxSchematicBytes,exec.signal)
+            if(input.delivery===true)assertSchematicGrid(sheet.text)
+            const audit=await auditFootprints(sheet.text,checkedProject,ctx.fs,exec.signal)
+            footprintCheck.sheets.push({schematicPath:sheet.path,...audit})
+          }
+          const missing=footprintCheck.sheets.filter(sheet=>sheet.status!=='ready')
+          if(missing.length)throw new Error(`FOOTPRINTS_UNRESOLVED: ${missing.map(sheet=>`${sheet.schematicPath}: ${sheet.unresolved.map(part=>part.reference).join(', ')}`).join('; ')}. Prepare project-local footprints and persist script mappings before publishing; do not rebuild unchanged geometry to repair missing libraries.`)
+        }catch(error){
+          exec.signal.throwIfAborted()
+          footprintCheck.status='blocked';footprintCheck.error=error instanceof Error?error.message:String(error)
+        }
+      }
       const rendered = await renderModulePreview(outputDir, source.path, revision, renderConfig, exec.signal, sources, undefined, pageNames)
       const selectedRegions = input.regions === undefined ? regions.filter(r => rendered.pages.some(p => p.exportedPageName === r.pageName)) : regions
       const crops = await renderPreviewRegions(rendered.pages, selectedRegions, revision, rendered.manifestPath, config, exec.signal)
@@ -367,27 +393,22 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
       const omittedPages = sources.filter(item => !rendered.pages.some(page => page.exportedPageName === item.exportedPageName)).map(item => item.exportedPageName)
       let overview = null, overviewError = null
       if(input.delivery === true){
-        if(!overviewAvailable)overviewError='Preview card service unavailable; use returned local preview paths.'
+        if(footprintCheck?.status==='blocked')overviewError=footprintCheck.error
+        else if(!overviewAvailable)overviewError='Preview card service unavailable; use returned local preview paths.'
         else if(!rendered.pages.length)overviewError='No rendered pages available for the overview.'
         else try {
-          const project = input.projectDir === undefined ? dirname(source.path) : requiredString(input,'projectDir')
-          const resolved = await ctx.fs.resolve(project,{cwd:workspace,signal:exec.signal})
-          for(const item of sources){
-            const sheet=item.schematicPath===source.path?source:await readWorkspaceSchematic(ctx.fs,workspace,item.schematicPath,config.maxSchematicBytes,exec.signal);
-            assertSchematicGrid(sheet.text)
-            const footprints=await auditFootprints(sheet.text,resolved.displayPath,ctx.fs,exec.signal)
-            if(footprints.status!=='ready')throw new Error(`FOOTPRINTS_UNRESOLVED: ${footprints.unresolved.length} of ${footprints.total} physical instances in ${item.schematicPath} lack project-local footprints. Run localize_kicad_module_footprints check/import and persist script mappings before delivery.`)
-          }
-          overview = await createOverview({workspace,projectDir:resolved.displayPath,schematicPath:source.path,revision,pages:rendered.pages,sources})
-        }catch(error){overviewError=error instanceof Error?error.message:String(error)}
+          overview = await createOverview({workspace,projectDir:checkedProject!,schematicPath:source.path,revision,pages:rendered.pages,sources})
+        }catch(error){exec.signal.throwIfAborted();overviewError=error instanceof Error?error.message:String(error)}
       }
+      const renderStatus=rendered.pages.length===0?'error':rendered.truncated||failures.length>0?'partial':'ok'
+      const deliveryStatus=input.delivery!==true?'not_requested':overview?'ready':'blocked'
       return {
-        overview, overviewError,
+        overview, overviewError, renderStatus, deliveryStatus, footprintCheck,
         schematicPath: source.path, revision, outputDir,
         manifestPath: rendered.manifestPath, cached: rendered.cached,
         pageCount: rendered.pageCount, truncated: rendered.truncated,
         pages: rendered.pages, failures, regionImages: crops.regionImages, regionManifestPath: crops.regionManifestPath,
-        status: rendered.pages.length === 0 ? 'error' : rendered.truncated || failures.length > 0 ? 'partial' : 'ok',
+        status: deliveryStatus==='blocked'||footprintCheck?.status==='blocked'?'error':renderStatus,
         rootImagePath: rendered.pages.find(page => page.pageSchematicPath === source.path || page.exportedPageName === basename(source.path, '.kicad_sch'))?.pngPath ?? null,
         omittedPages,
         readImageInstruction: 'For module detail read exact regionImages[].pngPath first; each image includes millimetre bounds, source and revision in regionManifestPath. Read rootImagePath for overall layout, or an exact pages[].pngPath. Do not write crop/zoom scripts for existing region images. Only listed PNGs exist; never replace an SVG extension or construct a PNG path. Check failures first: do not repeat failed pages unchanged or export a netlist to repair a preview. For unrendered pages not listed in failures, call render_kicad_module_preview with the same schematicPath and pageNames from omittedPages. Match the image to revision and its pageSchematicPath using manifestPath, pageIndex, and exportedPageName. A null pageSchematicPath means the page name could not be matched; do not infer its child file. A preview is not netlist evidence.',

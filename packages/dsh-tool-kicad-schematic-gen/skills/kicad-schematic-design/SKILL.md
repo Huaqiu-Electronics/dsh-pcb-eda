@@ -13,6 +13,16 @@ description: Before a new schematic, ask the user to confirm requirements and wa
 
 自动分析若报 CLI_START_FAILED，复用 get_eda_host_info 的 installation.executables 中名为 kicad-cli 的 path，传入 analyze_kicad_module({schematicPath,view:"summary",kicadCliPath}) 重试；没有已有宿主信息才获取一次。不要重新下载模块、扫描配置目录或把不支持的导出命令当作路径问题。后续查询复用成功路径，省略 kicadCliPath。
 
+## 执行主线
+
+需求确认 → 保存并读回硬件方案 → 检查模块与准备全部实际器件库 → 按连接计划编写脚本 → 候选预览与本地封装检查 → 集中修复并同步方案 → 发布与正式概览。方案阶段的选型核实照常进行，方案未保存读回前不编写生成脚本；不增加额外审批。
+
+- 路径直接使用末尾运行时提供的 `skillDir/runtimePath/runnerPath/geometryPath` 等绝对路径。本文的 assets/、references/、scripts/ 均相对于 skillDir，不是 pluginDir。只读取本次需要的接口、所选画法及其直接依赖，不递归列出整个技能目录。
+- 同一项目已读取的接口和成功查询沿用；独立的只读资料请求可批量执行。写入同一工程库表的导入按工具并发约定执行，不盲目并发修改库表。
+- 首版前准备全部物理器件（含阻容与连接器）的真实本地符号、封装及库表。已有复用模块先核对映射；参考符号和非空 Footprint 名称都不代表本地封装已就绪。
+- 第一版候选普通预览传 `projectDir` 指向已准备库表的正式工程目录，同时检查 `footprintCheck`；修正未解析引用后再发布。正式交付要求 `deliveryStatus:ready` 且 overview 非空；`renderStatus:ok` 只代表渲染成功。
+- 读取或导入失败时按[错误分类与恢复](references/troubleshooting.md)改变下一步，不原样重复确定性错误。实际器件变更时同步方案/BOM，再读回版本并构建。已使用任务清单时，在最后一次正式概览之前更新实际完成状态；未完成项说明原因。
+
 ## 1. 明确需求与原理图形式
 
 新建原理图项目必须先执行 hardware-design-brief 的“方案前需求确认”：展示已知目标、交付范围、关键缺口和推荐选项，用 `ask_user_question` 提问并等待真实用户回复；即使能自行作假设也不能跳过。工具不可用时在对话中提问并结束本轮等待。未回复、取消、超时或默认选择不算确认，期间只可只读核实资料，不得写正式方案、生成脚本或电路副本。已确认的同一项目需求可沿用，不反复确认。需求回复应在现有 PRD/精简方案中记录实际来源；有文档和 hash 不等于需求已经确认。
@@ -45,9 +55,9 @@ description: Before a new schematic, ask the user to confirm requirements and wa
 
 对选定的复用模块完成[模块封装本地化](references/module-footprints.md)：先 list 原实例，优先利用模块下载返回的 footprints，缺失时搜索精确器件并只下载对应封装；保存 mappingPath，并在设计脚本的 importModule 中传 footprintMappingPath。已有符号和电路保持不变。最终 project 中每个需要上板的实例都必须指向实际存在的本地封装，不能保留未注册的 kicad_api_lib 引用；电源符号不要求封装。来源内容变化时重新生成映射，布局重跑时复用记录。
 
-封装准备从模块确定后开始，与布局工作交错推进，不留到交付前集中补齐。`import.stage=prepared` 只表示库与映射就绪，来源未改写时用 `check_mapping` 检查准备状态；`check` 留给已应用映射的实际候选/最终原理图，避免把源文件 resolved:0 当成下载失败。先利用 list 的 dnp、端口工具和器件引脚信息明确真实接法，再共用连接计划生成脚本与文档引脚表。
+封装准备从模块确定后开始，首版构建前完成实际器件库和来源映射，不留到交付前集中补齐。`import.stage=prepared` 只表示库与映射就绪，来源未改写时用 `check_mapping` 检查准备状态；`check` 留给已应用映射的实际候选/最终原理图，避免把源文件 resolved:0 当成下载失败。先利用 list 的 dnp、端口工具和器件引脚信息明确真实接法，再共用连接计划生成脚本与文档引脚表。
 
-项目本地器件库统一归类：符号写入 `project/libraries/symbols/*.kicad_sym`，封装写入 `project/libraries/footprints/*.pretty/`；`sym-lib-table` 和 `fp-lib-table` 保留在 project 根目录，通过 `${KIPRJMOD}/libraries/...` 注册。复用导入工具返回的 libraryPath、libId、footprintId，不另在根目录创建副本。设计脚本使用相对于自身文件位置的路径定位 project，并保留整个 libraries 目录用于打包和后续 PCB。旧项目已有根目录库时，工具仍可复用；整理旧项目须同步库表和脚本路径，不改变库昵称或实例关联。
+项目本地器件库统一归类：符号写入 `project/libraries/symbols/*.kicad_sym`，封装写入 `project/libraries/footprints/*.pretty/`；`sym-lib-table` 和 `fp-lib-table` 保留在 project 根目录，通过 `${KIPRJMOD}/libraries/...` 注册。复用导入工具返回的 libraryPath、libId、footprintId，不另在根目录创建副本。设计脚本使用相对于自身文件位置的路径定位 project，并保留整个 libraries 目录用于打包和后续 PCB。不再自动复用根目录旧库；遇到同名旧库表路径冲突时明确修正库表及脚本，不依赖历史目录回退。
 
 专门的器件搜索由 KiCad 内置插件 `@huaqiu/dsh-tool-part-search` 提供。用 `search_hqsch_parts({query, page, page_size, require_eda_model: true, requirements: {symbol: true, footprint: true}})` 搜索型号或功能规格，结果在 `items` 中，支持分页。需要完整参数、分类、文档或标签时，用选定器件的 `manufacturer.id` 和精确型号调用 `get_hqsch_part({manufacturer_id, mpn})`。`get_hqsch_part_models({manufacturer_id, mpn})` 只返回符号、封装、3D 等模型链接，不下载或解析；检查实际引脚和焊盘仍用原理图插件的 `get_kicad_component_models({manufacturer_id, mpn})`。仅在需要采购信息时调用 `get_hqsch_supply_chain({parts: [{manufacturer_id, mpn}]})`，空报价不代表市场无库存。搜索中的模型标记可能由筛选条件推导，不能据此认定模型一定存在或不存在；以详情、模型链接及实际解析结果核对。搜索插件关闭或不可用时说明条件，不绕过开关；可继续检查已有模块，缺少在线符号的部分按本节回退规则处理。
 
@@ -74,7 +84,7 @@ description: Before a new schematic, ask the user to confirm requirements and wa
 
 从零编写或补充电路时读取 [编程接口](references/programming.md) 与 [模块脚本组织](references/modular-scripts.md)。模型决定器件、连接和布局，现有 builder.js 处理文件格式与真实引脚坐标。多功能电路采用 design.mjs 主入口和 modules/ 下每框独立脚本，共享器件数据与引用编号；先放置全部器件，再布线，最后统一保存。下载复用模块和新编写模块可同时进入同一个 Schematic；此组合优先按 [混合整合范例](references/mixed-design.md) 编写主入口，导入模块后将返回的目标引用编号登记到共享分配器，再放置新增器件。只修受影响模块和连接，避免重新读取全部代码。默认不创建 smoke.mjs 或单电阻测试工程；直接生成实际候选并调用预览。只有库接口发生变化或明确的内部错误才做最小复现。先用生成器返回的全部外框坐标检查页面范围与框间重叠，集中调整一次后再预览，不为打印坐标重复生成候选。
 
-新增 LED、上拉按键、去耦电容或 LDO 外围等局部电路，或排列芯片/连接器的信号标签时，先按需读取 [局部电路画法索引](references/drawing-patterns.md)，选择已确认拓扑匹配的简短代码；不熟悉画法才读取对应参考图。局部单元放在现有功能框内，共用编号和两阶段 place/connect，不各自建框或保存工程。代码依照实际导入符号的引脚、方向和属性调整，不能照抄范例取值或用画法替代电气设计。复用模块布局已经清楚时保留，不为套范例重画。绘制复位/使能 RC 或并列启动按键时，读取 [复位与启动画法](references/drawing-patterns/reset-enable.md)：上拉与按键竖向对齐，对地电容放节点右下方、地向下，避免横放按键的回绕线；BOOT 不自动复制复位电容。LDO 输入电容放在 VIN 一侧、输出电容放在 VOUT 一侧，优先短导线直接连接，不把所属外围集中到框下方；芯片去耦同样归属到供电脚附近。先组织框内主信号流向、对齐器件和属性，再调整外框与整页位置；同一画法与图片在本轮已经读过就复用结论。
+新增 LED、上拉/复位 RC、去耦、三脚或带 EN 的 LDO、I²C 上拉、无源晶振负载电容、异步 Buck/Boost DC-DC、MCU 最小系统、USB Type-C 设备端、MOSFET 低侧开关、SWD 接口等局部电路，或排列芯片/连接器的信号标签时，先按需读取 [局部电路画法索引](references/drawing-patterns.md)，选择已确认拓扑匹配的简短代码；不熟悉画法才读取对应参考图。局部单元放在现有功能框内，共用编号和两阶段 place/connect，不各自建框或保存工程。代码依照实际导入符号的引脚、方向和属性调整，不能照抄范例取值或用画法替代电气设计。复用模块布局已经清楚时保留，不为套范例重画。绘制复位/使能 RC 或并列启动按键时，读取 [复位与启动画法](references/drawing-patterns/reset-enable.md)：上拉与按键竖向对齐，对地电容放节点右下方、地向下，避免横放按键的回绕线；BOOT 不自动复制复位电容。LDO 输入电容放在 VIN 一侧、输出电容放在 VOUT 一侧，优先短导线直接连接，不把所属外围集中到框下方；芯片去耦同样归属到供电脚附近。MCU 的复位 RC、BOOT 配置优先靠近所属引脚直接连线，避免用同名标签把紧邻外围拆成孤立支路；晶振位于单独支路时在两端及 MCU 对应脚使用成对同名标签，避免跨区长线；按已确认时钟方案选择内部 RC 或外部无源晶振范例。先组织框内主信号流向、对齐器件和属性，再调整外框与整页位置；同一画法与图片在本轮已经读过就复用结论。
 
 同侧多个信号优先用编程接口中的 attachPinLabels 批量短直引出：左右水平、上下竖排，导线外端同列/同行，名称默认排在引线上方或沿竖线排列；不随名称长度逐根改变线长，也不默认把上下引脚扇出成阶梯。电源、地、NC 和已有连接单独处理；普通单点或确需折线时才用 attachPinLabel。执行用 scripts/run-design.mjs 保存 UTF-8 构建报告，正常项目不读取编译库源码猜接口。同一问题连续两轮仍未改善时，改用更宽外框或不同引线通道，集中处理明确遮挡；不跳过电气问题或无法辨认的内容。
 
@@ -90,4 +100,4 @@ description: Before a new schematic, ask the user to confirm requirements and wa
 
 候选通过后发布到固定 project/，只替换本设计生成的工程文件和已列明子页，保留符号库、来源和其他工程文件。正式工程使用相对子页路径，再生成正式预览；安全清理本轮候选。交付正式原理图、工程配置、所需符号库、脚本、来源与预览，说明复用/修改/新设计的模块及未核实条件。允许为模块理解只读提取并缓存网表/BOM；默认不运行 ERC、不额外进行网表接线比对、不编写端点审计、不生成 PCB；用户明确要求时再执行。预览和连接计划不能称为电气验证通过。
 
-先在候选上完成最后一次读图、修复、封装检查和发布，再生成正式概览；不要先 delivery 再读取图片继续布局修改。若发现新问题，使用普通预览修复完成后再正式交付。同一轮只展示最后一次有效正式预览，旧 ZIP 快照仍保留。正式概览必须是本轮最后一个工具操作；清理、检查和读图都在它之前完成。之后若继续调用任何工具，必须重新正式交付；完成正式交付后直接输出最终说明。最终正式工程的预览调用 `render_kicad_module_preview({schematicPath: 正式原理图路径, projectDir: 正式project目录, delivery: true})`，可复用同版本渲染缓存，在本轮正常完成后，于最终回复后的轮次尾部显示原理图概览、页面切换、缩放和工程 ZIP 下载卡片；执行期间仅保存工具结果，不立即展示卡片。中间布局检查不传 delivery。projectDir 必须同时包含根图、子页和工程所需本地库；ZIP 收集该目录内原理图、工程配置、符号、封装、库表及3D模型，不包含脚本、来源、预览或工作区外的库。返回 overviewError 时说明卡片或打包不可用，保留已生成工程和现有本地预览，不因此重建电路。卡片不提供重新生成、详情或自动放置按钮。概览不代表电气验证通过。
+先在候选上完成最后一次读图、修复、封装检查和发布，再生成正式概览；不要先 delivery 再读取图片继续布局修改。若发现新问题，使用普通预览修复完成后再正式交付。同一轮只展示最后一次有效正式预览，旧 ZIP 快照仍保留。正式概览必须是本轮最后一个工具操作；清理、检查和读图都在它之前完成。之后若继续调用任何工具，必须重新正式交付；完成正式交付后直接输出最终说明。最终正式工程的预览调用 `render_kicad_module_preview({schematicPath: 正式原理图路径, projectDir: 正式project目录, delivery: true})`，可复用同版本渲染缓存，在本轮正常完成后，于最终回复后的轮次尾部显示原理图概览、页面切换、缩放和工程 ZIP 下载卡片；执行期间仅保存工具结果，不立即展示卡片。中间布局检查不传 delivery。projectDir 必须同时包含根图、子页和工程所需本地库；ZIP 收集该目录内原理图、工程配置、符号、封装、库表及3D模型，不包含脚本、来源、预览或工作区外的库。交付返回 deliveryStatus:blocked 或 overviewError 时不得宣称正式交付成功；先依据 footprintCheck/error 修正缺库或服务问题，保留已有工程和预览，不为补库重画未变的电路。卡片不提供重新生成、详情或自动放置按钮。概览不代表电气验证通过。

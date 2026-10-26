@@ -4,10 +4,21 @@
 
 | 画法 | 适用条件 | 说明与参考代码 | 效果 |
 | --- | --- | --- | --- |
+| MCU 最小系统（内部 RC） | 按对应文档核实器件、模式与接口脚序 | [说明](drawing-patterns/mcu-minimum.md) · [代码](../assets/drawing-patterns/mcu-minimum.mjs) | [图片](../assets/drawing-patterns/mcu-minimum.png) |
+| MCU 最小系统（外部晶振） | 已确认外部无源晶体、负载电容与振荡引脚 | [说明](drawing-patterns/mcu-external-crystal.md) · [代码](../assets/drawing-patterns/mcu-external-crystal.mjs) | [图片](../assets/drawing-patterns/mcu-external-crystal.png) |
+| USB Type-C USB 2.0 设备端接口 | 按对应文档核实器件、模式与接口脚序 | [说明](drawing-patterns/usb-c-device.md) · [代码](../assets/drawing-patterns/usb-c-device.mjs) | [图片](../assets/drawing-patterns/usb-c-device.png) |
+| N-MOSFET 低侧感性负载开关 | 按对应文档核实器件、模式与接口脚序 | [说明](drawing-patterns/mosfet-low-side.md) · [代码](../assets/drawing-patterns/mosfet-low-side.mjs) | [图片](../assets/drawing-patterns/mosfet-low-side.png) |
+| 五针 SWD 调试排针 | 按对应文档核实器件、模式与接口脚序 | [说明](drawing-patterns/swd-header.md) · [代码](../assets/drawing-patterns/swd-header.mjs) | [图片](../assets/drawing-patterns/swd-header.png) |
 | 电源指示 LED | 已确定电源经限流电阻、LED 接地 | [LED](drawing-patterns/led-power-indicator.md) · [代码](../assets/drawing-patterns/led-power-indicator.mjs) | [图片](../assets/drawing-patterns/led-power-indicator.png) |
 | 上拉按键 | 已确定上拉、按下接地的有效低输入 | [按键](drawing-patterns/pullup-button.md) · [代码](../assets/drawing-patterns/pullup-button.mjs) | [图片](../assets/drawing-patterns/pullup-button.png) |
-| 复位/使能 RC 与启动支路 | 按已确认接法区分带电容复位与普通 BOOT | [布局与现有代码用法](drawing-patterns/reset-enable.md)；尚无独立 RC 模板 | 文档内通用示意，不绑定芯片型号或取值 |
+| 复位/使能 RC 与启动支路 | 按已确认接法区分带电容复位与普通 BOOT | [布局与现有代码用法](drawing-patterns/reset-enable.md) · [RC 代码](../assets/drawing-patterns/reset-rc.mjs) | 文档内通用示意，不绑定芯片型号或取值 |
 | 去耦电容组 | 已确定同一电源域各电容并联接地 | [电容组](drawing-patterns/decoupling-bank.md) · [代码](../assets/drawing-patterns/decoupling-bank.mjs) | [图片](../assets/drawing-patterns/decoupling-bank.png) |
+| 三脚固定输出 LDO | 适用于已核实 VIN/VOUT/GND 三种引脚角色、没有 EN 的固定输出稳压器 | [说明](drawing-patterns/ldo-three-pin.md) · [代码](../assets/drawing-patterns/ldo-three-pin.mjs) | [图片](../assets/drawing-patterns/ldo-three-pin.png) |
+| 复位/使能 RC | 仅适用于已核实的有效低信号、上拉电阻、对地按键和对地电容 | [说明](drawing-patterns/reset-rc.md) · [代码](../assets/drawing-patterns/reset-rc.mjs) | [图片](../assets/drawing-patterns/reset-rc.png) |
+| I²C 双线上拉 | 仅适用于已核实的同一电压域 SDA/SCL 上拉 | [说明](drawing-patterns/i2c-pullups.md) · [代码](../assets/drawing-patterns/i2c-pullups.mjs) | [图片](../assets/drawing-patterns/i2c-pullups.png) |
+| 无源晶振与负载电容 | 仅适用于芯片确认使用外部无源晶振、且需要外部负载电容的接法 | [说明](drawing-patterns/crystal-load.md) · [代码](../assets/drawing-patterns/crystal-load.mjs) | [图片](../assets/drawing-patterns/crystal-load.png) |
+| 异步 Buck 降压 | 已核实异步拓扑、使能接法及外部反馈 | [说明](drawing-patterns/dcdc-buck.md) · [代码](../assets/drawing-patterns/dcdc-buck.mjs) | [图片](../assets/drawing-patterns/dcdc-buck.png) |
+| 异步 Boost 升压 | 已核实异步拓扑、使能接法及外部反馈 | [说明](drawing-patterns/dcdc-boost.md) · [代码](../assets/drawing-patterns/dcdc-boost.mjs) | [图片](../assets/drawing-patterns/dcdc-boost.png) |
 | LDO 与输入/输出电容 | 已确认固定输出、EN 接 VIN，左右各两个电容 | [LDO](drawing-patterns/ldo-fixed-on.md) · [代码](../assets/drawing-patterns/ldo-fixed-on.mjs) | [图片](../assets/drawing-patterns/ldo-fixed-on.png) |
 
 左右/上下信号标签：[说明与短代码](drawing-patterns/label-alignment.md)。视觉目标使用用户提供的 [左右图](../assets/drawing-patterns/reference-label-sides.png) 和 [上下图](../assets/drawing-patterns/reference-label-vertical.png)；对应实现效果见 [左右生成图](../assets/drawing-patterns/label-sides.png)、[上下生成图](../assets/drawing-patterns/label-vertical.png)。同侧按组调用 attachPinLabels，不采用随机长短引线。
@@ -44,3 +55,11 @@ node <assets>/drawing-patterns/render.mjs <唯一输出目录> <assets>/drawing-
 ```
 
 这两个脚本仅供维护参考资源；正常设计继续用现有预览工具，不复制维护渲染器。共享初始化只在维护脚本中，不复制到每个单元。
+
+补充范例的维护生成器：[generate-supplement.mjs](../assets/drawing-patterns/generate-supplement.mjs)，使用随包固定的 KiCad 官方参考符号子集并先保存维护方案，不依赖系统标准符号库。执行 `node <assets>/drawing-patterns/generate-supplement.mjs <唯一输出目录>`，再执行 `node <assets>/drawing-patterns/render.mjs <唯一输出目录> <assets>/drawing-patterns --supplement` 生成对应四张图片。参考模型和示例参数仅用于验证画法，正式项目仍从真实导入模型建立 pin 角色。
+
+风格与来源统一见 [参考符号来源与风格约定](../assets/drawing-patterns/reference-symbols.md)。新增代码和原有代码共用 geometry.mjs、place/connect 接口与渲染器；避免另外手画简化符号导致参考图外观不一致。
+
+DC-DC 维护生成使用 `generate-supplement.mjs <唯一输出目录> --dcdc`，渲染使用 `render.mjs <唯一输出目录> <assets>/drawing-patterns --dcdc`。复制 DC-DC 单元时同时复制 dcdc-geometry.mjs 和 geometry.mjs。
+
+MCU、Type-C、MOSFET 与 SWD 范例维护：执行 [generate-systems.mjs](../assets/drawing-patterns/generate-systems.mjs) `<唯一输出目录>`，再用 render.mjs `<唯一输出目录> <assets>/drawing-patterns --systems` 生成五张实际图片。各单元参数和模式限制见对应说明。
