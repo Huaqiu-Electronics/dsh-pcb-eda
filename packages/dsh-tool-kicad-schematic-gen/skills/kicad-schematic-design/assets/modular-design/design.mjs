@@ -4,6 +4,7 @@ import { Schematic, templateDir, symbolLibrary } from '../runtime.mjs';
 import { parts } from './shared/parts.mjs';
 import { place as placeInput } from './modules/input.mjs';
 import { place as placeOutput } from './modules/output.mjs';
+import { layout, signalLaneX } from './layout.mjs';
 
 const outputDirectory = process.argv[2];
 if (!outputDirectory || !isAbsolute(outputDirectory)) {
@@ -11,12 +12,8 @@ if (!outputDirectory || !isAbsolute(outputDirectory)) {
 }
 const sch = new Schematic({
   projectName: 'modular_demo', title: 'Modular script example', paper: 'A4',
-  templateDir,
+  templateDir, requiredPowerSymbols: { '+3V3': 'power:+3V3', GND: 'power:GND' },
 });
-const layout = {
-  input: { name: 'Input', description: 'Input resistor', origin: [25, 25], size: [80, 80] },
-  output: { name: 'Output', description: 'Output resistor', origin: [120, 25], size: [80, 80] },
-};
 const regions = Object.fromEntries(Object.entries(layout).map(([key, spec]) => [key, sch.region(spec)]));
 const counts = new Map();
 const allocateReference = prefix => {
@@ -33,10 +30,13 @@ for (const module of [input, output]) module.connect();
 // Cross-region routes use global pin positions and an explicit routing channel.
 const a = sch.pin(input.ports.signal.reference, input.ports.signal.pin);
 const b = sch.pin(output.ports.signal.reference, output.ports.signal.pin);
-sch.wire(a, b, [[110, a[1]], [110, b[1]]]);
+sch.wire(a, b, [[signalLaneX, a[1]], [signalLaneX, b[1]]]);
 sch.label('SIGNAL', a);
-sch.replacePowerLabels({
+const powerSpec = {
   libraryPath: symbolLibrary('power'),
   nets: { '+3V3': 'power:+3V3', GND: 'power:GND' },
-});
-console.log(JSON.stringify(sch.save(outputDirectory)));
+};
+const powerPlan = sch.planPowerPlacements(powerSpec);
+const powerSymbols = sch.replacePowerLabels({ ...powerSpec, placements: powerPlan.placements });
+// One result on stdout. save().powerLayout describes the actual final geometry.
+console.log(JSON.stringify({ ...sch.save(outputDirectory), powerSymbols, powerPlan: powerPlan.diagnostics }));

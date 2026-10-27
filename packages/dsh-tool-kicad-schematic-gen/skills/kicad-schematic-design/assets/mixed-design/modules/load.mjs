@@ -1,8 +1,9 @@
 /** Add a load using selected component data and actual builder pin coordinates. */
-export function place({ region, part, allocateReference, groundNet }) {
+export function place({ region, part, allocateReference, groundNet, placement }) {
   const reference = allocateReference('R');
-  region.addSymbol({ libraryPath: part.libraryPath, libId: part.libId, unit: part.unit,
-    reference, value: part.value, at: [30, 25] });
+  region.addSymbol({ libraryPath: part.libraryPath, libId: part.libId, unit: part.unit, footprint: part.footprint,
+    reference, value: part.value, at: placement.at, angle: placement.angle ?? part.angle,
+    referenceAt: placement.referenceAt, valueAt: placement.valueAt });
   return {
     ports: { signal: { reference, pin: part.pins.signal } },
     connect() {

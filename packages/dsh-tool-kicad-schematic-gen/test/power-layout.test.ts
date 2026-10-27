@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { planPowerLabels, type PowerGeometry } from '../src/schematic/power-layout.ts'
+import { planPowerLabels, insideBounds, offsetBounds, type PowerLayoutArea, type PowerGeometry } from '../src/schematic/power-layout.ts'
 import type { FlatObject } from '../src/schematic/flat.ts'
 import type { PowerLabelEntry } from '../src/schematic/builder.ts'
 
@@ -52,4 +52,23 @@ test('invalid limits reject early; measurement gaps are reported instead of clai
   assert.throws(() => planPowerLabels([label()], [], geometry, [297, 210], { clearanceMm: -1 }), /clearanceMm/)
   const plan = planPowerLabels([label()], [{ type: 'image', uuid: 'unmeasured' }], geometry, [297, 210], {})
   assert.deepEqual(plan.diagnostics.unmeasuredObjectUuids, ['unmeasured'])
+})
+
+test('module content bounds prevent otherwise clean power symbols escaping into a title or adjacent module', () => {
+  const area:PowerLayoutArea={name:'supply',bounds:{left:40,top:40,right:70,bottom:70},
+    contentBounds:{left:42,top:49,right:68,bottom:61},objectUuids:['current']}
+  const original={...label(),at:[50,60] as [number,number]}
+  const plan=planPowerLabels([original],[],geometry,[297,210],{maxMoveMm:0},[area])
+  const placement=plan.placements.current!, metrics=geometry('GND',placement.angle!)
+  assert.equal(plan.diagnostics.stage,'automatic')
+  assert.notEqual(placement.angle,0)
+  assert.ok(insideBounds(offsetBounds(metrics.body,placement.at),area.contentBounds))
+  const [x,y]=placement.valueAt!,[w,h]=metrics.textSize
+  assert.ok(insideBounds({left:x-w/2,right:x+w/2,top:y-h/2,bottom:y+h/2},area.contentBounds))
+  assert.deepEqual(plan.diagnostics.unresolved,[])
+  assert.throws(()=>planPowerLabels([original],[],geometry,[297,210],{maxMoveMm:0},
+    [{...area,contentBounds:{left:49,top:59,right:51,bottom:61}}]),/POWER_PLACEMENT_UNAVAILABLE.*supply.*Enlarge/)
+  assert.throws(()=>planPowerLabels([original,{...original,uuid:'second',net:'+5V'}],[],geometry,[297,210],{maxMoveMm:0},
+    [{...area,objectUuids:['current','second'],contentBounds:{left:49,top:59,right:51,bottom:61}}]),
+    /POWER_PLACEMENT_UNAVAILABLE.*GND.*\+5V|POWER_PLACEMENT_UNAVAILABLE.*\+5V.*GND/)
 })

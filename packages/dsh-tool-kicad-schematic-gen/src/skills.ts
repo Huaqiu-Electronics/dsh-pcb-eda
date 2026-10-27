@@ -25,6 +25,8 @@ export function skillResourcePaths() {
     runtimePath: join(directory, 'assets', 'runtime.mjs'),
     runnerPath: join(directory, 'scripts', 'run-design.mjs'),
     drawingPatternsPath: join(directory, 'references', 'drawing-patterns.md'),
+    patternReaderPath: join(directory, 'scripts', 'read-patterns.mjs'),
+    drawingPatternAssetsDir: join(directory, 'assets', 'drawing-patterns'),
     geometryPath: join(directory, 'assets', 'drawing-patterns', 'geometry.mjs'),
     templateDir: join(directory, 'templates'),
   }

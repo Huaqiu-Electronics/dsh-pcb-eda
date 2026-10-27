@@ -31,6 +31,6 @@ const imported = sch.importModule({
 
 如需直接修改单页工作副本，可显式传 targetPath；工具仅更新 Footprint 属性。不要将不可变 sources 原文件作为 targetPath。I/O 失败可能留下部分库文件，按返回错误检查，不清空 project 重试。
 
-5. 正式发布后调用 `localize_kicad_module_footprints({action:"check",schematicPath:最终原理图,projectDir})`。层次工程逐个检查实际子页。ready 只说明项目库表和对应封装文件齐全；未解决条目需要定位，不盲目替换型号。正式 delivery 也会检查所有已收集的根图/子页，缺失时返回 FOOTPRINTS_UNRESOLVED，不生成完整交付卡片。此类错误补齐映射即可，不重画电路、不重做布局。
+5. 候选普通预览传 projectDir，检查全部收集页的 footprintCheck。需要单独诊断时再调用 `localize_kicad_module_footprints({action:"check",schematicPath,projectDir})`，层次工程覆盖实际子页。同一原理图版本、库表及封装未变时复用已有成功结果，不额外安排一次独立 check；来源、映射或库改变后重查。正式 delivery 仍强制检查所有收集页，缺失时返回 FOOTPRINTS_UNRESOLVED。ready 只说明本地封装可解析；修复缺库不重画未变电路。
 
 项目 ZIP 递归包含本地封装和 libraries/mappings 下的映射记录。3D 模型并非本步骤保证项，上游外部模型路径可能仍不可用。

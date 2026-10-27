@@ -12,6 +12,6 @@
 
 依据：[ST 数据手册](https://www.st.com/resource/en/datasheet/stm32f030f4.pdf) 与 [ST AN4325 硬件开发指南](https://www.st.com/resource/en/application_note/an4325-getting-started-with-stm32f030xx-and-stm32f070xx-series-hardware-development-stmicroelectronics.pdf)。
 
-所有单元沿用 `place({region, at, parts, references, nets, ...})`，返回 reservedBounds、ports 和 connect()。先放置，再由主入口统一 connect；电源标签最后按现有流程转成官方电源符号。复制 geometry.mjs；MOSFET 单元还需 dcdc-geometry.mjs。保留 50 mil 栅格，长型号按实际属性边界加大空间，不能互换物理引脚以适配画法。
+复制 mcu-minimum.mjs 与 geometry.mjs，沿用索引的 place/connect 约定。保留50 mil栅格，长型号按实际边界扩大空间，不互换物理引脚。
 
-维护生成器为 generate-systems.mjs，使用固定官方参考符号并先保存维护方案。参考图只验证画法和连接，不能替代真实器件选型、完整电气设计及 PCB 验证。来源查阅日期：2026-10-26。
+参考图不替代真实选型、电气或 PCB 验证；生成器用法仅维护时见 [维护说明](maintenance.md)。来源查阅日期：2026-10-26。

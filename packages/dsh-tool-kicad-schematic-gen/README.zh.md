@@ -16,6 +16,10 @@
 
 公开脚本入口是 lib/builder.js 或包的 ./builder 导出。设计技能、资源与模板位于 skills/kicad-schematic-design/。
 
+生成迭代优化：电源规划使用已注册功能框并预留标题/说明，无法安放的位置一次列出。plan.diagnostics.stage=automatic；转换后 save().powerLayout（stage=final）按实际符号重新检查越框、越页和保守重叠，不将覆盖前的诊断视为最终结果。模板将布局放入 layout.mjs，stdout 只输出一个结果 JSON。启动器报告 summaryStatus/summaryError，兼容恢复唯一的多段 JSON 结果，保留完整日志及真实退出码；这些状态不代替交付或电气检查。
+
+画法读取：技能提供 patternReaderPath，执行 `node <patternReaderPath> usb-c-device reset-rc` 返回所选完整说明、代码、去重依赖和参考图绝对路径。首次采用须再用 read_image 实际读对应 PNG；脚本返回路径不等于看过图片。同项目已读资源复用，不遍历全部 assets；不匹配的芯片/拓扑记录适配原因，不强套范例。
+
 新导入器件库默认保存到 `project/libraries/symbols/` 和 `project/libraries/footprints/`，库表保留在 project 根目录，使用 `${KIPRJMOD}` 相对路径注册。相同器件重复导入复用原文件；不再复用工程根目录中的旧库；同名库表仍指向旧目录时明确报冲突，不自动迁移或覆盖。脚本使用导入返回的实际 libraryPath 和 footprintId；概览 ZIP 会递归收集 libraries 下的器件库。
 
 复用模块的封装通过 `localize_kicad_module_footprints` 的 list/import/check 流程本地化。模块下载现在保留 ZIP 中的 `.kicad_mod` 并返回 footprints 列表；缺失时使用明确选择的 manufacturer_id/mpn 查询在线封装。原嵌入符号、引脚和布线不替换，编号集合不匹配时拒绝导入。映射存入 `libraries/mappings/`，在设计脚本中使用 `importModule({...,footprintMappingPath})` 持久应用；来源变化后旧映射会拒绝使用。正式 delivery 在生成概览前验证根图和子页的本地封装引用。映射和封装一并进入项目 ZIP；尺寸、电气功能及 3D 完整性仍需单独确认。已有工程不会在插件加载时自动选择或替换器件。

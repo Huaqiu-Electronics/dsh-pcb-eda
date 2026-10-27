@@ -10,7 +10,9 @@
 | fetch failed / 超时 / 429 / 5xx | 先区分服务故障与具体器件故障。工具未自行重试时最多补充一次重试；持续失败则保留诊断并换已核实的合格候选或报告阻塞。有成功替代型号后不再尝试失败候选。 |
 | 模型 missing / invalid / unsupported_units / PIN_PAD_MISMATCH | 按 sourceUrl、结构和 nextAction 换合适模型或器件；同一输入不原样重试，不伪造模型。更换方案器件时同步文档。 |
 | 导入发生部分写入或库表冲突 | 按报错中的目标路径检查已写入文件，修正具体冲突后再调用；不删除其他库或另写绕过工具的下载器。 |
+| POWER_PLACEMENT_UNAVAILABLE | 按错误列出的全部网络和区域集中扩大框或调整接点/通道；不原样重试、不取消标准电源符号。 |
 | FOOTPRINTS_UNRESOLVED | 查 footprintCheck.sheets 的引用与原因，修正本地封装、库表或持久脚本映射；几何未变时不重画。修好后重用原候选做普通预览/检查。 |
+| CLI_START_FAILED | 复用已有 get_eda_host_info 的 installation.executables 中 name 为 kicad-cli 的 path；没有才查一次宿主。以原 schematicPath、view:summary、kicadCliPath 重试 analyze_kicad_module，不重新下载。能力不支持或导出失败按原诊断处理，不一律归为路径问题。 |
 | 模型 TRANSPORT 重试 | 属于 Harness/模型传输链路，不通过改原理图、重下载器件或更改技能路径修复。 |
 
 ## 预览与交付状态

@@ -49,6 +49,34 @@ test('script launcher preserves Unicode UTF-8 reports, stderr and nonzero exit w
   assert.equal(run.status,3);const data=JSON.parse(await readFile(report,'utf8'));assert.equal(data.exitCode,3);assert.equal(JSON.parse(data.stdout).title,'电源');assert.match(data.stderr,/诊断/)
  }finally{await rm(root,{recursive:true,force:true})}
 })
+
+test('launcher recovers one JSON-lines result, preserves full diagnostics and rejects ambiguous summaries',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'build result '))
+ try{
+  const script=join(root,'design.mjs'),report=join(root,'report.json')
+  const runner=fileURLToPath(new URL('../skills/kicad-schematic-design/scripts/run-design.mjs',import.meta.url))
+  const run=()=>spawnSync(process.execPath,[runner,script,join(root,'candidate'),report,
+   '--plan',testDesignPlan.path,'--plan-sha256',testDesignPlan.sha256],{encoding:'utf8'})
+  const result={schematicPath:join(root,'电源.kicad_sch'),projectPath:join(root,'电源.kicad_pro'),
+   powerLayout:{stage:'final',checkedCount:1,issues:Array.from({length:25},(_,i)=>({code:'POWER_LAYOUT_OVERLAP',uuid:String(i)})),unmeasuredObjectUuids:[]}}
+  await writeFile(script,`console.log(JSON.stringify({plannedCount:1}));console.log(${JSON.stringify(JSON.stringify(result))});console.error('完整诊断');`)
+  let processResult=run();assert.equal(processResult.status,0,processResult.stderr)
+  let envelope=JSON.parse(processResult.stdout)
+  assert.equal(envelope.summaryStatus,'recovered');assert.equal(envelope.summary.schematicPath,result.schematicPath)
+  assert.equal(envelope.summary.powerLayout.issueCount,25);assert.equal(envelope.summary.powerLayout.issues.length,20)
+  assert.equal(envelope.summary.powerLayout.omittedIssues,5)
+  let saved=JSON.parse(await readFile(report,'utf8'));assert.match(saved.stderr,/完整诊断/)
+  assert.equal(JSON.parse(saved.stdout.trim().split('\n')[1]).powerLayout.issues.length,25)
+  await writeFile(script,`console.log(${JSON.stringify(JSON.stringify(result))});`)
+  envelope=JSON.parse(run().stdout);assert.equal(envelope.summaryStatus,'ready')
+  await writeFile(script,`console.log(${JSON.stringify(JSON.stringify(result))});console.log(${JSON.stringify(JSON.stringify(result))});`)
+  processResult=run();envelope=JSON.parse(processResult.stdout)
+  assert.equal(processResult.status,0,'summary failure must not rewrite the actual script exit code')
+  assert.equal(envelope.summaryStatus,'unavailable');assert.equal(envelope.summary,null);assert.match(envelope.summaryError,/Multiple build results/)
+  await writeFile(script,"console.log('not a build result')")
+  envelope=JSON.parse(run().stdout);assert.equal(envelope.summaryStatus,'unavailable');assert.match(envelope.summaryError,/No build result/)
+ }finally{await rm(root,{recursive:true,force:true})}
+})
 test('label leads work in real region coordinates and reject invalid plans before mutation',async()=>{
  const root=await mkdtemp(join(tmpdir(),'label-leads-'))
  try{

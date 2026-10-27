@@ -1,16 +1,18 @@
 /** Reuse an inspected single-sheet module and add one independently scripted region. */
 import { readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { Schematic, templateDir, symbolLibrary } from '../runtime.mjs';
+import { Schematic, templateDir } from '../runtime.mjs';
 import { place } from './modules/load.mjs';
+import { loadPlacement, configurePowerPlacements } from './layout.mjs';
 
-const [configPath, outputDirectory] = process.argv.slice(2);
+// run-design.mjs always passes the candidate directory before extra arguments.
+const [outputDirectory, configPath] = process.argv.slice(2);
 if (!configPath || !outputDirectory || !isAbsolute(configPath) || !isAbsolute(outputDirectory)) {
-  throw new Error('usage: node design.mjs <absolute-config.json> <absolute-unique-candidate-directory>');
+  throw new Error('script arguments: <absolute-unique-candidate-directory> <absolute-config.json>; launch with run-design.mjs and a saved plan');
 }
 const spec = JSON.parse(readFileSync(configPath, 'utf8'));
 const sch = new Schematic({ projectName: spec.projectName, title: spec.title, paper: spec.paper,
-  templateDir });
+  templateDir, requiredPowerSymbols: spec.powerSymbols?.nets });
 
 // Import before allocating new references; the returned target references are reserved.
 const imported = sch.importModule(spec.source);
@@ -27,7 +29,7 @@ const allocateReference = prefix => {
 sch.frame({ name: spec.sourceTitle, description: spec.sourceDescription,
   autoBounds: true, objectUuids: imported.objectUuids });
 const region = sch.region(spec.loadRegion);
-const load = place({ region, part: spec.resistor, allocateReference, groundNet: spec.groundNet });
+const load = place({ region, part: spec.resistor, allocateReference, groundNet: spec.groundNet, placement: loadPlacement });
 load.connect();
 const anchors = imported.ports[spec.signalPort];
 if (!anchors || anchors.length !== 1) throw new Error('Choose one explicit source signal anchor; a missing or repeated port needs a deliberate connection plan');
@@ -35,6 +37,8 @@ if (!anchors || anchors.length !== 1) throw new Error('Choose one explicit sourc
 const sharedNet = imported.netNames[spec.signalPort];
 if (!sharedNet) throw new Error('signalPort needs a confirmed source network mapping');
 sch.label(sharedNet, sch.pin(load.ports.signal.reference, load.ports.signal.pin));
-const powerSymbols = spec.powerSymbols ? sch.replacePowerLabels(spec.powerSymbols) : [];
-console.log(JSON.stringify({ ...sch.save(outputDirectory), powerSymbols, importedReferences: imported.references,
+const powerPlan = spec.powerSymbols ? sch.planPowerPlacements(spec.powerSymbols) : null;
+if (powerPlan) configurePowerPlacements(sch, powerPlan);
+const powerSymbols = powerPlan ? sch.replacePowerLabels({ ...spec.powerSymbols, placements: powerPlan.placements }) : [];
+console.log(JSON.stringify({ ...sch.save(outputDirectory), powerSymbols, powerPlan: powerPlan?.diagnostics ?? null, importedReferences: imported.references,
   sourceSignalAnchor: anchors[0], loadReference: load.ports.signal.reference }));

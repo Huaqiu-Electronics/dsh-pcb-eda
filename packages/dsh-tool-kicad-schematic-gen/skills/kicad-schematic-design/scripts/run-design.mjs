@@ -29,12 +29,41 @@ const result=spawnSync(process.execPath,[resolve(script),resolve(output),...extr
 });
 const reportPath=resolve(report);mkdirSync(dirname(reportPath),{recursive:true});
 const durationMs=Math.round(performance.now()-started);
-let summary=null;
-try{const data=JSON.parse(result.stdout);summary={schematicPath:data.schematicPath??null,projectPath:data.projectPath??null,frames:Array.isArray(data.frames)?data.frames.length:null,layoutWarnings:Array.isArray(data.layoutWarnings)?data.layoutWarnings.length:null,powerSymbols:data.powerSymbols??null}}catch{}
+const isResult=data=>data&&typeof data==='object'&&!Array.isArray(data)
+ &&typeof data.schematicPath==='string'&&data.schematicPath.trim()
+ &&typeof data.projectPath==='string'&&data.projectPath.trim();
+let summary=null,summaryStatus='unavailable',summaryError=null;
+let data;
+try{const parsed=JSON.parse(result.stdout??'');if(isResult(parsed))data=parsed;}catch{}
+if(data)summaryStatus='ready';
+else{
+ // Recover one unambiguous result from older JSON-lines scripts without hiding their logs.
+ const results=[];
+ for(const line of (result.stdout??'').split(/\r?\n/)){
+  try{const parsed=JSON.parse(line);if(isResult(parsed))results.push(parsed);}catch{}
+ }
+ if(results.length===1){data=results[0];summaryStatus='recovered';}
+ else summaryError=result.status!==0
+  ?'No unambiguous build result; the script failed or was interrupted. Fix stderr/error before changing its output format.'
+  :results.length>1?'Multiple build results in stdout; emit exactly one result JSON.'
+   :'No build result with schematicPath and projectPath in stdout; emit one result JSON and send logs to stderr.';
+}
+if(data){
+ const final=data.powerLayout;
+ const issues=Array.isArray(final?.issues)?final.issues:[];
+ summary={schematicPath:data.schematicPath,projectPath:data.projectPath,
+  frames:Array.isArray(data.frames)?data.frames.length:null,
+  layoutWarnings:Array.isArray(data.layoutWarnings)?data.layoutWarnings.length:null,
+  powerSymbols:data.powerSymbols??null,
+  powerLayout:final?.stage==='final'?{stage:'final',checkedCount:final.checkedCount,
+   issueCount:issues.length,issues:issues.slice(0,20),omittedIssues:Math.max(0,issues.length-20),
+   unmeasuredObjectCount:Array.isArray(final.unmeasuredObjectUuids)?final.unmeasuredObjectUuids.length:null}:null};
+}
 // Guidance, not a fabricated readiness verdict: only a visual/connection review can close a candidate.
 const nextAction=result.status===0
  ? 'Build finished; delivery readiness is not verified by this result. Review the current candidate and collect concrete defects before one batch of edits. For a simple design, verify and deliver once connections, 50 mil grid, readability, page fit and project files meet the criteria. Further rebuilds need a specific blocking defect; do not rebuild just for cosmetic preferences or zero layout warnings. Reuse prior review of unchanged regions.'
  : 'Read this report error/stdout/stderr and fix the specific build failure before retrying. This failure is not a cosmetic layout iteration; do not bypass plan, grid or pin checks.';
-writeFileSync(reportPath,JSON.stringify({designPlan:{...designPlan,content:plan.text},scriptSha256,exitCode:result.status,durationMs,signal:result.signal,error:result.error?.message??null,summary,nextAction,stdout:result.stdout??'',stderr:result.stderr??''},null,2)+'\n','utf8');
-console.log(JSON.stringify({designPlan,exitCode:result.status,durationMs,reportPath,summary,nextAction,error:result.error?.message??null,stderrTail:(result.stderr??'').slice(-3000)}));
+const outputAdvice=result.status!==0?'':summaryStatus==='recovered'?' Keep one result JSON on stdout; move diagnostics/logs to stderr.':summaryError?` ${summaryError}`:'';
+writeFileSync(reportPath,JSON.stringify({designPlan:{...designPlan,content:plan.text},scriptSha256,exitCode:result.status,durationMs,signal:result.signal,error:result.error?.message??null,summary,summaryStatus,summaryError,nextAction:nextAction+outputAdvice,stdout:result.stdout??'',stderr:result.stderr??''},null,2)+'\n','utf8');
+console.log(JSON.stringify({designPlan,exitCode:result.status,durationMs,reportPath,summary,summaryStatus,summaryError,nextAction:nextAction+outputAdvice,error:result.error?.message??null,stderrTail:(result.stderr??'').slice(-3000)}));
 process.exitCode=result.status??1;

@@ -120,3 +120,39 @@ test('catalog includes global and flattened port labels while excluding unrelate
   assert.deepEqual(global.at, [25.4, 35.56]); assert.equal(global.angle, 90)
   assert.ok(labels.every(label => label.net === 'GND'))
 }))
+
+test('planner reserves rendered titles and descriptions, while final diagnostics reflect actual overrides',async()=>fixture(async(root,library)=>{
+  const sch=build({GND:'power:GND'})
+  sch.region({name:'Power module',description:'Input and output',origin:[20.32,20.32],size:[60.96,60.96]})
+  const uuid=sch.label('GND',[50.8,50.8])
+  const plan=sch.planPowerPlacements({libraryPath:library,nets:{GND:'power:GND'},maxMoveMm:0})
+  assert.deepEqual(plan.diagnostics.unresolved,[])
+  plan.placements[uuid]={at:[50.8,50.8],angle:90,valueAt:[50.8,19.05]}
+  sch.replacePowerLabels({libraryPath:library,nets:{GND:'power:GND'},placements:plan.placements})
+  const saved=sch.save(join(root,'overridden'))
+  assert.equal(saved.powerLayout.stage,'final')
+  assert.equal(saved.powerLayout.checkedCount,1)
+  assert.ok(saved.powerLayout.issues.some(issue=>issue.code==='POWER_LAYOUT_OUTSIDE_FRAME'&&issue.uuid===uuid&&issue.frame==='Power module'))
+  // The earlier plan was clean; its immutable diagnostics are not reported as final truth.
+  assert.deepEqual(plan.diagnostics.unresolved,[])
+  const content=parse(await readFile(saved.schematicPath,'utf8'))
+  const symbol=children(content,'symbol')[0]!
+  const val=children(symbol,'property').find(p=>value(p)==='Value')!
+  assert.equal(Number(value(children(val,'at')[0]!,3)),0,'rotated power symbols keep horizontal value text')
+}))
+
+test('final diagnostics retain original module ownership after a manual move outside it',async()=>fixture(async(root,library)=>{
+  const sch=build({GND:'power:GND'})
+  sch.region({name:'Owned',description:'Stay inside',origin:[20.32,20.32],size:[60.96,60.96]})
+  const uuid=sch.label('GND',[50.8,50.8])
+  sch.replacePowerLabels({libraryPath:library,nets:{GND:'power:GND'},placements:{
+    [uuid]:{at:[100.33,50.8],valueAt:[100.33,55.88]},
+  }})
+  assert.ok(sch.powerLayoutDiagnostics().issues.some(issue=>issue.code==='POWER_LAYOUT_OUTSIDE_FRAME'&&issue.frame==='Owned'))
+  const clean=build({GND:'power:GND'})
+  clean.region({name:'Safe',description:'Text reserved',origin:[20.32,20.32],size:[60.96,60.96]})
+  clean.label('GND',[50.8,27.94])
+  const plan=clean.planPowerPlacements({libraryPath:library,nets:{GND:'power:GND'}})
+  clean.replacePowerLabels({libraryPath:library,nets:{GND:'power:GND'},placements:plan.placements})
+  assert.ok(!clean.save(join(root,'safe')).powerLayout.issues.some(issue=>issue.code==='POWER_LAYOUT_OUTSIDE_FRAME'))
+}))

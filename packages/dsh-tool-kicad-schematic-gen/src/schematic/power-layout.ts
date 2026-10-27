@@ -2,10 +2,32 @@
 import type { FlatBounds } from './flat-layout.ts'
 import type { FlatObject, FlatPoint } from './flat.ts'
 import type { PowerLabelEntry, PowerLabelSpec } from './builder.ts'
+import {gridPoint} from './grid.ts'
+
+/** A module owns its original label, even when a proposed symbol moves outside it. */
+export interface PowerLayoutArea {
+  name: string
+  bounds: FlatBounds
+  contentBounds: FlatBounds
+  objectUuids?: readonly string[]
+}
+export const insideBounds = (inner: FlatBounds, outer: FlatBounds): boolean =>
+  inner.left >= outer.left - 1e-6 && inner.top >= outer.top - 1e-6
+  && inner.right <= outer.right + 1e-6 && inner.bottom <= outer.bottom + 1e-6
+
+export function powerArea(uuid: string, at: FlatPoint, areas: readonly PowerLayoutArea[]): PowerLayoutArea | undefined {
+  const explicit = areas.filter(area => area.objectUuids?.includes(uuid))
+  const containing = explicit.length ? explicit : areas.filter(area => insideBounds(
+    {left:at[0],right:at[0],top:at[1],bottom:at[1]}, area.bounds))
+  return [...containing].sort((a,b) =>
+    (a.bounds.right-a.bounds.left)*(a.bounds.bottom-a.bounds.top)
+    - (b.bounds.right-b.bounds.left)*(b.bounds.bottom-b.bounds.top) || a.name.localeCompare(b.name))[0]
+}
 
 export interface PowerPlacementPlan {
   placements: NonNullable<PowerLabelSpec['placements']>
   diagnostics: {
+    stage: 'automatic'
     plannedCount: number; rotatedCount: number; movedCount: number; candidateCount: number
     unresolved: Array<{ uuid: string; net: string; at: FlatPoint; obstacleUuids: string[] }>
     unmeasuredObjectUuids: string[]
@@ -49,7 +71,8 @@ const centreBox = (at: FlatPoint, width: number, height: number): FlatBounds =>
 
 export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[],
   geometry: (net: string, angle: 0 | 90 | 180 | 270) => PowerGeometry,
-  pageSize: FlatPoint, options: Pick<PowerPlanningOptions, 'clearanceMm' | 'maxMoveMm'>): PowerPlacementPlan {
+  pageSize: FlatPoint, options: Pick<PowerPlanningOptions, 'clearanceMm' | 'maxMoveMm'>,
+  areas: readonly PowerLayoutArea[] = []): PowerPlacementPlan {
   const clearance = options.clearanceMm ?? 0.6, maxMove = options.maxMoveMm ?? 5.08
   if (!Number.isFinite(clearance) || clearance < 0 || clearance > 3) throw new Error('Power clearanceMm must be between 0 and 3')
   if (!Number.isFinite(maxMove) || maxMove < 0 || maxMove > 10.16) throw new Error('Power maxMoveMm must be between 0 and 10.16')
@@ -58,13 +81,16 @@ export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[]
   const placed: Array<{ uuid: string; body: FlatBounds; text: FlatBounds }> = []
   const leads: Array<{ from: FlatPoint; to: FlatPoint }> = []
   const placements: PowerPlacementPlan['placements'] = {}
-  const diagnostics: PowerPlacementPlan['diagnostics'] = { plannedCount: labels.length, rotatedCount: 0, movedCount: 0,
+  const unavailable: string[] = []
+  const diagnostics: PowerPlacementPlan['diagnostics'] = { stage:'automatic', plannedCount: labels.length, rotatedCount: 0, movedCount: 0,
     candidateCount: 0, unresolved: [], unmeasuredObjectUuids: obstacles.filter(o => !o.bounds).map(o => o.uuid) }
   const inside = (box: FlatBounds) => box.left >= 0 && box.top >= 0 && box.right <= pageSize[0] && box.bottom <= pageSize[1]
   // Tie-breaking uses stable geometry and provenance, never fresh UUIDs.
   const ordered = [...labels].sort((a, b) => (a.module ?? '').localeCompare(b.module ?? '')
     || a.at[0] - b.at[0] || a.at[1] - b.at[1] || a.net.localeCompare(b.net))
   for (const label of ordered) {
+    const area = powerArea(label.uuid, label.at, areas)
+    const allowed = (bounds: FlatBounds) => inside(bounds) && (!area || insideBounds(bounds, area.contentBounds))
     const locations: FlatPoint[] = [[...label.at]]
     for (const distance of [2.54, 5.08, 7.62, 10.16].filter(d => d <= maxMove + EPS)) {
       for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) locations.push([label.at[0] + dx! * distance, label.at[1] + dy! * distance])
@@ -81,11 +107,12 @@ export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[]
       // owning symbol: doing so could route a lead through its body.
       const leadBox = centreBox([(label.at[0] + at[0]) / 2, (label.at[1] + at[1]) / 2],
         Math.abs(at[0] - label.at[0]) + 0.05, Math.abs(at[1] - label.at[1]) + 0.05)
+      if (moved && area && !insideBounds(leadBox, area.bounds)) continue
       if (moved && obstacles.some(o => o.type !== 'wire' && o.bounds && overlap(leadBox, o.bounds))) continue
       if (moved && placed.some(o => overlap(leadBox, o.body) || overlap(leadBox, o.text))) continue
       for (const angle of [0, 90, 270, 180] as const) {
         const metrics = geometry(label.net, angle), body = offsetBounds(metrics.body, at)
-        if (!inside(body)) continue
+        if (!allowed(body)) continue
         const [width, height] = metrics.textSize
         const cx = (body.left + body.right) / 2, cy = (body.top + body.bottom) / 2
         // Put the text beyond the actual rotated body, horizontally readable.
@@ -99,8 +126,9 @@ export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[]
         if (cx > at[0] + EPS) textPositions.unshift(textPositions.splice(3, 1)[0]!)
         for (let textIndex = 0; textIndex < textPositions.length; textIndex++) {
           diagnostics.candidateCount++
-          const valueAt = textPositions[textIndex]!, text = centreBox(valueAt, width, height)
-          if (!inside(text)) continue
+          // addSymbol snaps property coordinates; evaluate that same point, not an unsnapped estimate.
+          const valueAt = gridPoint(textPositions[textIndex]!), text = centreBox(valueAt, width, height)
+          if (!allowed(text)) continue
           const conflicts = obstacles.filter(o => {
             if (!o.bounds) return false
             const attached = o.type === 'wire' && o.from && o.to && contains(o.from, o.to, at)
@@ -120,12 +148,16 @@ export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[]
         }
       }
     }
-    if (!best) throw new Error(`POWER_PLACEMENT_UNAVAILABLE: no safe in-page candidate for ${label.net} at ${label.at.join(',')}`)
+    if (!best) {
+      unavailable.push(`${label.net} at ${label.at.join(',')}${area ? ` inside module ${area.name} (including title/description clearance)` : ' inside page'}`)
+      continue
+    }
     placements[label.uuid] = { at: best.at, angle: best.angle, valueAt: best.valueAt }
     placed.push({ uuid: label.uuid, body: best.body, text: best.text })
     if (best.angle !== 0) diagnostics.rotatedCount++
     if (!equal(best.at, label.at)) { diagnostics.movedCount++; leads.push({ from: label.at, to: best.at }) }
     if (best.conflicts.length) diagnostics.unresolved.push({ uuid: label.uuid, net: label.net, at: best.at, obstacleUuids: best.conflicts })
   }
+  if (unavailable.length) throw new Error(`POWER_PLACEMENT_UNAVAILABLE: no safe candidates for ${unavailable.join('; ')}. Enlarge the listed regions or move source labels/channels in one batch; do not retry unchanged.`)
   return { placements, diagnostics }
 }

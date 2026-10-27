@@ -8,4 +8,4 @@
 
 XTAL_SEL、CL1_SEL、CL2_SEL 是待选参数。根据 MCU 振荡器要求及所选晶体手册核实频率、负载电容、ESR、驱动功率和启动裕量，并考虑寄生电容；不能默认套用固定晶振频率或两只固定电容。是否需要串联/并联电阻或其他振荡器外围，以具体器件指导为准。有源振荡器和旁路时钟不能使用本双电容晶体接法。PCB 上晶体及负载电容应靠近振荡引脚，走线短且远离开关噪声；图上的紧凑程度不替代 PCB 时钟布局检查。
 
-维护：generate-systems.mjs 生成五个范例，render.mjs 的 --systems 渲染对应图片。保留 50 mil 栅格，按真实符号尺寸调整空间，不互换物理引脚。依据：[ST STM32F030 数据手册](https://www.st.com/resource/en/datasheet/stm32f030f4.pdf) 与 [ST AN4325 硬件指南](https://www.st.com/resource/en/application_note/an4325-getting-started-with-stm32f030xx-and-stm32f070xx-series-hardware-development-stmicroelectronics.pdf)。
+保留50 mil栅格，按真实符号尺寸调整空间，不互换物理引脚。生成器仅维护时见 [维护说明](maintenance.md)。依据：[ST STM32F030 数据手册](https://www.st.com/resource/en/datasheet/stm32f030f4.pdf) 与 [ST AN4325 硬件指南](https://www.st.com/resource/en/application_note/an4325-getting-started-with-stm32f030xx-and-stm32f070xx-series-hardware-development-stmicroelectronics.pdf)。

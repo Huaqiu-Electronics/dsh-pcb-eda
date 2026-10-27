@@ -1,16 +1,14 @@
 # 模块搜索与适用性判断
 
-先读取已完成的硬件设计方案中的需求、选型、供电与接口计划。完整新项目缺少方案时先按 hardware-design-brief 原有规范生成并保存方案，不以最小初稿替代。以方案为检索条件，不按尚未核实的器件假设强行拼模块；满足不了硬约束的候选应修改或放弃。已有合格模块记录直接沿用。
-
-主流程先读回已保存的设计方案，再做本节原理图模块检索；不在所依赖的方案仍由后台撰写时提前绘图。模块分析可按授权委派，返回结论写入现有文档，主流程读回相关章节后再编写对应生成脚本。局部诊断不因此要求新建全套方案。
+以主技能已读回方案的需求、选型、供电和接口为检索条件。满足不了硬约束的候选修改或放弃；已有合格记录直接沿用。本页只补充模块判断和记录，不新增方案审批。
 
 准确型号调用 `eda_module_precise_search({keyword})`，功能描述调用 `eda_module_rag_search({query})`，已知分类调用 `eda_module_category_search({category})`。多次搜索采用实质不同的词或分类；有合适候选即可停止，避免下载所有命中。
 
 创建 sources/ 后调用 `download_eda_module_schematic({moduleId,targetDir:<design>/sources})`。保留返回的真实 schematicPath、moduleId 与可选 sourceProjectPath。来源 .source.kicad_pro 仅供参考，正式工程使用本 Skill 的 templates/project.kicad_pro。
 
-先检查下载结果的 analysis，按 [模块网表与器件清单](module-analysis.md) 查询器件和关键引脚的网络，复用缓存；失败只重试分析。图片用于布局和必要说明检查，不替代真实网络。对需要的候选读取 `get_kicad_module_ports({schematicPath})` 和 `render_kicad_module_preview({schematicPath,outputDir:<design>/previews})`。按非空 rootImagePath 或 pages[].pngPath 读图，核对 revision、pageIndex、pageSchematicPath 与 manifestPath，不能混用旧图片。端口清单只包含层次标签，连接器、全局标签及普通标签须按需读取实际结构。
+先用下载 analysis；需要器件或关键网络时按 [模块分析](module-analysis.md) 查询，失败只重试分析。需要层次端口才调用 get_kicad_module_ports，需要布局或图纸说明才调用 render_kicad_module_preview。按返回的 rootImagePath/pages[].pngPath 读图并核对版本和页面；端口列表不覆盖连接器及普通/全局标签。
 
-以真实电路判断用途、输入输出、工作电压、电平、极性、必需外围和负载能力。数据手册按准确型号查需要的章节；缺失章节、图片 URL 或截断文本不算已核实。方案中的器件、BOM、连接问题用 analyze_kicad_module 的 components/bom/nets 定向查询，复用已有结果，不例行调用 edit_kicad_flat_schematic。只有现有分析缺少必要图纸备注等具体信息时才用 list，并指定 types/references；不得为完整性遍历全图或用 connections 重复读取已有网络。坐标、UUID 和可见导线路径留到实际原理图适配时查询，纯方案任务不调用 create。不编写临时解析器或默认加载完整网表。
+以真实电路判断用途、输入输出、电压、电平、极性、必需外围和负载。手册按精确型号查必要章节；缺失章节、图片 URL 和截断文本不算证据。分析工具与局部编辑的选择遵循主技能；不为完整性遍历全图、读取完整网表或重复核对已知网络。
 
 记录简短模块表：功能、来源、已确认接口、复用/修改/从零决定、修改内容、待确认条件。层次连接表记录子页端口到根网络；平铺连接表记录模块源网络到最终网络及实际接点。相同名称不自动意味着可接，input/output 类型不作为生成阻断条件。
 

@@ -5,9 +5,9 @@ import { join } from 'node:path'
 import { children, parse, value, quote, applyEdits, type Form } from './sexpr.ts'
 import { buildFlatCopy, listFlatObjects, loadFlatTemplates, type FlatPoint, type FlatEndpoint, type FlatFrame, type ResolvedFlatFrame } from './flat.ts'
 import { prepareFlatImport, type FlatImportSpec, type FlatImportResult } from './import-flat.ts'
-import { flatTextSize } from './flat-layout.ts'
+import { flatTextSize, type FlatBounds } from './flat-layout.ts'
 import { normalizeCommonUnits } from './symbol-units.ts'
-import { planPowerLabels, type PowerPlanningOptions, type PowerPlacementPlan, type PowerGeometry } from './power-layout.ts'
+import { planPowerLabels, insideBounds, powerArea, type PowerLayoutArea, type PowerPlanningOptions, type PowerPlacementPlan, type PowerGeometry } from './power-layout.ts'
 import {assignFootprintText} from './footprint-links.ts'
 import {loadDesignPlan,type DesignPlanReference} from './design-plan.ts'
 import {gridPoint,onGrid} from './grid.ts'
@@ -40,6 +40,14 @@ export interface PowerLabelSpec {
 }
 /** Conservative power-symbol overlap hint; not an electrical check. */
 export interface PowerLayoutWarning { code: 'POWER_LAYOUT_OVERLAP'; uuid: string; reference: string; otherUuid: string; otherType: string }
+export type PowerLayoutIssue = PowerLayoutWarning | {
+  code: 'POWER_LAYOUT_OUTSIDE_PAGE' | 'POWER_LAYOUT_OUTSIDE_FRAME'
+  uuid: string; reference: string; frame?: string; bounds: FlatBounds; allowedBounds: FlatBounds
+}
+/** Recomputed from actual converted symbols and rendered frames, never from an earlier plan. */
+export interface PowerLayoutDiagnostics {
+  stage: 'final'; checkedCount: number; issues: PowerLayoutIssue[]; unmeasuredObjectUuids: string[]
+}
 /** Converted label identity and final symbol pin position; explicit movement adds connected wire segments. */
 export interface PowerLabelReplacement { uuid: string; reference: string; net: string; libId: string; at: FlatPoint }
 /** Current-build label identity and sheet coordinates; module identifies imported provenance. */
@@ -226,6 +234,7 @@ export class Schematic {
   private readonly regions: Array<{ name: string; start: FlatPoint; end: FlatPoint }> = []
   private readonly importedModules = new Set<string>()
   private readonly objectModules = new Map<string, string>()
+  private readonly powerOwners = new Map<string, number>()
   private readonly requiredPowerSymbols: Record<string, string>
   private readonly templates: ReturnType<typeof loadFlatTemplates>
   private readonly designPlan: DesignPlanReference
@@ -480,20 +489,49 @@ export class Schematic {
    * Unresolved conservative overlaps are returned, not presented as a clean layout.
    */
   planPowerPlacements(spec: PowerPlanningOptions): PowerPlacementPlan {
-    const forms = powerDefinitions(spec), cache = new Map<string, PowerGeometry>()
+    powerDefinitions(spec)
+    const cache = new Map<string, PowerGeometry>()
     const geometry = (net: string, angle: 0 | 90 | 180 | 270): PowerGeometry => {
       const key = `${net}:${angle}`, existing = cache.get(key)
       if (existing) return existing
-      const form = forms.get(net)!
-      const points = unitExtent(children(form, 'symbol'), 1).graphics
-      const extent = boundsOf(points, [0, 0], angle, undefined) ?? { minX: -0.1, maxX: 0.1, minY: -0.1, maxY: 0.1 }
-      const result = { body: { left: extent.minX - 0.12, right: extent.maxX + 0.12, top: extent.minY - 0.12, bottom: extent.maxY + 0.12 },
+      // Use the same symbol measurement as the final diagnostics (including pin allowances).
+      // This is an in-memory probe: no files, frames or generated project are written.
+      const probe = new Schematic(this.options)
+      probe.addSymbol({libraryPath:spec.libraryPath,libId:spec.nets[net]!,reference:'#PWR1',value:net,
+        at:[0,0],angle,fieldAngle:0,hideReference:true,hideValue:true})
+      const body = listFlatObjects(probe.source(),this.templates.style)[0]?.bounds
+      if (!body) throw new Error(`POWER_GEOMETRY_UNAVAILABLE: cannot measure ${spec.nets[net]}; choose a supported model`)
+      const result = { body,
         textSize: flatTextSize(net, [1.27, 1.27], this.templates.style) }
       cache.set(key, result)
       return result
     }
-    const pages: Record<SchematicOptions['paper'], FlatPoint> = { A4: [297, 210], A3: [420, 297], A2: [594, 420], A1: [841, 594], A0: [1189, 841] }
-    return planPowerLabels(this.powerLabelCatalog(Object.keys(spec.nets)), listFlatObjects(this.source(), this.templates.style), geometry, pages[this.options.paper], spec)
+    const context = this.powerLayoutContext()
+    return planPowerLabels(this.powerLabelCatalog(Object.keys(spec.nets)), context.objects, geometry, this.pageSize(), spec, context.areas)
+  }
+  private pageSize(): FlatPoint {
+    return ({ A4: [297, 210], A3: [420, 297], A2: [594, 420], A1: [841, 594], A0: [1189, 841] } as const)[this.options.paper].slice() as FlatPoint
+  }
+  private powerLayoutContext(rendered?: ReturnType<typeof buildFlatCopy>) {
+    // Materialize frames without render(): planning precedes the required-power check.
+    const result = rendered ?? buildFlatCopy(this.source(), this.options.projectName,
+      {removeReferences:[], removeUuids:[], removeTextUuids:[], setValues:[], setLabels:[], addWires:[], frames:this.frames}, this.templates)
+    const objects = listFlatObjects(result.schematic, this.templates.style), style = this.templates.style
+    const areas: PowerLayoutArea[] = result.resolvedFrames.map((frame,index) => {
+      const [left,top] = frame.start, [right,bottom] = frame.end
+      const titleAt = [left+style.inset,top+style.titleOffset]
+      const descriptionAt = [left+style.inset,bottom-style.descriptionBottom-(frame.description.split('\n').length-1)*style.lineHeight]
+      const textAt = (name:string,at:number[]) => objects.findLast(o => o.type==='text' && o.name===name
+        && o.at && Math.abs(o.at[0]-at[0]!)<1e-6 && Math.abs(o.at[1]-at[1]!)<1e-6)?.bounds
+      const title = textAt(frame.name,titleAt), description = textAt(frame.description,descriptionAt)
+      const spec = this.frames[index]!
+      return {name:frame.name, bounds:{left,top,right,bottom},
+        contentBounds:{left:left+style.inset,right:right-style.inset,
+          top:(title?.bottom ?? titleAt[1]!)+style.contentPadding,
+          bottom:(description?.top ?? descriptionAt[1]!)-style.contentPadding},
+        ...(spec.autoBounds && spec.objectUuids ? {objectUuids:spec.objectUuids} : {})}
+    })
+    return {objects,areas}
   }
   /** Replace explicitly shared local/global power labels using zero-length-pin power symbols.
    * @param spec Trusted library, exact net map and optional label-UUID placements with caller-routed bends.
@@ -501,6 +539,7 @@ export class Schematic {
    */
   replacePowerLabels(spec: PowerLabelSpec): PowerLabelReplacement[] {
     powerDefinitions(spec)
+    const context = this.powerLayoutContext(), owners = new Map<string,number>()
     // Prepare every placement independently so an incompatible library leaves this sheet intact.
     const prepared = new Schematic(this.options)
     const used = new Set([...this.references.keys()].map(key => key.slice(0, key.lastIndexOf(':'))))
@@ -518,6 +557,8 @@ export class Schematic {
       const anchor = children(form, 'at')[0], identity = children(form, 'uuid')[0]
       if (!anchor || !identity) throw new Error(`POWER_LABEL_INVALID: ${net} needs at and uuid`)
       const at = point([Number(value(anchor, 1)), Number(value(anchor, 2))]), uuid = value(identity)
+      const owner = powerArea(uuid, at, context.areas)
+      if (owner) owners.set(uuid,context.areas.indexOf(owner))
       let reference: string
       do { counter += 1; reference = `#PWR${counter}` } while (used.has(reference))
       used.add(reference)
@@ -532,7 +573,7 @@ export class Schematic {
       }
       prepared.addSymbol({ libraryPath: spec.libraryPath, libId, reference, value: net, at: target,
         ...(placement?.angle !== undefined ? { angle: placement.angle } : {}),
-        ...(placement?.valueAt ? { valueAt: placement.valueAt } : {}), hideReference: true })
+        ...(placement?.valueAt ? { valueAt: placement.valueAt } : {}), fieldAngle: 0, hideReference: true })
       convertedIds.add(uuid)
       const index = prepared.instances.length - 1, instance = prepared.instances[index]!
       const oldId = children(parse(instance), 'uuid')[0]!
@@ -550,6 +591,7 @@ export class Schematic {
     for (const [key, id] of prepared.references) this.references.set(key, id)
     this.placedPins = undefined
     this.instances.push(...prepared.instances)
+    for (const [uuid,owner] of owners) this.powerOwners.set(uuid,owner)
     this.graphics.splice(0, this.graphics.length, ...retained, ...extraWires)
     for (const frame of this.frames) {
       if (frame.autoBounds && frame.objectUuids) {
@@ -562,22 +604,37 @@ export class Schematic {
    * @returns Suspected object intersections; attached wire endpoints are excluded. Review hints in preview.
    */
   powerLayoutWarnings(): PowerLayoutWarning[] {
-    const objects = listFlatObjects(this.source(), this.templates.style)
+    return this.powerLayoutDiagnostics().issues.filter((issue): issue is PowerLayoutWarning => issue.code==='POWER_LAYOUT_OVERLAP')
+  }
+  /** Final geometry diagnostics after caller overrides and conversion. Conservative; no electrical verdict. */
+  powerLayoutDiagnostics(): PowerLayoutDiagnostics {
+    return this.inspectPowerLayout()
+  }
+  private inspectPowerLayout(rendered?: ReturnType<typeof buildFlatCopy>): PowerLayoutDiagnostics {
+    const {objects,areas} = this.powerLayoutContext(rendered)
     const powers = objects.filter(o => o.type === 'symbol' && o.libId
       && children(parse(this.definitions.get(o.libId)!), 'power').length > 0)
-    const warnings: PowerLayoutWarning[] = []
+    const issues: PowerLayoutIssue[] = []
+    const [width,height] = this.pageSize(), page = {left:0,top:0,right:width,bottom:height}
     for (const power of powers) {
       if (!power.bounds) continue
+      if (!insideBounds(power.bounds,page)) issues.push({code:'POWER_LAYOUT_OUTSIDE_PAGE',uuid:power.uuid,
+        reference:power.reference!,bounds:power.bounds,allowedBounds:page})
+      const ownerIndex = this.powerOwners.get(power.uuid)
+      const area = ownerIndex === undefined ? powerArea(power.uuid,power.at!,areas) : areas[ownerIndex]
+      if (area && !insideBounds(power.bounds,area.contentBounds)) issues.push({code:'POWER_LAYOUT_OUTSIDE_FRAME',uuid:power.uuid,
+        reference:power.reference!,frame:area.name,bounds:power.bounds,allowedBounds:area.contentBounds})
       for (const other of objects) {
         if (other.uuid === power.uuid || !other.bounds || ['rectangle', 'junction', 'no_connect'].includes(other.type)) continue
         if (other.type === 'wire' && [other.from, other.to].some(p => p && power.at && p[0] === power.at[0] && p[1] === power.at[1])) continue
         const a = power.bounds, b = other.bounds
         if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
-          warnings.push({ code: 'POWER_LAYOUT_OVERLAP', uuid: power.uuid, reference: power.reference!, otherUuid: other.uuid, otherType: other.type })
+          issues.push({ code: 'POWER_LAYOUT_OVERLAP', uuid: power.uuid, reference: power.reference!, otherUuid: other.uuid, otherType: other.type })
         }
       }
     }
-    return warnings
+    return {stage:'final',checkedCount:powers.length,issues,
+      unmeasuredObjectUuids:objects.filter(o=>!o.bounds && !['rectangle','junction','no_connect'].includes(o.type)).map(o=>o.uuid)}
   }
   /** Add a passive hierarchy port connected at an explicit anchor; no connection is inferred.
    * @param name Port name. @param at Actual pin or sheet coordinate. @param angle Text rotation.
@@ -622,12 +679,15 @@ export class Schematic {
    * @param directory Explicit output directory; created recursively when absent.
    * @returns Written paths, resolved frames and conservative power-layout warnings from the saved design. Errors may leave a partial pair.
    */
-  save(directory: string): { schematicPath: string; projectPath: string; frames: ResolvedFlatFrame[]; layoutWarnings: PowerLayoutWarning[]; designPlan:DesignPlanReference } {
+  save(directory: string): { schematicPath: string; projectPath: string; frames: ResolvedFlatFrame[]; layoutWarnings: PowerLayoutWarning[]; powerLayout:PowerLayoutDiagnostics; designPlan:DesignPlanReference } {
     const result = this.render(), schematicPath = join(directory, `${this.options.projectName}.kicad_sch`), projectPath = join(directory, `${this.options.projectName}.kicad_pro`)
     if (existsSync(schematicPath) || existsSync(projectPath)) throw new Error(`output already exists: ${directory}; choose a unique candidate directory`)
     mkdirSync(directory, { recursive: true })
     writeFileSync(schematicPath, result.schematic, { flag: 'wx' })
     writeFileSync(projectPath, result.project, { flag: 'wx' })
-    return { schematicPath, projectPath, frames: result.resolvedFrames, layoutWarnings: this.powerLayoutWarnings(),designPlan:{...this.designPlan} }
+    const powerLayout = this.inspectPowerLayout(result)
+    return { schematicPath, projectPath, frames: result.resolvedFrames,
+      layoutWarnings:powerLayout.issues.filter((issue): issue is PowerLayoutWarning=>issue.code==='POWER_LAYOUT_OVERLAP'),
+      powerLayout,designPlan:{...this.designPlan} }
   }
 }

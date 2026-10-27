@@ -2,6 +2,14 @@
 
 独立搜索工具使用厂家 ID 与精确 MPN 选定器件。厂家名、搜索关键词和 huaqiuPn 不能代替 manufacturer.id。
 
+## 查询与候选处理
+
+搜索结果位于 items，支持 page/page_size。仅需要完整参数、分类、文档时调用 `get_hqsch_part({manufacturer_id,mpn})`；`get_hqsch_part_models` 仅返回模型链接，实际引脚和焊盘用 `get_kicad_component_models`。手册用同一身份调用 `get_kicad_datasheet`，截断或缺失章节须保留未核实状态。只有需要采购信息时查询 `get_hqsch_supply_chain`，空报价不等于无库存。
+
+先检查候选模型摘要，再成套导入。builderCompatibility.ready 支持 availableUnits；normalization=common_only_to_unit_1 可直接使用 unit 1。unsupported_units 按 nextAction 换模型，不反复试单元或手改库。同一 sourceUrl/结构的确定性失败不因换 MPN 重试；invalid 不能丢弃另一个正常模型，missing 也不能伪造。用实际 pin 信息或 pinCatalog 布线，不仅改 Value 冒充目标器件。
+
+## 成套导入
+
 1. `search_hqsch_parts({query, require_eda_model: true, requirements: {symbol: true, footprint: true}})` 取得候选。搜索标记只辅助筛选。
 2. 使用同一 `{manufacturer_id: candidate.manufacturer.id, mpn: candidate.mpn}` 读取实际模型摘要和必要的手册，确认目标型号、引脚功能与封装尺寸。
 3. `import_kicad_component({...identity, projectDir})` 下载并解析两种模型，登记项目库。缺模型、编号集合不一致和不支持的符号 unit 会被拒绝。重复编号焊盘按唯一编号比较，无编号的机械焊盘不参与比较；额外的有编号焊盘也会被拒绝。此严格规则可能拒绝需人工确认的散热焊盘或堆叠引脚模型。
