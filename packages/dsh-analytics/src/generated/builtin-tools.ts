@@ -52,4 +52,5 @@ export const BUILTIN_TOOLS = [
   "render_kicad_module_preview",
   "run_erc",
   "search_hqsch_parts",
+  "sync_schematic_to_pcb",
 ] as const
