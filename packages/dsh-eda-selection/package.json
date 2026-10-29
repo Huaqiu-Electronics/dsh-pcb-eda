@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-eda-selection",
-  "version": "0.6.13",
+  "version": "0.6.14",
   "description": "Ambient 'Current Selection' chip above the DSH composer plus a dynamic system-prompt section describing the focused EDA editor's selection.",
   "type": "module",
   "main": "./lib/index.mjs",
