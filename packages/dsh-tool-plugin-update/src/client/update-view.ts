@@ -131,7 +131,13 @@ function avatarInitials(item: PluginUpdateItem): string {
 }
 
 /** Shared per-card changelog toggle drawer (the per-plugin changes[] list). */
-function changelogDrawer(item: PluginUpdateItem, copy: UpdateCopy, open: boolean): HTMLElement {
+function changelogDrawer(
+  item: PluginUpdateItem,
+  copy: UpdateCopy,
+  open: boolean,
+  onInstall: () => void,
+  onIgnore: () => void,
+): HTMLElement {
   const drawer = el('div', 'hqpu-changelog-drawer')
   drawer.style.display = open ? '' : 'none'
   drawer.append(el('div', 'hqpu-changelog-drawer-title', copy.ui.changelogTitle))
@@ -139,7 +145,24 @@ function changelogDrawer(item: PluginUpdateItem, copy: UpdateCopy, open: boolean
   for (const change of item.changes ?? []) {
     if (typeof change === 'string' && change.length > 0) ul.append(el('li', '', change))
   }
-  drawer.append(ul)
+  if (ul.childElementCount > 0) drawer.append(ul)
+  const actions = el('div', 'hqpu-changelog-actions')
+  if (item.state === 'update' || item.state === 'install') {
+    const install = el('button', 'hqpu-card-action hqpu-card-action--install', copy.installOnePlugin)
+    install.type = 'button'
+    install.title = copy.installOneTip
+    install.addEventListener('click', onInstall)
+    const ignore = el('button', 'hqpu-card-action', copy.ignore)
+    ignore.type = 'button'
+    ignore.addEventListener('click', onIgnore)
+    actions.append(install, ignore)
+  } else if (item.state === 'ignored') {
+    const show = el('button', 'hqpu-card-action hqpu-card-action--install', copy.unignore)
+    show.type = 'button'
+    show.addEventListener('click', onIgnore)
+    actions.append(show)
+  }
+  if (actions.childElementCount > 0) drawer.append(actions)
   return drawer
 }
 
@@ -185,22 +208,9 @@ function packageCard(
   left.append(avatar, main)
 
   const right = el('div', 'hqpu-card-end')
-  if (item.state === 'update' || item.state === 'install') {
-    const install = el('button', 'hqpu-log-toggle', copy.installOne)
-    install.type = 'button'
-    install.title = copy.installOneTip
-    install.addEventListener('click', onInstall)
-    const ignore = el('button', 'hqpu-log-toggle', copy.ignore)
-    ignore.type = 'button'
-    ignore.addEventListener('click', onIgnore)
-    right.append(install, ignore)
-  } else if (item.state === 'ignored') {
-    const show = el('button', 'hqpu-log-toggle', copy.unignore)
-    show.type = 'button'
-    show.addEventListener('click', onIgnore)
-    right.append(show)
-  }
-  if (Array.isArray(item.changes) && item.changes.length > 0) {
+  const hasDetails = (Array.isArray(item.changes) && item.changes.length > 0) ||
+    item.state === 'update' || item.state === 'install' || item.state === 'ignored'
+  if (hasDetails) {
     const toggle = el('button', 'hqpu-log-toggle')
     toggle.type = 'button'
     toggle.dataset.open = open ? 'true' : 'false'
@@ -211,9 +221,10 @@ function packageCard(
   head.append(left, right)
   card.append(head)
 
-  // Inline changelog drawer (actionable items only).
-  if (Array.isArray(item.changes) && item.changes.length > 0) {
-    card.append(changelogDrawer(item, copy, open))
+  // The actions live in the expanded changelog/details drawer so cards keep
+  // their compact layout until a person asks for more information.
+  if (hasDetails) {
+    card.append(changelogDrawer(item, copy, open, onInstall, onIgnore))
   }
   return card
 }

@@ -1379,6 +1379,7 @@ const VIEW_CSS_TEXT = `
   align-items: start;
 }
 .hqpu-card {
+  position: relative;
   margin: 0;
   padding: 10px;
   border-radius: 8px;
@@ -1444,6 +1445,30 @@ const VIEW_CSS_TEXT = `
 .hqpu-log-toggle:hover { color: var(--hq-text); }
 .hqpu-log-toggle svg { width: 12px; height: 12px; transition: transform 0.15s ease; }
 .hqpu-log-toggle[data-open='true'] svg { transform: rotate(180deg); }
+.hqpu-changelog-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--hq-border);
+}
+.hqpu-card-action {
+  height: 28px;
+  padding: 0 10px;
+  border: 0.5px solid var(--hq-border-strong);
+  border-radius: 6px;
+  background: var(--hq-card);
+  color: var(--hq-text);
+  font-size: 10px;
+  cursor: pointer;
+}
+.hqpu-card-action:hover { border-color: var(--hq-brand-soft); color: var(--hq-brand-soft); }
+.hqpu-card-action--install {
+  border-color: var(--hq-brand);
+  background: var(--hq-brand);
+  color: var(--hq-brand-fg);
+}
+.hqpu-card-action--install:hover { border-color: var(--hq-brand-soft); background: var(--hq-brand-soft); color: var(--hq-brand-fg); }
 .hqpu-changelog-drawer {
   margin-top: 8px;
   padding: 8px;

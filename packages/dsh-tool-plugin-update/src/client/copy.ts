@@ -24,6 +24,7 @@ const zh = {
   // it honestly rather than per-plugin.
   installAll: (count: number) => `安装整套更新（${count} 项）`,
   installOne: '安装整套',
+  installOnePlugin: '安装此插件',  
   installOneTip: '将安装整套 N 项更新并自动重启 DSH，而不仅是此插件',
   installing: '正在安装…（DSH 将自动重启）',
   retry: '重试',
@@ -187,7 +188,7 @@ const zh = {
     // Footer
     footerCount: (n: number) => `准备安装 ${n} 项兼容插件`,
     footerSet: (v: string) => `版本集: v${v}`,
-    installAllSet: (v: string) => `一键更新全套插件 (v${v})`,
+    installAllSet: (v: string) => `更新插件集 (v${v})`,
     ignoreBtn: '忽略',
     footnote: '更新将自动应用并重启 DSH 视图，不影响 EDA 图纸数据',
   },
@@ -216,6 +217,7 @@ const en: UpdateCopy = {
   checkFailed: 'Failed to check for updates — please retry',
   installAll: (count: number) => `Install whole set (${count})`,
   installOne: 'Install set',
+  installOnePlugin: 'Install this plugin',
   installOneTip: 'Installs the whole set of N updates and restarts DSH — not just this plugin',
   installing: 'Installing… (DSH will restart)',
   retry: 'Retry',
