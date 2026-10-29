@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-tool-symbol-footprint",
-  "version": "0.6.17",
+  "version": "0.6.18",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
@@ -29,9 +29,9 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-tools": "^0.2.1-rc.2",
-    "@huaqiu/dsh-artifacts": "^0.6.17",
-    "@huaqiu/dsh-auth": "^0.6.17",
-    "@huaqiu/component-gen-app": "^0.6.17",
+    "@huaqiu/dsh-artifacts": "^0.6.18",
+    "@huaqiu/dsh-auth": "^0.6.18",
+    "@huaqiu/component-gen-app": "^0.6.18",
     "react": "^18"
   },
   "dependencies": {
