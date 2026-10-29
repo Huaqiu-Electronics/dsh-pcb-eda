@@ -420,11 +420,20 @@ export interface InstallResult {
 }
 
 /** POST the install transaction for the confirmed set version. */
-export function installSet(setVersion: string): Promise<InstallResult> {
+export function installSet(setVersion: string, pluginNames?: string[]): Promise<InstallResult> {
   return request<InstallResult>('/install', {
     method: 'POST',
-    body: JSON.stringify({ setVersion }),
+    body: JSON.stringify({ setVersion, ...(pluginNames ? { pluginNames } : {}) }),
   })
+}
+
+/** Persist a per-plugin decision for this release set. */
+export function ignorePlugin(setVersion: string, name: string): Promise<unknown> {
+  return request<unknown>('/plugin-ignore', { method: 'POST', body: JSON.stringify({ setVersion, name }) })
+}
+
+export function unignorePlugin(setVersion: string, name: string): Promise<unknown> {
+  return request<unknown>('/plugin-unignore', { method: 'POST', body: JSON.stringify({ setVersion, name }) })
 }
 
 /** POST ignore for the current offer (set-scoped, persists across restarts). */

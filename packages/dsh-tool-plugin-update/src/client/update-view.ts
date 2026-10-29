@@ -20,12 +20,14 @@
 import {
   checkUpdates,
   ignoreOffer,
+  ignorePlugin,
   installSet,
   requestRuntimeUpdate,
   runtimeLatestVersion,
   setPluginUpdateSource,
   setRuntimeUpdateSource,
   unignoreOffer,
+  unignorePlugin,
   TERMINAL_PHASES,
   type PluginUpdateItem,
   type PluginUpdateReport,
@@ -149,6 +151,8 @@ function packageCard(
   copy: UpdateCopy,
   open: boolean,
   onToggle: () => void,
+  onInstall: () => void,
+  onIgnore: () => void,
 ): HTMLLIElement {
   const card = el('li', 'hqpu-card')
   card.dataset.pluginName = item.name
@@ -181,6 +185,21 @@ function packageCard(
   left.append(avatar, main)
 
   const right = el('div', 'hqpu-card-end')
+  if (item.state === 'update' || item.state === 'install') {
+    const install = el('button', 'hqpu-log-toggle', copy.installOne)
+    install.type = 'button'
+    install.title = copy.installOneTip
+    install.addEventListener('click', onInstall)
+    const ignore = el('button', 'hqpu-log-toggle', copy.ignore)
+    ignore.type = 'button'
+    ignore.addEventListener('click', onIgnore)
+    right.append(install, ignore)
+  } else if (item.state === 'ignored') {
+    const show = el('button', 'hqpu-log-toggle', copy.unignore)
+    show.type = 'button'
+    show.addEventListener('click', onIgnore)
+    right.append(show)
+  }
   if (Array.isArray(item.changes) && item.changes.length > 0) {
     const toggle = el('button', 'hqpu-log-toggle')
     toggle.type = 'button'
@@ -208,6 +227,8 @@ function group(
   allOpen: boolean,
   onToggle: (name: string) => void,
   onToggleAll: () => void,
+  onInstall: (name: string) => void,
+  onIgnore: (item: PluginUpdateItem) => void,
 ): HTMLElement | null {
   if (items.length === 0) return null
   const section = el('section', 'hqpu-group')
@@ -229,7 +250,7 @@ function group(
 
   const list = el('ul', 'hqpu-cards')
   for (const item of items) {
-    list.append(packageCard(item, copy, allOpen || changelogOpen.has(item.name), () => onToggle(item.name)))
+    list.append(packageCard(item, copy, allOpen || changelogOpen.has(item.name), () => onToggle(item.name), () => onInstall(item.name), () => onIgnore(item)))
   }
 
   section.append(head, list)
@@ -1052,6 +1073,8 @@ function renderList(
   onToggleCard: (name: string) => void,
   onToggleAll: () => void,
   onRetryCheck: () => void,
+  onInstall: (name: string) => void,
+  onIgnore: (item: PluginUpdateItem) => void,
 ): void {
   section.textContent = ''
   if (report === null) {
@@ -1087,7 +1110,7 @@ function renderList(
     [copy.group.current, byState('current')],
   ]
   for (const [heading, items] of order) {
-    const node = group(heading, items, copy, changelogOpen, allOpen, onToggleCard, onToggleAll)
+    const node = group(heading, items, copy, changelogOpen, allOpen, onToggleCard, onToggleAll, onInstall, onIgnore)
     if (node !== null) section.append(node)
   }
 }
@@ -1124,7 +1147,7 @@ function renderPluginSource(
 }
 
 /** Run the install transaction (a new durable job), then let the store poll it. */
-async function runInstall(store: UpdateStoreLike, copy: UpdateCopy): Promise<void> {
+async function runInstall(store: UpdateStoreLike, copy: UpdateCopy, pluginNames?: string[]): Promise<void> {
   const report = store.report()
   if (report === null) return
   // Without an evaluated set there is nothing to install: hq-edge has not read
@@ -1138,7 +1161,7 @@ async function runInstall(store: UpdateStoreLike, copy: UpdateCopy): Promise<voi
   // dead code — runInstall never called it).
   store.setInstalling(true)
   try {
-    const result = await installSet(report.manifestVersion)
+    const result = await installSet(report.manifestVersion, pluginNames)
     if (result.error !== undefined) {
       store.setInstalling(false)
       showToast(`${copy.installError}: ${result.error}`, 'error')
@@ -1618,6 +1641,17 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
         },
         () => {
           void store.check()
+        },
+        (name) => {
+          void runInstall(store, copy, [name])
+        },
+        (item) => {
+          const report = store.report()
+          if (report?.manifestVersion === null || report?.manifestVersion === undefined) return
+          const action = item.state === 'ignored'
+            ? unignorePlugin(report.manifestVersion, item.name)
+            : ignorePlugin(report.manifestVersion, item.name)
+          void action.then(() => store.check()).catch(() => undefined)
         },
       )
     }

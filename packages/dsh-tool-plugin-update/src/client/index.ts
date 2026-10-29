@@ -1721,7 +1721,11 @@ class UpdateStore implements UpdateStoreLike {
     if (report.runtime?.updateAvailable) count += 1
     if (count === 0) {
       const latest = this.recent[0]
-      if (latest !== undefined && (latest.phase === 'failed' || latest.phase === 'rolled-back')) {
+      // Keep a visible attention dot for every terminal outcome, including
+      // success. Without this, a background update could finish while the
+      // panel was closed and the user would have no indication that a result
+      // is waiting in the update centre.
+      if (latest !== undefined && TERMINAL_PHASES.has(latest.phase)) {
         count = 1
       }
     }
