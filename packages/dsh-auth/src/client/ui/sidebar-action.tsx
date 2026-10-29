@@ -926,13 +926,6 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
                   gradient={palette.ercGradient}
                   palette={palette}
                 />
-                <QuotaMetric
-                  label={t('subscription.ai')}
-                  icon={<SparklesIcon />}
-                  reading={aiUsageReading(quota?.ai ?? null, t)}
-                  gradient={palette.aiGradient}
-                  palette={palette}
-                />
               </div>
               <UpgradeButton
                 subscribing={subscribing}
