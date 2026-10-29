@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-tool-kicad-schematic-gen",
-  "version": "0.6.16",
+  "version": "0.6.17",
   "description": "KiCad 原理图设计：电路模块搜索、器件模型与手册、符号导入、编辑预览、脚本构建及设计技能",
   "type": "module",
   "main": "./lib/index.js",
