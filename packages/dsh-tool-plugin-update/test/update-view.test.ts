@@ -13,7 +13,7 @@
  * override shadows the configured URL.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runtimeLatestVersion, type PluginUpdateItem, type PluginUpdateReport } from '../src/client/api.js'
+import { runtimeLatestVersion, type PluginUpdateItem, type PluginUpdateReport, type UpdateJob, type UpdatePhase, type UpdateStep } from '../src/client/api.js'
 import { COPY } from '../src/client/copy.js'
 import { openUpdateView, type UpdateStoreLike } from '../src/client/update-view.js'
 import { normalizePluginUpdateReport } from '../src/client/version.js'
@@ -736,5 +736,136 @@ describe('runtime last-result alerts', () => {
     expect(success).not.toBeNull()
     expect(success?.textContent).toContain(COPY.zh.ui.successInline)
     expect(document.querySelector('[data-group="runtime-alert"]')).toBeNull()
+  })
+})
+
+/**
+ * The last-update log drawer.
+ *
+ * It used to render unconditionally: a finished plugin-set install lists one
+ * row per component (dozens of "ignored"/"blocked" lines), so the log pushed
+ * every actionable card below the fold as soon as one update had ever run. The
+ * header toggle now owns that block — closed by default for a routine success,
+ * opened by itself for a failed / rolled-back / abandoned job so the error code
+ * and Retry are never hidden behind a click.
+ */
+describe('last update log drawer', () => {
+  const logButton = (): HTMLButtonElement | null =>
+    document.querySelector<HTMLButtonElement>('[data-log-toggle]')
+  const logSection = (): Element | null => document.querySelector('[data-group="job-result"]')
+
+  function steps(count: number): UpdateStep[] {
+    return Array.from({ length: count }, (_, i) => ({
+      name: `@huaqiu/dsh-plugin-${i + 1}@0.6.14`,
+      state: 'skipped' as const,
+    }))
+  }
+
+  function settledJob(phase: UpdatePhase, extra: Partial<UpdateJob> = {}): UpdateJob {
+    return {
+      id: `uj_${phase}`,
+      kind: 'plugin-set',
+      targetVersion: '0.6.14',
+      previousVersion: '0.3.16',
+      startedAt: '2026-10-29T06:30:00.000Z',
+      updatedAt: '2026-10-29T06:34:45.000Z',
+      phase,
+      progress: { percent: null },
+      logHint: 'uj_1793255677245_2fi1x0dltt',
+      ...extra,
+    }
+  }
+
+  it('keeps a successful log collapsed until the header button is pressed', () => {
+    openUpdateView(
+      fakeStore(reportWith(runtimeEntry(), false), {
+        recentJobs: () => [settledJob('done', { steps: steps(6) })],
+      }),
+      COPY.zh,
+    )
+
+    // Collapsed: none of the per-component rows are in the DOM at all.
+    expect(logSection()).toBeNull()
+    expect(document.body.textContent).not.toContain('@huaqiu/dsh-plugin-1@0.6.14')
+    // The affordance exists and says what a click will do.
+    expect(logButton()?.disabled).toBe(false)
+    expect(logButton()?.getAttribute('aria-pressed')).toBe('false')
+    expect(logButton()?.title).toBe(COPY.zh.ui.logShow)
+
+    logButton()?.click()
+    expect(logSection()).not.toBeNull()
+    expect(document.body.textContent).toContain('@huaqiu/dsh-plugin-1@0.6.14')
+    expect(logButton()?.getAttribute('aria-pressed')).toBe('true')
+    expect(logButton()?.title).toBe(COPY.zh.ui.logHide)
+
+    // Toggles back off — the collapse is a real toggle, not a one-way expand.
+    logButton()?.click()
+    expect(logSection()).toBeNull()
+  })
+
+  it('opens a failed log by itself so the error code and Retry stay reachable', () => {
+    openUpdateView(
+      fakeStore(reportWith(runtimeEntry(), false), {
+        recentJobs: () => [
+          settledJob('failed', {
+            steps: steps(2),
+            result: {
+              ok: false,
+              installedVersion: null,
+              errorCode: 'CHECKSUM_MISMATCH',
+              rolledBack: false,
+              finishedAt: '2026-10-29T06:34:45.000Z',
+            },
+          }),
+        ],
+      }),
+      COPY.zh,
+    )
+
+    expect(logSection()?.textContent).toContain('CHECKSUM_MISMATCH')
+    expect(logButton()?.getAttribute('aria-pressed')).toBe('true')
+    expect(logButton()?.title).toBe(COPY.zh.ui.logHide)
+
+    // Still a toggle: the person can put it away.
+    logButton()?.click()
+    expect(logSection()).toBeNull()
+  })
+
+  it('sits between the advanced (gear) and close actions in the header', () => {
+    openUpdateView(fakeStore(reportWith(runtimeEntry(), false)), COPY.zh)
+
+    const labels = [...document.querySelectorAll<HTMLButtonElement>('.hqpu-toolbar .hqpu-icon-btn')]
+      .map((b) => b.title)
+    const gear = labels.indexOf(COPY.zh.ui.gearTooltip)
+    const log = labels.indexOf(COPY.zh.ui.logNone)
+    const close = labels.indexOf(COPY.zh.close)
+    expect(gear).toBeGreaterThanOrEqual(0)
+    expect(log).toBe(gear + 1)
+    expect(close).toBe(log + 1)
+  })
+
+  it('disables the toggle when no job has finished', () => {
+    openUpdateView(fakeStore(reportWith(runtimeEntry(), false)), COPY.zh)
+
+    expect(logButton()?.disabled).toBe(true)
+    expect(logButton()?.title).toBe(COPY.zh.ui.logNone)
+    expect(logButton()?.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('disables the toggle while a job is running — the live view owns the panel', () => {
+    const running = settledJob('downloading')
+    openUpdateView(
+      fakeStore(reportWith(runtimeEntry(), false), {
+        activeJob: () => running,
+        recentJobs: () => [settledJob('done', { steps: steps(3) })],
+      }),
+      COPY.zh,
+    )
+
+    // The in-flight banner shows; the previous log is not offered mid-flight.
+    expect(document.querySelector('.hqpu-active')).not.toBeNull()
+    expect(logSection()).toBeNull()
+    expect(logButton()?.disabled).toBe(true)
+    expect(logButton()?.title).toBe(COPY.zh.ui.logBusy)
   })
 })

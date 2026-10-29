@@ -42,6 +42,7 @@ import {
   CLOSE_ICON,
   DOWNLOAD_ICON,
   INFO_ICON,
+  LOG_ICON,
   PLUGIN_ICON,
   REFRESH_ICON,
   WARNING_ICON,
@@ -1369,6 +1370,14 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
     },
   )
   toolbar.append(gearBtn)
+  // Log toggle: sits between the advanced (gear) and close actions and owns
+  // the last-update log — the panel no longer renders that block unconditionally.
+  const logBtn = iconButton('hqpu-icon-btn', LOG_ICON(16), copy.ui.logShow, () => {
+    toggleLog()
+  })
+  logBtn.setAttribute('aria-pressed', 'false')
+  logBtn.dataset.logToggle = ''
+  toolbar.append(logBtn)
   const closeBtn = iconButton('hqpu-icon-btn', CLOSE_ICON(16), copy.close, () => {
     onClose()
   })
@@ -1384,7 +1393,9 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
   const scroll = el('div', 'hqpu-scroll')
   const column = el('div', 'hqpu-column')
   // The durable-job view leads: an active install/runtime update is resumed on
-  // open BEFORE anything else, and a recent terminal result is shown here too.
+  // open BEFORE anything else. A settled job's log only appears when the header
+  // toggle says so (see `logMode`) — it is one row per plugin, so leaving it
+  // always-on pushed the actionable cards below the fold.
   const jobSection = el('div', 'hqpu-stack')
   const listSection = el('div', 'hqpu-stack')
   const runtimeSection = el('div', 'hqpu-stack')
@@ -1428,6 +1439,19 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
   let allOpen = false
   let settingsOpen = false
   let dismissedAlert = false
+
+  /**
+   * Last-update log drawer.
+   *
+   * `auto` keeps the log COLLAPSED for a routine successful install — its
+   * per-component list is one row per plugin, so a full set was ~20 rows of
+   * "ignored"/"blocked" sitting above every actionable card — but expands it on
+   * its own when the last job failed, rolled back or was abandoned: that result
+   * carries the error code and the Retry action, which must never hide behind a
+   * click nobody knows to make. Once the person toggles the button their choice
+   * wins for the rest of the panel's life.
+   */
+  let logMode: 'auto' | 'open' | 'closed' = 'auto'
 
   // Source-editor state, same reasoning: a background refresh must not discard
   // a half-typed URL or silently close either editor.
@@ -1605,6 +1629,35 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
     }
   }
 
+  /**
+   * The settled job whose log the header toggle controls.
+   *
+   * Null in two cases, and both mean "the button has nothing to reveal": no job
+   * has finished yet, or one is still running — a live job owns the panel with
+   * its progress view, and its log only exists once it settles.
+   */
+  function logJob(): UpdateJob | null {
+    const active = store.activeJob()
+    if (active !== null && !TERMINAL_PHASES.has(active.phase)) return null
+    const latest = store.recentJobs()[0]
+    return latest !== undefined && TERMINAL_PHASES.has(latest.phase) ? latest : null
+  }
+
+  /** Is the log drawer expanded? The explicit choice first, then the auto rule. */
+  function logVisible(job: UpdateJob | null): boolean {
+    if (job === null) return false
+    if (logMode === 'open') return true
+    if (logMode === 'closed') return false
+    return job.phase !== 'done'
+  }
+
+  function toggleLog(): void {
+    const job = logJob()
+    if (job === null) return
+    logMode = logVisible(job) ? 'closed' : 'open'
+    render()
+  }
+
   const renderJobSection = (): void => {
     jobSection.textContent = ''
     const active = store.activeJob()
@@ -1613,13 +1666,11 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
       jobSection.append(activeJobView(active, copy))
       return
     }
-    const recent = store.recentJobs()
-    const latest = recent[0]
-    if (latest !== undefined && TERMINAL_PHASES.has(latest.phase)) {
-      jobSection.append(resultView(latest, copy, () => retryJob(latest.kind)))
-      const older = recentJobsList(recent, copy)
-      if (older !== null) jobSection.append(older)
-    }
+    const log = logJob()
+    if (log === null || !logVisible(log)) return
+    jobSection.append(resultView(log, copy, () => retryJob(log.kind)))
+    const older = recentJobsList(store.recentJobs(), copy)
+    if (older !== null) jobSection.append(older)
   }
 
   const render = (): void => {
@@ -1632,6 +1683,23 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
     const stale = report === null
     refreshBtn.disabled = stale
     refreshBtn.title = copy.refresh
+
+    // Log toggle: enabled only when a settled job left a log to show, and
+    // always labelled with what the NEXT click does.
+    const log = logJob()
+    const logShown = logVisible(log)
+    logBtn.disabled = log === null
+    logBtn.setAttribute('aria-pressed', logShown ? 'true' : 'false')
+    const logLabel =
+      log === null
+        ? jobActive
+          ? copy.ui.logBusy
+          : copy.ui.logNone
+        : logShown
+          ? copy.ui.logHide
+          : copy.ui.logShow
+    logBtn.title = logLabel
+    logBtn.setAttribute('aria-label', logLabel)
 
     // Header sub-line: "上次检查: N 分钟前" (from report.checkedAt).
     const ago = relativeAgo(report?.checkedAt, copy)

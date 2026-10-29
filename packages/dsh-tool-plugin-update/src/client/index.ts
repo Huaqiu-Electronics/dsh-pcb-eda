@@ -1030,6 +1030,13 @@ const VIEW_CSS_TEXT = `
 }
 .hqpu-icon-btn svg { width: 14px; height: 14px; }
 
+/* A toggled toolbar button (the update-log drawer) reads as "on", not just
+   hovered — the pressed state is the only hint that a collapsed log exists. */
+.hqpu-icon-btn[aria-pressed='true'] {
+  background: var(--hq-hover);
+  color: var(--hq-text);
+}
+
 /* Collapsible settings panel */
 .hqpu-settings {
   flex: none;

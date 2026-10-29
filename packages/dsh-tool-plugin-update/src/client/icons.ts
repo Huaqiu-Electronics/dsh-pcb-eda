@@ -51,6 +51,20 @@ export const REFRESH_ICON = (size = 16): string =>
     'M14.4999 1.5V5.1H10.8999',
   ])
 
+/**
+ * The toolbar's log toggle: a page with ruled lines — "the update log".
+ *
+ * Not a shell primitive (the shell has no equivalent glyph), so it is drawn to
+ * the same 16×16 / 1px-stroke contract as the rest of this module.
+ */
+export const LOG_ICON = (size = 16): string =>
+  glyph(size, REGULAR, [
+    'M9.5 1.5H4.5C3.94772 1.5 3.5 1.94772 3.5 2.5V13.5C3.5 14.0523 3.94772 14.5 4.5 14.5H11.5C12.0523 14.5 12.5 14.0523 12.5 13.5V4.5L9.5 1.5Z',
+    'M9.5 1.5V4.5H12.5',
+    'M6 8.25H10',
+    'M6 10.75H10',
+  ])
+
 /** The panel's close action (`IconCloseOutlineMedium`). */
 export const CLOSE_ICON = (size = 16): string =>
   glyph(size, MEDIUM, ['M2.5 2.5L13.5 13.5', 'M13.5 2.5L2.5 13.5'])

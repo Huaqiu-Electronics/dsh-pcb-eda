@@ -149,6 +149,10 @@ const zh = {
   ui: {
     title: '更新中心',
     gearTooltip: '高级设置',
+    logShow: '查看上次更新日志',
+    logHide: '收起上次更新日志',
+    logNone: '暂无可查看的更新日志',
+    logBusy: '更新进行中，完成后方可查看日志',
     settingsTitle: '更新源配置 (高级)',
     originDefault: '默认源',
     originCustom: '自定义源',
@@ -341,6 +345,10 @@ const en: UpdateCopy = {
   ui: {
     title: 'Update Center',
     gearTooltip: 'Advanced settings',
+    logShow: 'Show the last update log',
+    logHide: 'Hide the last update log',
+    logNone: 'No update log to show',
+    logBusy: 'Update in progress — the log is available when it finishes',
     settingsTitle: 'Update source (advanced)',
     originDefault: 'Default source',
     originCustom: 'Custom source',
