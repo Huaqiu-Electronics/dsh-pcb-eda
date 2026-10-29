@@ -162,7 +162,7 @@
       ]
     },
     "@huaqiu/dsh-tool-freerouting": {
-      "version": "0.6.12",
+      "version": "0.6.15",
       "hosts": [
         "all"
       ],
