@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-sidebar-entry",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
