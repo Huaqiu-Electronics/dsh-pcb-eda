@@ -132,7 +132,40 @@ export function normalizePluginUpdateItem<T extends PluginUpdateItem>(item: T): 
 
 /** States that carry an install action (the badge/actionable definition). */
 function isActionableState(item: PluginUpdateItem): boolean {
+  // A muted item carries no action even if an older hq-edge left its state at
+  // `update` (it also flags the item, and the whole set, when it can).
+  if (item.ignored === true) return false
   return item.state === 'update' || item.state === 'install'
+}
+
+/**
+ * How many PLUGIN updates a report makes actionable — the ONE definition the
+ * footer bar, the panel's sections and `actionableCount` share, so they can
+ * never disagree about how much plugin work is left.
+ *
+ * Deliberately narrow (spec §6.3/§7.1):
+ *   - compatible `update` + `install` items only;
+ *   - nothing once the user has muted the offer (`ignoredSet`), and nothing
+ *     for an individually-ignored item;
+ *   - plugin items only. The HQ Edge runtime update is a separate deliverable
+ *     with its own card, so it is not a plugin item here — the sidebar badge
+ *     adds it on top, once, in `badge.ts`. Never fold it into this number:
+ *     that is what made the footer claim "准备安装 N 项兼容插件" one too many.
+ *
+ * Note what is absent: no durable-job input. The job history is permanent
+ * (`listRecent(20)`), so any rule that counts a settled job latches on forever.
+ */
+export function actionableUpdateCount(report: PluginUpdateReport | null | undefined): number {
+  if (report === null || report === undefined) return 0
+  // The whole offered set is muted. An older hq-edge sets this flag but leaves
+  // the item states at `update`, so it must be checked before counting.
+  if (report.ignoredSet === true) return 0
+  if (!Array.isArray(report.items)) return 0
+  let count = 0
+  for (const item of report.items) {
+    if (isActionableState(item)) count += 1
+  }
+  return count
 }
 
 /**
@@ -143,9 +176,9 @@ function isActionableState(item: PluginUpdateItem): boolean {
 export function normalizePluginUpdateReport<T extends PluginUpdateReport>(report: T): T {
   if (!Array.isArray(report.items)) return report
   const items = report.items.map(normalizePluginUpdateItem)
+  const next = { ...report, items }
   return {
-    ...report,
-    items,
-    actionableCount: items.filter(isActionableState).length,
+    ...next,
+    actionableCount: actionableUpdateCount(next),
   }
 }

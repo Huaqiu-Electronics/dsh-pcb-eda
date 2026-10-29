@@ -218,3 +218,43 @@ describe('mountSidebarEntry', () => {
     disposers.forEach((dispose) => dispose())
   })
 })
+
+describe('mountSidebarEntry badge', () => {
+  beforeEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('removes the badge AND its layout attribute when the count returns to 0', async () => {
+    // Regression guard: the badge span was removed at 0 but `data-has-badge`
+    // stayed on the row, so a cleared count still looked badged to any styling
+    // or layout keyed on that attribute (the collapsed-rail corner dot).
+    const root = mountShell()
+    let count = 2
+    const listeners: Array<() => void> = []
+    const dispose = mountSidebarEntry(
+      options({
+        css: { entry: 'row', entryIcon: 'row__icon', entryLabel: 'row__label', entryBadge: 'row__badge' },
+        badge: {
+          subscribe: (listener) => {
+            listeners.push(listener)
+            return () => {}
+          },
+          count: () => count,
+        },
+      }),
+    )
+
+    const row = root.querySelector<HTMLElement>('[data-test-entry]')!
+    expect(row.querySelector('.row__badge')?.textContent).toBe('2')
+    expect(row.hasAttribute('data-has-badge')).toBe(true)
+
+    count = 0
+    for (const listener of listeners) listener()
+    await microtask()
+
+    expect(row.querySelector('.row__badge')).toBeNull()
+    expect(row.hasAttribute('data-has-badge')).toBe(false)
+
+    dispose()
+  })
+})

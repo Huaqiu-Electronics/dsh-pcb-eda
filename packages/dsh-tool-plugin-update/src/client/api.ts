@@ -149,6 +149,25 @@ export function runtimeLatestVersion(
 }
 
 /**
+ * Whether the report offers an HQ Edge runtime update the user can act on:
+ * hq-edge reports that a newer distribution exists AND it actually named one.
+ *
+ * Both halves matter, and sharing one predicate keeps the sidebar badge and the
+ * runtime card from disagreeing: the card can only render its 升级核心 row when
+ * it knows the target version, so an `updateAvailable` without a `latest` entry
+ * must not add a count anywhere. hq-edge already fails closed here (it only
+ * sets the flag when `semver.gt(latest, current)` holds on a comparable pair),
+ * so this is a shape guard, not a second compatibility decision.
+ */
+export function runtimeUpdateOffered(
+  runtime: RuntimeUpdateInfo | null | undefined,
+): boolean {
+  if (runtime === null || runtime === undefined) return false
+  if (runtime.updateAvailable !== true) return false
+  return runtimeLatestVersion(runtime) !== null
+}
+
+/**
  * Set-level release metadata from a schemaVersion-2 plugin manifest. ALL
  * fields optional: v1 manifests send none, and the panel must fall back to
  * showing just the version then.

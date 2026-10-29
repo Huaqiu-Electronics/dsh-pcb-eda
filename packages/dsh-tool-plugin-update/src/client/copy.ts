@@ -11,7 +11,7 @@
 
 const zh = {
   entryLabel: '插件更新',
-  entryTooltip: '查看可用的插件更新',
+  entryTooltip: '查看可用的插件与运行时更新',
   viewTitle: '插件更新',
   viewIntro: '检查并安装可用的插件更新',
   viewInfo: '在这里查看插件集的更新；已是最新的插件无需操作。',
@@ -97,6 +97,7 @@ const zh = {
   lastError: '上次检查失败',
   installError: '安装失败',
   installSuccess: '更新已安装，正在重启 DSH…',
+  ignoreError: '忽略失败',
   confirmInstall: '确认安装',
   cancel: '取消',
   // ── Durable update job (active / result / recent) ──
@@ -206,7 +207,7 @@ export type UpdateCopy = typeof zh
 
 const en: UpdateCopy = {
   entryLabel: 'Plugin Updates',
-  entryTooltip: 'Review available plugin updates',
+  entryTooltip: 'Review available plugin and runtime updates',
   viewTitle: 'Plugin Updates',
   viewIntro: 'Check for and install available plugin updates',
   viewInfo: 'Review the plugin set updates here. Plugins that are up to date need no action.',
@@ -289,6 +290,7 @@ const en: UpdateCopy = {
   lastError: 'Last check failed',
   installError: 'Install failed',
   installSuccess: 'Update installed — restarting DSH…',
+  ignoreError: 'Ignore failed',
   confirmInstall: 'Confirm install',
   cancel: 'Cancel',
   // ── Durable update job (active / result / recent) ──

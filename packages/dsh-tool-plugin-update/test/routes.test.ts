@@ -293,6 +293,42 @@ describe('plugin-update forwarding routes', () => {
     ])
   })
 
+  it('forwards the per-plugin ignore routes the card action calls', async () => {
+    const forwarder = createUpdateForwarder(() => baseUrl)
+    await startDshSide(forwarder)
+    // The browser half calls `/plugin-ignore` / `/plugin-unignore`; the
+    // forwarder used to answer 404 for both, and the caller swallowed it, so
+    // 忽略 on a card wrote nothing and the sidebar count never moved.
+    const ignored = await driveRequest(
+      'POST',
+      `${UPDATE_ROUTE_PREFIX}/plugin-ignore`,
+      '{"setVersion":"0.6.10","name":"@huaqiu/dsh-analytics"}',
+    )
+    const restored = await driveRequest(
+      'POST',
+      `${UPDATE_ROUTE_PREFIX}/plugin-unignore`,
+      '{"setVersion":"0.6.10","name":"@huaqiu/dsh-analytics"}',
+    )
+    expect(ignored.status).toBe(200)
+    expect(restored.status).toBe(200)
+    expect(seen.map((s) => s.url)).toEqual([
+      '/api/v1/plugin-updates/plugin-ignore',
+      '/api/v1/plugin-updates/plugin-unignore',
+    ])
+    expect(seen[0]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ setVersion: '0.6.10', name: '@huaqiu/dsh-analytics' }),
+    })
+  })
+
+  it('answers 405 (not 404) for GET /plugin-ignore — a known POST-only route', async () => {
+    const forwarder = createUpdateForwarder(() => baseUrl)
+    await startDshSide(forwarder)
+    const bad = await driveRequest('GET', `${UPDATE_ROUTE_PREFIX}/plugin-ignore`)
+    expect(bad.status).toBe(405)
+    expect(seen).toHaveLength(0)
+  })
+
   it('returns 502 when the upstream is unreachable', async () => {
     await new Promise<void>((resolve) => upstream.close(() => resolve()))
     const forwarder = createUpdateForwarder(() => 'http://127.0.0.1:1', 500)

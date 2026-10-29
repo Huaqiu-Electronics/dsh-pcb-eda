@@ -16,6 +16,12 @@
  *   POST /plugin-update/install  → POST /api/v1/plugin-updates/install {setVersion}
  *   POST /plugin-update/ignore   → POST /api/v1/plugin-updates/ignore {setVersion}
  *   POST /plugin-update/unignore → POST /api/v1/plugin-updates/unignore {setVersion}
+ *   POST /plugin-update/plugin-ignore
+ *                                → POST /api/v1/plugin-updates/plugin-ignore
+ *                                  {setVersion, name}
+ *   POST /plugin-update/plugin-unignore
+ *                                → POST /api/v1/plugin-updates/plugin-unignore
+ *                                  {setVersion, name}
  *   GET  /plugin-update/runtime  → GET  /api/v1/runtime-update
  *   POST /plugin-update/runtime-request
  *                                → POST /api/v1/runtime-update/request {targetVersion}
@@ -184,6 +190,21 @@ function routeFor(
   if (sub === '/unignore') {
     return method === 'POST' ? { method: 'POST', path: '/api/v1/plugin-updates/unignore' } : null
   }
+  // Per-package ignore (the card-level 忽略 / 恢复提醒). hq-edge names these
+  // `plugin-ignore` / `plugin-unignore`; the browser half has always called
+  // those paths, and while this table did not carry them the forwarder
+  // answered 404 — which the caller swallowed, so clicking 忽略 on a card did
+  // nothing at all and the count never moved.
+  if (sub === '/plugin-ignore') {
+    return method === 'POST'
+      ? { method: 'POST', path: '/api/v1/plugin-updates/plugin-ignore' }
+      : null
+  }
+  if (sub === '/plugin-unignore') {
+    return method === 'POST'
+      ? { method: 'POST', path: '/api/v1/plugin-updates/plugin-unignore' }
+      : null
+  }
   return null
 }
 
@@ -196,6 +217,8 @@ const STATIC_SUB_PATHS = new Set([
   '/install',
   '/ignore',
   '/unignore',
+  '/plugin-ignore',
+  '/plugin-unignore',
   '/runtime',
   '/runtime-request',
   '/runtime-source',

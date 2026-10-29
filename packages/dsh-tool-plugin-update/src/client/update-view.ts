@@ -36,6 +36,7 @@ import {
   type UpdateJob,
 } from './api.js'
 import { formatMb, type UpdateCopy } from './copy.js'
+import { actionableUpdateCount } from './version.js'
 import {
   CHECK_CIRCLE_ICON,
   CLOSE_ICON,
@@ -1276,9 +1277,7 @@ function renderFooter(
     return
   }
 
-  const actionable = report.items.filter(
-    (item) => item.state === 'update' || item.state === 'install',
-  ).length
+  const actionable = actionableUpdateCount(report)
   const hasSet = report.manifestVersion !== null
   const setVersion: string = report.manifestVersion ?? ''
 
@@ -1301,9 +1300,21 @@ function renderFooter(
   ignoreBtn.onclick = () => {
     const version = report.manifestVersion as string
     const action = report.ignoredSet ? unignoreOffer(version) : ignoreOffer(version)
+    // `check()`, never `refresh()`: ignoring only writes the decision to
+    // hq-edge's state file, and its cached report keeps every item at `update`
+    // until discovery runs again. A plain `/report` read therefore changed
+    // nothing on screen — the count stayed where it was and the click looked
+    // dead. A failed call (e.g. an older hq-edge without the route) is surfaced
+    // instead of swallowed, so a mute that did not stick is never mistaken for
+    // one that did.
     void action
-      .then(() => store.refresh())
-      .catch(() => undefined)
+      .then(() => store.check())
+      .catch((err: unknown) => {
+        showToast(
+          `${copy.ignoreError}: ${err instanceof Error ? err.message : String(err)}`,
+          'error',
+        )
+      })
   }
 }
 
@@ -1662,7 +1673,18 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
           const action = item.state === 'ignored'
             ? unignorePlugin(report.manifestVersion, item.name)
             : ignorePlugin(report.manifestVersion, item.name)
-          void action.then(() => store.check()).catch(() => undefined)
+          // Same rule as the footer: discovery must re-run for the item to
+          // come back as `ignored`, and a refusal has to be visible (this used
+          // to be `.catch(() => undefined)`, which hid a 404 from the forwarder
+          // and made the mute look applied when nothing had been written).
+          void action
+            .then(() => store.check())
+            .catch((err: unknown) => {
+              showToast(
+                `${copy.ignoreError}: ${err instanceof Error ? err.message : String(err)}`,
+                'error',
+              )
+            })
         },
       )
     }

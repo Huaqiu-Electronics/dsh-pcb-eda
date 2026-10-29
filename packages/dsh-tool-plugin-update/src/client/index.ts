@@ -2,10 +2,17 @@
  * `@huaqiu/dsh-tool-plugin-update` — browser half.
  *
  * Mounts one sidebar toolbutton in the Huaqiu family block ("插件更新") with a
- * numeric badge equal to the actionable plugin-update count (spec §6.3/§7.1:
- * only compatible `update` + `install` items after host/HQ-Edge filtering and
- * after excluding the ignored offer; runtime updates are NOT counted). Click
- * opens the review/confirm/ignore modal.
+ * numeric badge equal to the number of updates still on offer:
+ *
+ *   - the actionable plugin items (spec §6.3/§7.1 — compatible `update` +
+ *     `install` after host/HQ-Edge filtering, minus the ignored offer and any
+ *     muted item), PLUS
+ *   - one for the HQ Edge runtime update when hq-edge reports one (a separate
+ *     deliverable with its own card, still a pending update — see `badge.ts`).
+ *
+ * The durable job history never contributes (a settled job is not an update);
+ * a job that is still running is the only non-offer allowed to show a count.
+ * Click opens the review/confirm/ignore modal.
  *
  * The authoritative state is the hq-edge report fetched through the plugin's
  * same-origin forwarding routes. A tiny in-memory store owns the latest report
@@ -33,6 +40,7 @@ import {
 import { COPY } from './copy.js'
 import { PLUGIN_ICON } from './icons.js'
 import { openUpdateView, type UpdateStoreLike } from './update-view.js'
+import { badgeCountFor } from './badge.js'
 
 /** Stable data attributes identifying the injected entry row. */
 export const UPDATE_ENTRY_SELECTOR = '[data-hq-plugin-update-entry]'
@@ -1730,31 +1738,14 @@ class UpdateStore implements UpdateStoreLike {
   }
 
   /**
-   * Badge: counts actionable plugin updates AND an available runtime update AND
-   * (while a job runs) an attention pill. A recent failed/rolled-back job with
-   * nothing actionable left also keeps a dot, so the outcome is never silently
-   * forgotten after the panel closes.
+   * Sidebar badge: how many updates are still on offer — actionable plugin
+   * items plus (once) the HQ Edge runtime update.
+   *
+   * The whole rule lives in {@link badgeCountFor}; in particular the job
+   * history never contributes, which is what used to pin this at 1 forever.
    */
   badgeCount(): number {
-    const job = this.active
-    if (job !== null && !TERMINAL_PHASES.has(job.phase)) return 1
-    const report = this.current
-    if (report === null) return 0
-    let count = report.items.filter(
-      (item) => item.state === 'update' || item.state === 'install',
-    ).length
-    if (report.runtime?.updateAvailable) count += 1
-    if (count === 0) {
-      const latest = this.recent[0]
-      // Keep a visible attention dot for every terminal outcome, including
-      // success. Without this, a background update could finish while the
-      // panel was closed and the user would have no indication that a result
-      // is waiting in the update centre.
-      if (latest !== undefined && TERMINAL_PHASES.has(latest.phase)) {
-        count = 1
-      }
-    }
-    return count
+    return badgeCountFor(this.current, this.active)
   }
 
   private emit(): void {
@@ -1776,6 +1767,12 @@ class UpdateStore implements UpdateStoreLike {
       // The active job settled (moved to recent/terminal) — the installing
       // footer state must clear on its own, without the panel's closure.
       this.installingFlag = false
+      // …and the report is now stale: it still names the versions this job
+      // just installed. hq-edge refreshes its own copy before it settles the
+      // job, so one cheap read of `/report` is enough to bring the list (and
+      // the badge) down to zero. Without it the badge kept counting updates
+      // that no longer exist until the 60 s idle poll came round.
+      void this.refresh()
     }
     this.emit()
     this.schedulePoll()

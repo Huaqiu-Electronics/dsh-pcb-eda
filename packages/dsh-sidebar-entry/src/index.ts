@@ -122,6 +122,9 @@ function createEntry(options: SidebarEntryOptions): {
     if (count <= 0) {
       badgeSpan?.remove()
       badgeSpan = null
+      // The attribute drives badge styling / collapsed-rail layout. Leaving it
+      // behind at count 0 kept the row looking badged with no badge in it.
+      entry.removeAttribute('data-has-badge')
       return
     }
     if (badgeSpan === null) {
