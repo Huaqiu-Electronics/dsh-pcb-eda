@@ -2,7 +2,7 @@
   "schemaVersion": 2,
   "pluginSetVersion": "0.6.17",
   "release": {
-    "publishedAt": "2026-10-29T08:49:32.726Z",
+    "publishedAt": "2026-10-29T09:51:10.747Z",
     "channel": "stable",
     "requiresRestart": true,
     "summary": "EDA 主机拖拽放置稳定性修复，零件搜索与报价插件体验优化，以及插件更新面板的进度与发布说明展示。",
