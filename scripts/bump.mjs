@@ -109,8 +109,18 @@ function main() {
       changes.pluginSetVersion = [releaseManifest.pluginSetVersion, next]
       releaseManifest.pluginSetVersion = next
     }
+    const nowIso = new Date().toISOString()
+    if (releaseManifest.release && typeof releaseManifest.release === 'object') {
+      const oldTs = releaseManifest.release.publishedAt
+      if (oldTs !== undefined) {
+        changes['release.publishedAt'] = [oldTs, nowIso]
+      }
+      releaseManifest.release.publishedAt = nowIso
+    }
+    const IN_REPO = new Set(SIBLING_NAMES)
     const plugins = releaseManifest.plugins || {}
     for (const [name, entry] of Object.entries(plugins)) {
+      if (!IN_REPO.has(name)) continue
       if (entry && typeof entry === 'object' && entry.version && entry.version !== next) {
         changes[`plugins.${name}.version`] = [entry.version, next]
         entry.version = next
