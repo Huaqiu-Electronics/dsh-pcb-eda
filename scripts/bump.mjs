@@ -53,9 +53,18 @@ function main() {
   const SIBLING_NAMES = pkgs.map((p) => p.name)
   // Manifests to bump: root marker + every discovered package.
   const manifestPaths = [rootManifestPath(), ...pkgs.map((p) => join(p.dir, 'package.json'))]
+  // Optional plugin-set release manifest (kept in sync for OTA updates).
+  const releaseManifestPath = join(repoRoot, 'plugins-release-manifest.json')
 
   // Current versions — normally all manifests agree.
   const manifests = manifestPaths.map((path) => ({ path, data: readJson(path) }))
+  let releaseManifest
+  try {
+    releaseManifest = readJson(releaseManifestPath)
+  } catch {
+    // File missing (e.g. shallow clone / local playground): skip silently.
+    releaseManifest = null
+  }
   const versions = new Set(manifests.map((m) => m.data.version).filter(Boolean))
   const explicit = /^\d+\.\d+\.\d+/.test(target)
   let current
@@ -92,6 +101,24 @@ function main() {
     if (Object.keys(changes).length > 0) plan.push({ rel, changes })
   }
 
+  // plugins-release-manifest.json — bump pluginSetVersion + every plugin entry.
+  if (releaseManifest) {
+    const rel = releaseManifestPath.slice(repoRoot.length + 1)
+    const changes = {}
+    if (releaseManifest.pluginSetVersion && releaseManifest.pluginSetVersion !== next) {
+      changes.pluginSetVersion = [releaseManifest.pluginSetVersion, next]
+      releaseManifest.pluginSetVersion = next
+    }
+    const plugins = releaseManifest.plugins || {}
+    for (const [name, entry] of Object.entries(plugins)) {
+      if (entry && typeof entry === 'object' && entry.version && entry.version !== next) {
+        changes[`plugins.${name}.version`] = [entry.version, next]
+        entry.version = next
+      }
+    }
+    if (Object.keys(changes).length > 0) plan.push({ rel, changes })
+  }
+
   if (plan.length === 0) {
     console.log('  (no changes — every manifest is already on the target version)')
   }
@@ -114,6 +141,10 @@ function main() {
       }
     }
     writeJson(path, data)
+  }
+
+  if (releaseManifest) {
+    writeJson(releaseManifestPath, releaseManifest)
   }
 
   // Refresh pnpm-lock.yaml so `--frozen-lockfile` CI stays green.
