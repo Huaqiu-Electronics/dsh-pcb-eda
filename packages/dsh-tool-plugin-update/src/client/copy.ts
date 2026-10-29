@@ -14,7 +14,7 @@ const zh = {
   entryTooltip: '查看可用的插件更新',
   viewTitle: '插件更新',
   viewIntro: '检查并安装可用的插件更新',
-  viewInfo: '在这里查看插件集的更新。标注为「被阻止」的插件因主机或 HQ Edge 版本不兼容而无法安装；已是最新的插件无需操作。',
+  viewInfo: '在这里查看插件集的更新；已是最新的插件无需操作。',
   refresh: '刷新',
   close: '关闭',
   loading: '正在读取插件更新…',
@@ -37,21 +37,8 @@ const zh = {
   groupCount: (count: number) => `${count} 个插件`,
   group: {
     actionable: '待处理',
-    blocked: '无法安装',
     ignored: '已忽略',
     current: '已是最新',
-  },
-  state: {
-    current: '当前',
-    update: '可更新',
-    install: '待安装',
-    ignored: '已忽略',
-    blocked: '被阻止',
-  },
-  blockedReason: {
-    host: '不适用于当前 EDA 主机',
-    'hq-edge-version': '当前 HQ Edge 版本不兼容',
-    'runtime-unknown': 'HQ Edge 版本未知，无法校验',
   },
   runtime: {
     title: 'HQ Edge 运行时',
@@ -197,7 +184,6 @@ const zh = {
     allChangelog: '展开全部更新日志',
     changelogBtn: '日志',
     changelogTitle: '更新内容:',
-    blockedBadge: '无法安装',
     // Footer
     footerCount: (n: number) => `准备安装 ${n} 项兼容插件`,
     footerSet: (v: string) => `版本集: v${v}`,
@@ -222,7 +208,7 @@ const en: UpdateCopy = {
   entryTooltip: 'Review available plugin updates',
   viewTitle: 'Plugin Updates',
   viewIntro: 'Check for and install available plugin updates',
-  viewInfo: 'Review the plugin set updates here. A plugin marked Blocked cannot be installed because its host or HQ Edge version is incompatible; a plugin marked Current needs no action.',
+  viewInfo: 'Review the plugin set updates here. Plugins that are up to date need no action.',
   refresh: 'Refresh',
   close: 'Close',
   loading: 'Reading plugin updates…',
@@ -243,21 +229,8 @@ const en: UpdateCopy = {
   groupCount: (count: number) => `${count} plugin${count === 1 ? '' : 's'}`,
   group: {
     actionable: 'Actionable',
-    blocked: 'Blocked',
     ignored: 'Ignored',
     current: 'Up to date',
-  },
-  state: {
-    current: 'Current',
-    update: 'Update',
-    install: 'Install',
-    ignored: 'Ignored',
-    blocked: 'Blocked',
-  },
-  blockedReason: {
-    host: 'Not applicable to the current EDA host',
-    'hq-edge-version': 'Incompatible with the current HQ Edge version',
-    'runtime-unknown': 'HQ Edge version unknown — cannot verify',
   },
   runtime: {
     title: 'HQ Edge Runtime',
@@ -397,7 +370,6 @@ const en: UpdateCopy = {
     allChangelog: 'Expand all changelogs',
     changelogBtn: 'Log',
     changelogTitle: 'What changed:',
-    blockedBadge: 'Cannot install',
     footerCount: (n: number) => `Ready to install ${n} compatible plugin${n === 1 ? '' : 's'}`,
     footerSet: (v: string) => `Set: v${v}`,
     installAllSet: (v: string) => `Update all plugins (v${v})`,

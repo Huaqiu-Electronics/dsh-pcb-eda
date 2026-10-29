@@ -101,44 +101,6 @@ export function shortName(name: string): string {
   return unscoped.replace(/^dsh-(?:host-|client-)?/, '')
 }
 
-/** Normalize the server's block reason to a list (it may arrive as a string). */
-function blockedByList(item: PluginUpdateItem): string[] {
-  const by = item.blockedBy
-  if (Array.isArray(by)) return by.filter((entry): entry is string => typeof entry === 'string')
-  return typeof by === 'string' && by.length > 0 ? [by] : []
-}
-
-/** The tag tone a state reads as, matching the shell's Tag palette. */
-function stateTone(item: PluginUpdateItem): 'success' | 'info' | 'warning' | 'danger' | 'neutral' {
-  switch (item.state) {
-    case 'update':
-      return 'info'
-    case 'install':
-      return 'warning'
-    case 'blocked':
-      return 'danger'
-    case 'ignored':
-      return 'neutral'
-    case 'current':
-      return 'success'
-  }
-}
-
-function stateLabel(item: PluginUpdateItem, copy: UpdateCopy): string {
-  switch (item.state) {
-    case 'current':
-      return copy.state.current
-    case 'update':
-      return copy.state.update
-    case 'install':
-      return copy.state.install
-    case 'ignored':
-      return copy.state.ignored
-    case 'blocked':
-      return copy.state.blocked
-  }
-}
-
 /** The one-line version transition under a card's title. */
 function versionLine(item: PluginUpdateItem): string {
   switch (item.state) {
@@ -152,14 +114,6 @@ function versionLine(item: PluginUpdateItem): string {
         ? item.availableVersion
         : `${item.currentVersion} → ${item.availableVersion}`
   }
-}
-
-function blockedReason(item: PluginUpdateItem, copy: UpdateCopy): string | undefined {
-  const by = blockedByList(item)
-  if (by.includes('host')) return copy.blockedReason.host
-  if (by.includes('hq-edge-version')) return copy.blockedReason['hq-edge-version']
-  if (by.includes('runtime-unknown')) return copy.blockedReason['runtime-unknown']
-  return by.length > 0 ? by.join(', ') : undefined
 }
 
 /** Two-letter avatar initials for a card (CJK-safe). */
@@ -189,16 +143,14 @@ function changelogDrawer(item: PluginUpdateItem, copy: UpdateCopy, open: boolean
 
 /** One package card per the mockup: avatar initials, display name + package
  *  subtitle, old→new version row (new in emerald), a 日志 toggle expanding the
- *  inline changelog. Blocked/incompatible cards are dimmed with a rose
- *  无法安装 badge and a reason line, and carry NO install button. */
+ *  inline changelog. */
 function packageCard(
   item: PluginUpdateItem,
   copy: UpdateCopy,
   open: boolean,
   onToggle: () => void,
 ): HTMLLIElement {
-  const blocked = item.state === 'blocked'
-  const card = el('li', blocked ? 'hqpu-card hqpu-card--blocked' : 'hqpu-card')
+  const card = el('li', 'hqpu-card')
   card.dataset.pluginName = item.name
   card.dataset.state = item.state
 
@@ -229,9 +181,7 @@ function packageCard(
   left.append(avatar, main)
 
   const right = el('div', 'hqpu-card-end')
-  if (blocked) {
-    right.append(el('span', 'hqpu-blocked-badge', copy.ui.blockedBadge))
-  } else if (Array.isArray(item.changes) && item.changes.length > 0) {
+  if (Array.isArray(item.changes) && item.changes.length > 0) {
     const toggle = el('button', 'hqpu-log-toggle')
     toggle.type = 'button'
     toggle.dataset.open = open ? 'true' : 'false'
@@ -243,25 +193,8 @@ function packageCard(
   card.append(head)
 
   // Inline changelog drawer (actionable items only).
-  if (!blocked && Array.isArray(item.changes) && item.changes.length > 0) {
+  if (Array.isArray(item.changes) && item.changes.length > 0) {
     card.append(changelogDrawer(item, copy, open))
-  }
-
-  // Blocked reason line(s): mapped copy plus the server's full reasons/notes.
-  if (blocked) {
-    const reason = blockedReason(item, copy)
-    const entries = [
-      ...(reason !== undefined ? [reason] : []),
-      ...[...(item.reasons ?? []), ...(item.notes ?? [])].filter(
-        (e): e is string => typeof e === 'string' && e.length > 0,
-      ),
-    ]
-    for (const entry of entries) {
-      const line = el('p', 'hqpu-reason-line')
-      line.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 5V8.5M8 11.25h.01M14.5 8a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0Z"/></svg>`
-      line.append(document.createTextNode(entry))
-      card.append(line)
-    }
   }
   return card
 }
@@ -286,7 +219,7 @@ function group(
   titleWrap.append(el('span', 'hqpu-count-pill', String(items.length)))
   head.append(titleWrap)
   // Expand-all only makes sense over actionable, changelog-bearing cards.
-  const actionable = items.some((i) => i.state !== 'blocked' && Array.isArray(i.changes) && i.changes.length > 0)
+  const actionable = items.some((i) => Array.isArray(i.changes) && i.changes.length > 0)
   if (actionable) {
     const all = el('button', 'hqpu-all-changelog', copy.ui.allChangelog)
     all.type = 'button'
@@ -1144,11 +1077,12 @@ function renderList(
   const byState = (state: PluginUpdateItem['state']): PluginUpdateItem[] =>
     report.items.filter((item) => item.state === state)
 
-  // Most important first: what can be acted on, then what is refused, then
-  // what was muted, then what is already settled.
+  // Most important first: what can be acted on, then what was muted, then what
+  // is already settled. Blocked plugins are intentionally skipped — the server
+  // still reports them, but they carry no user-actionable offer, so surfacing
+  // them only adds noise without a path forward.
   const order: Array<[string, PluginUpdateItem[]]> = [
     [copy.group.actionable, [...byState('update'), ...byState('install')]],
-    [copy.group.blocked, byState('blocked')],
     [copy.group.ignored, byState('ignored')],
     [copy.group.current, byState('current')],
   ]
@@ -1287,7 +1221,7 @@ function renderSettingsPanel(
  * The sticky footer: left meta ("准备安装 N 项兼容插件" / "版本集: vX"), a
  * full-width primary "一键更新全套插件 (vX)" (install = one durable job),
  * a secondary 忽略 wired to the existing ignore/unignore affordance, and the
- * footnote. The count EXCLUDES blocked / ignored / already-current entries.
+ * footnote. The count EXCLUDES ignored / already-current entries.
  */
 function renderFooter(
   footer: HTMLElement,

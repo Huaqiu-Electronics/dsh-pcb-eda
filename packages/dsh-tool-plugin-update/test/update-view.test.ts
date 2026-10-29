@@ -663,60 +663,6 @@ describe('plugin item version direction (UI)', () => {
   })
 })
 
-// ── Blocked / incompatible cards + footer counting ──────────────────────────
-describe('blocked plugin cards', () => {
-  function blockedItem(overrides: Partial<PluginUpdateItem> = {}): PluginUpdateItem {
-    return {
-      name: '@huaqiu/dsh-bad',
-      currentVersion: null,
-      availableVersion: '0.6.4',
-      state: 'blocked',
-      reasons: ['requiresDsh>=0.7.0'],
-      notes: ['当前 DSH 版本过低'],
-      ...overrides,
-    }
-  }
-
-  function reportItems(items: PluginUpdateItem[]): PluginUpdateReport {
-    return normalizePluginUpdateReport({ ...reportWith(runtimeEntry()), items })
-  }
-
-  it('renders dimmed with a rose 无法安装 badge, a reason line, and NO install button', () => {
-    openUpdateView(fakeStore(reportItems([blockedItem()])), COPY.zh)
-    const card = document.querySelector<HTMLElement>('.hqpu-card[data-plugin-name="@huaqiu/dsh-bad"]')
-    expect(card).not.toBeNull()
-    expect(card?.classList.contains('hqpu-card--blocked')).toBe(true)
-    expect(card?.querySelector('.hqpu-blocked-badge')?.textContent).toBe(COPY.zh.ui.blockedBadge)
-    expect(card?.textContent).toContain('当前 DSH 版本过低')
-    // No install affordance on the card (and none on the footer either).
-    expect(card?.querySelector('button')).toBeNull()
-    expect(document.querySelector<HTMLButtonElement>('.hqpu-btn--block')?.disabled).toBe(true)
-  })
-
-  it('footer N excludes blocked and ignored items', () => {
-    openUpdateView(
-      fakeStore(
-        reportItems([
-          blockedItem(),
-          // One genuine actionable item.
-          {
-            name: '@huaqiu/dsh-kicad',
-            currentVersion: '0.6.1',
-            availableVersion: '0.6.2',
-            state: 'update',
-          },
-          // One ignored item — must not count.
-          { ...blockedItem(), name: '@huaqiu/dsh-muted', state: 'ignored' as const },
-        ]),
-      ),
-      COPY.zh,
-    )
-    expect(document.querySelector('.hqpu-foot-meta')?.textContent).toContain(
-      COPY.zh.ui.footerCount(1),
-    )
-  })
-})
-
 // ── Runtime last-result alerts: amber rollback/failed vs green success ───────
 describe('runtime last-result alerts', () => {
   function reportWithLastResult(lastResult: Record<string, unknown>): PluginUpdateReport {

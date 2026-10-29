@@ -1466,40 +1466,6 @@ const VIEW_CSS_TEXT = `
   line-height: 16px;
 }
 
-/* Blocked / incompatible card: dimmed, rose badge, no install button */
-.hqpu-card--blocked {
-  opacity: 0.8;
-  background: color-mix(in srgb, var(--hq-card) 60%, transparent);
-  border-color: var(--hq-border);
-}
-.hqpu-card--blocked .hqpu-avatar {
-  background: color-mix(in srgb, var(--hq-card) 50%, transparent);
-  border-color: var(--hq-border);
-  color: var(--hq-faint);
-}
-.hqpu-card--blocked .hqpu-card-title { color: var(--hq-muted); }
-.hqpu-blocked-badge {
-  font-size: 9px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: var(--hq-rose);
-  background: color-mix(in srgb, var(--hq-rose) 18%, transparent);
-  border: 0.5px solid color-mix(in srgb, var(--hq-rose) 40%, transparent);
-}
-.hqpu-reason-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  margin: 8px 0 0;
-  padding: 6px;
-  border-radius: 5px;
-  border: 0.5px solid color-mix(in srgb, var(--hq-rose) 20%, transparent);
-  background: color-mix(in srgb, var(--hq-rose) 8%, transparent);
-  font-size: 10px;
-  color: var(--hq-rose);
-}
-.hqpu-reason-line svg { width: 12px; height: 12px; flex: none; margin-top: 1px; }
-
 /* Sticky footer */
 .hqpu-footer {
   flex: none;

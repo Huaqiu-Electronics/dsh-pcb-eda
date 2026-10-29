@@ -120,8 +120,8 @@ export function isVersionUpgrade(currentVersion: string | null, availableVersion
  * to `current`: the plugin is at (or ahead of) the offered release, there is
  * nothing to install, and no install control may be offered for it. Every
  * other state passes through untouched — `install` (plugin absent locally)
- * has no local version to compare, and `blocked`/`ignored`/`current` are
- * already non-actionable. Unknown server fields are preserved verbatim: the
+ * has no local version to compare, and `ignored`/`current` are already
+ * non-actionable. Unknown server fields are preserved verbatim: the
  * client stays a thin reader of the hq-edge report shape.
  */
 export function normalizePluginUpdateItem<T extends PluginUpdateItem>(item: T): T {
