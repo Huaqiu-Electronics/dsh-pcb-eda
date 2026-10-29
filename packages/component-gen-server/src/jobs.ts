@@ -200,6 +200,7 @@ export async function runGeneration(
     progress('正在生成封装…')
     const result = await backend.generateFootprint(
       {
+        imageDataUrl: req.input.imageDataUrl,
         packageType: req.input.packageType ?? '',
         fileName: req.input.fileName,
         dimensions: req.input.dimensions ?? {},

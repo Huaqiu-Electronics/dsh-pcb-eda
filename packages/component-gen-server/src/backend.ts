@@ -25,7 +25,7 @@ export interface GenerationExec {
 export interface ComponentGenBackend {
   generateSymbol(args: { imageDataUrl: string; instruction?: string }, exec: GenerationExec): Promise<Record<string, unknown>>
   extractFootprint(args: { imageDataUrl: string; packageType?: string; instruction?: string }, exec: GenerationExec): Promise<Record<string, unknown>>
-  generateFootprint(args: { packageType: string; fileName?: string; dimensions: Record<string, number> }, exec: GenerationExec): Promise<Record<string, unknown>>
+  generateFootprint(args: { imageDataUrl?: string; packageType: string; fileName?: string; dimensions: Record<string, number> }, exec: GenerationExec): Promise<Record<string, unknown>>
 }
 
 export function kindLabel(kind: JobKind): 'symbol' | 'footprint' {

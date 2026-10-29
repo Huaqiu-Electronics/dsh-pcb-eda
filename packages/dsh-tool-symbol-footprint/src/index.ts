@@ -184,7 +184,7 @@ export function createComponentGenBackend(env: SymbolFootprintEnv): ComponentGen
       ),
     generateFootprint: (args, exec) =>
       runGenerateFootprintFromDimensions(
-        { package_type: args.packageType, file_name: args.fileName, dimensions: args.dimensions },
+        { image: args.imageDataUrl, package_type: args.packageType, file_name: args.fileName, dimensions: args.dimensions },
         { signal: exec.signal },
         env,
       ),
