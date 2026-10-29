@@ -30,10 +30,12 @@ import {
 } from '@huaqiu/dsh-sidebar-entry'
 import {
   checkUpdates,
+  fetchActivity,
   fetchJobStatus,
   fetchReport,
   TERMINAL_PHASES,
   type PluginUpdateReport,
+  type UpdateActivity,
   type UpdateJob,
   type UpdateJobStatus,
 } from './api.js'
@@ -1227,6 +1229,45 @@ const VIEW_CSS_TEXT = `
   line-height: 14px;
   color: var(--hq-faint);
 }
+/* A stalled job: the card keeps its shape but stops claiming progress. The
+ * pulse stops, the bar dims, and the note line carries the retry. */
+.hqpu-active[data-stalled='1'] .hqpu-pulse-ring {
+  animation: none;
+  opacity: 0;
+}
+.hqpu-active[data-stalled='1'] .hqpu-pulse-dot::before {
+  background: var(--hq-amber);
+}
+.hqpu-active[data-stalled='1'] .hqpu-active-percent {
+  color: var(--hq-amber-ink);
+}
+.hqpu-active[data-stalled='1'] .hqpu-progress-fill {
+  background: color-mix(in srgb, var(--hq-amber) 55%, var(--hq-border));
+  transition: none;
+}
+/* The active step stops blinking too: nothing is advancing. */
+.hqpu-active[data-stalled='1'] .hqpu-job-step--active {
+  color: var(--hq-amber-ink);
+  animation: none;
+}
+.hqpu-active-stalled {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--hq-amber) 10%, transparent);
+  font-size: var(--hq-fs-micro);
+  line-height: 14px;
+  color: var(--hq-amber-ink);
+}
+.hqpu-active-stalled .hqpu-link {
+  flex: none;
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-amber-ink);
+  text-decoration: underline;
+}
 .hqpu-job-steps4 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1849,8 +1890,14 @@ export interface ClientContext {
   effect?(fn: () => (() => void) | void, label?: string): void
 }
 
-/** In-memory update-report store shared by the badge and the modal. */
-class UpdateStore implements UpdateStoreLike {
+/**
+ * In-memory update-report store shared by the badge and the modal.
+ *
+ * Exported for tests: the re-attach logic (watch a job by id, notice that the
+ * server was replaced, stop claiming progress) is the part that cannot be
+ * exercised through the view alone.
+ */
+export class UpdateStore implements UpdateStoreLike {
   private current: PluginUpdateReport | null = null
   private installingFlag = false
   /** The durable job the server currently reports as active (resumed across
@@ -1862,6 +1909,12 @@ class UpdateStore implements UpdateStoreLike {
   private pollTimer: number | null = null
   private pollBackoffMs = 1_000
   private pollInFlight = false
+  /** The job this panel started (or adopted) and is following by id. */
+  private watchedJobId: string | null = null
+  /** hq-edge process identity from the last `/activity` read. */
+  private activityBootId: string | null = null
+  private stalledFlag = false
+  private phaseAgeMsValue = 0
 
   report(): PluginUpdateReport | null {
     return this.current
@@ -1877,6 +1930,27 @@ class UpdateStore implements UpdateStoreLike {
 
   recentJobs(): UpdateJob[] {
     return [...this.recent]
+  }
+
+  /** True when the server says the active job stopped advancing. */
+  stalled(): boolean {
+    return this.stalledFlag
+  }
+
+  /** Milliseconds since the active job last advanced (server clock). */
+  phaseAgeMs(): number {
+    return this.phaseAgeMsValue
+  }
+
+  /**
+   * Follow a job by id. The panel calls this with the `jobId` an accept
+   * response handed back, so every later read asks about THAT job — the only
+   * way to learn its outcome when the install replaced this very plugin (the
+   * page comes back to a server that has no "active job" left to report).
+   */
+  watchJob(id: string | null): void {
+    this.watchedJobId = id
+    if (id !== null) this.schedulePoll()
   }
 
   subscribe(listener: () => void): () => void {
@@ -1912,35 +1986,96 @@ class UpdateStore implements UpdateStoreLike {
     const wasActive = this.active !== null
     this.active = status.activeJob
     this.recent = status.recentJobs
-    if (wasActive && this.active === null) {
-      // The active job settled (moved to recent/terminal) — the installing
-      // footer state must clear on its own, without the panel's closure.
-      this.installingFlag = false
-      // …and the report is now stale: it still names the versions this job
-      // just installed. hq-edge refreshes its own copy before it settles the
-      // job, so one cheap read of `/report` is enough to bring the list (and
-      // the badge) down to zero. Without it the badge kept counting updates
-      // that no longer exist until the 60 s idle poll came round.
-      void this.refresh()
-    }
+    if (this.active !== null) this.watchedJobId = this.active.id
+    if (wasActive && this.active === null) this.observeSettled()
     this.emit()
     this.schedulePoll()
   }
 
   /**
-   * Fetch the durable job status. Called on mount, on panel open (BEFORE
+   * Adopt a `/activity` snapshot.
+   *
+   * Two things only this read can tell us:
+   *
+   *   - `bootId` changed → hq-edge was recreated underneath the page. That is
+   *     what an install of this plugin's own package looks like from here: the
+   *     DSH process serving this route was replaced. Nothing in memory can be
+   *     trusted, so the installing flag is cleared and the report re-read.
+   *   - `stalled` → the active job has stopped advancing. The progress bar must
+   *     stop pretending; the panel shows a "confirming" note with a retry.
+   */
+  private applyActivity(activity: UpdateActivity): void {
+    const rebooted = this.activityBootId !== null && this.activityBootId !== activity.bootId
+    this.activityBootId = activity.bootId
+    this.stalledFlag = activity.stalled
+    this.phaseAgeMsValue = activity.phaseAgeMs
+
+    const wasActive = this.active !== null
+    this.active = activity.activeJob
+    if (activity.job !== null) this.upsertRecent(activity.job)
+
+    if (rebooted) {
+      this.installingFlag = false
+      this.stalledFlag = false
+      this.phaseAgeMsValue = 0
+      void this.refresh()
+    }
+    if (wasActive && this.active === null) this.observeSettled()
+    this.emit()
+    this.schedulePoll()
+  }
+
+  /**
+   * The job we were following reached a terminal phase (or vanished from the
+   * active slot). Clear the transient flags and re-read the report — it still
+   * names the versions that job installed.
+   */
+  private observeSettled(): void {
+    this.installingFlag = false
+    this.stalledFlag = false
+    this.phaseAgeMsValue = 0
+    this.watchedJobId = null
+    void this.refresh()
+  }
+
+  /** Keep one job fresh in the local history without duplicating it. */
+  private upsertRecent(job: UpdateJob): void {
+    const rest = this.recent.filter((entry) => entry.id !== job.id)
+    this.recent = [job, ...rest].slice(0, 20)
+  }
+
+  /**
+   * Fetch the durable job state. Called on mount, on panel open (BEFORE
    * discovery) and by the poll loop. A failure (older hq-edge with no
    * `/status`, or a transient HTTP error) is swallowed: the last known job is
    * kept and the poller backs off and retries.
    */
   async fetchStatus(): Promise<void> {
     try {
-      const status = await fetchJobStatus()
+      await this.pollOnce()
       this.pollBackoffMs = 1_000
-      this.applyStatus(status)
     } catch {
       this.schedulePoll()
     }
+  }
+
+  /**
+   * One read. While a job is being followed, ask `/activity` about THAT job
+   * (survives the restart an update of this plugin causes); otherwise fall back
+   * to the plain `/status` list. An older hq-edge without `/activity` 404s and
+   * the status read still answers.
+   */
+  private async pollOnce(): Promise<void> {
+    const watched = this.watchedJobId ?? this.active?.id ?? null
+    if (watched !== null) {
+      try {
+        this.applyActivity(await fetchActivity(watched))
+        return
+      } catch {
+        /* fall through to /status: an older hq-edge has no /activity */
+      }
+    }
+    this.applyStatus(await fetchJobStatus())
   }
 
   /** ~1 s poll while a job is active; stop on terminal; back off on error
@@ -1967,9 +2102,8 @@ class UpdateStore implements UpdateStoreLike {
     }
     this.pollInFlight = true
     try {
-      const status = await fetchJobStatus()
+      await this.pollOnce()
       this.pollBackoffMs = 1_000
-      this.applyStatus(status)
     } catch {
       this.pollBackoffMs = Math.min(5_000, Math.max(1_000, this.pollBackoffMs * 2))
       this.schedulePoll()

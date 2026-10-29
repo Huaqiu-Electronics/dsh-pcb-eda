@@ -185,6 +185,7 @@ const zh = {
     ctaNoSet: '暂无可安装的更新',
     footerCount: (n: number) => `准备安装 ${n} 项兼容插件`,
     footerBusy: '后台处理中，请勿关闭 DSH',
+    footerConfirming: '正在确认安装结果…',
     footerFailed: '无法确认插件版本兼容性',
     footerAllGood: '所有插件与运行时均正常',
     footerRuntimeOnly: '运行时更新需在上方单独确认',
@@ -218,6 +219,8 @@ const zh = {
     jobRuntimeTitle: (v: string) => `正在升级 HQ Edge 运行时 (v${v})`,
     jobSteps: ['下载', '校验', '替换', '重启'],
     activeCloseNote: '关闭此面板不会取消更新，完成后将自动重启。',
+    stalledNote: '进度已停止回执，正在向 HQ Edge 确认安装结果…',
+    stalledAction: '立即确认',
     // Runtime result alert
     rollbackTitle: '上次 HQ Edge 运行时更新已自动回滚',
     failedTitle: '上次 HQ Edge 运行时更新失败',
@@ -401,6 +404,7 @@ const en: UpdateCopy = {
     ctaNoSet: 'Nothing to install yet',
     footerCount: (n: number) => `Ready to install ${n} compatible plugin${n === 1 ? '' : 's'}`,
     footerBusy: 'Running in the background — keep DSH open',
+    footerConfirming: 'Confirming the install result…',
     footerFailed: 'Cannot confirm plugin compatibility',
     footerAllGood: 'All plugins and the runtime are current',
     footerRuntimeOnly: 'Confirm the runtime upgrade on its card',
@@ -431,6 +435,8 @@ const en: UpdateCopy = {
     jobRuntimeTitle: (v: string) => `Upgrading HQ Edge runtime (v${v})`,
     jobSteps: ['Download', 'Verify', 'Swap', 'Restart'],
     activeCloseNote: 'Closing this panel does not cancel the update; DSH restarts when it finishes.',
+    stalledNote: 'Progress has stopped reporting — confirming the result with HQ Edge…',
+    stalledAction: 'Check now',
     rollbackTitle: 'Last HQ Edge runtime update rolled back automatically',
     failedTitle: 'Last HQ Edge runtime update failed',
     rollbackBody: (oldVer: string, code: string) =>

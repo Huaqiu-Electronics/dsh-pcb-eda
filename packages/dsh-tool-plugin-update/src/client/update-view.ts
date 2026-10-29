@@ -81,6 +81,16 @@ export interface UpdateStoreLike {
   check(): Promise<PluginUpdateReport | null>
   /** Re-read `/status` (resume an active job immediately after submitting). */
   fetchStatus(): Promise<void>
+  /**
+   * Follow a job by id after an accept response. Optional so a minimal store
+   * (tests, older hosts) still satisfies the contract; the real store uses it
+   * to keep asking about THIS job across a DSH restart.
+   */
+  watchJob?(id: string | null): void
+  /** Server-reported "the active job stopped advancing". */
+  stalled?(): boolean
+  /** Milliseconds since the active job last advanced (server clock). */
+  phaseAgeMs?(): number
   subscribe(listener: () => void): () => void
 }
 
@@ -438,11 +448,23 @@ function checkBanner(
  * The active job card: title (with the target version) + percent, a
  * determinate bar when the server publishes one, phase + telemetry, the honest
  * "closing does not cancel" note, and the 4-step pipeline.
+ *
+ * `stalled` marks a job the server has stopped advancing. That is the normal
+ * shape of "the set being installed contains this very plugin": activating it
+ * restarts DSH, so the process that owned the job is gone and the last thing
+ * the page saw was 100 % on the final step. Instead of animating a bar that
+ * will never move, the card says it is confirming the outcome and offers a
+ * retry — and the next `/activity` read settles it from the installed set.
  */
-function activeJobView(job: UpdateJob, copy: UpdateCopy): HTMLElement {
+function activeJobView(
+  job: UpdateJob,
+  copy: UpdateCopy,
+  opts: { stalled?: boolean; onRecheck?: () => void } = {},
+): HTMLElement {
   const section = el('section', 'hqpu-group')
   section.dataset.group = 'active-job'
   const card = el('div', 'hqpu-active')
+  if (opts.stalled === true) card.dataset.stalled = '1'
 
   const top = el('div', 'hqpu-active-top')
   const titleWrap = el('div', 'hqpu-active-title')
@@ -507,6 +529,15 @@ function activeJobView(job: UpdateJob, copy: UpdateCopy): HTMLElement {
       job.kind === 'runtime' ? copy.job.willSwapRuntime : copy.ui.activeCloseNote,
     ),
   )
+
+  if (opts.stalled === true) {
+    const stalled = el('div', 'hqpu-active-stalled')
+    stalled.append(el('span', '', copy.ui.stalledNote))
+    const recheck = linkButton('hqpu-link', copy.ui.stalledAction, () => opts.onRecheck?.())
+    recheck.setAttribute('data-stalled-recheck', '')
+    stalled.append(recheck)
+    card.append(stalled)
+  }
 
   const current = stepIndex(job.phase)
   const stepsRow = el('div', 'hqpu-job-steps4')
@@ -1266,6 +1297,9 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
       // relaunch. Latch it, so a store refresh cannot re-offer the button for
       // a server that is already gone.
       runtimeAccepted = true
+      // The runtime swap restarts HQ Edge itself; follow the job it accepted so
+      // the panel can report the outcome after the runtime is back.
+      store.watchJob?.(result.jobId ?? null)
       showToast(copy.runtime.updateAccepted, 'success')
       void store.fetchStatus()
     } catch (err: unknown) {
@@ -1443,7 +1477,14 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
     jobSection.textContent = ''
     const active = store.activeJob()
     if (active !== null && !TERMINAL_PHASES.has(active.phase)) {
-      jobSection.append(activeJobView(active, copy))
+      jobSection.append(
+        activeJobView(active, copy, {
+          stalled: store.stalled?.() === true,
+          onRecheck: () => {
+            void store.fetchStatus()
+          },
+        }),
+      )
     }
   }
 
@@ -1634,7 +1675,11 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
     if (busy) {
       ctaLabel.textContent = copy.ui.ctaInstalling
       cta.disabled = true
-      footCount.textContent = copy.ui.footerBusy
+      // A stalled job is still "busy" — the install may have completed and only
+      // the report is missing — so the footer must not promise progress it
+      // cannot see. The card above carries the retry.
+      footCount.textContent =
+        store.stalled?.() === true ? copy.ui.footerConfirming : copy.ui.footerBusy
     } else if (report === null) {
       ctaLabel.textContent = copy.ui.ctaNoSet
       cta.disabled = true
@@ -1880,8 +1925,11 @@ async function runInstall(
       showToast(`${copy.installError}: ${result.error}`, 'error')
       return
     }
-    // 202 accepted: a durable job now owns the lifecycle. The store's /status
-    // poller renders progress and clears the flag when the job settles.
+    // 202 accepted: a durable job now owns the lifecycle. Follow it BY ID —
+    // that is what survives the restart when this very plugin is in the set
+    // being installed (the server then has no "active job" to hand back, only
+    // the record of the id we asked about).
+    store.watchJob?.(result.jobId ?? null)
     showToast(copy.installSuccess, 'success')
     void store.fetchStatus()
   } catch (err: unknown) {

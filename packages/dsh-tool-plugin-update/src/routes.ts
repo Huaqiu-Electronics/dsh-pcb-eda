@@ -36,11 +36,20 @@
  *   GET  /plugin-update/status   → GET  /api/v1/plugin-updates/status
  *   GET  /plugin-update/status/<id>
  *                                → GET  /api/v1/plugin-updates/status/<id>
+ *   GET  /plugin-update/activity?job=<id>
+ *                                → GET  /api/v1/plugin-updates/activity?job=<id>
  *
  * The status routes expose the durable update-job lifecycle (active job +
  * recent jobs). They are read-only passthroughs: an unknown job id upstream
  * answers `404 { error: 'unknown job' }`, which this forwarder passes through
  * verbatim rather than turning into a plugin-side 500.
+ *
+ * `/activity` is the re-attach read: an install that includes this very plugin
+ * restarts DSH, so the browser loses this route for a moment and cannot trust
+ * its in-memory job. The answer carries the hq-edge process identity, the named
+ * job (settled or not), a stall flag and the installed set version, and each
+ * read also settles a job orphaned by that restart. Its `?job=` is the one
+ * query this forwarder passes upstream.
  *
  * The runtime-update request is user-confirmed in this plugin's review panel:
  * hq-edge validates the version against a fresh manifest, downloads and
@@ -93,6 +102,13 @@ function parsePath(req: IncomingMessage): string | null {
   return pathname.slice(UPDATE_ROUTE_PREFIX.length)
 }
 
+/** The raw `?…` of the incoming request ('' when there is none). */
+function parseQuery(req: IncomingMessage): string {
+  const url = req.url ?? ''
+  const q = url.indexOf('?')
+  return q >= 0 ? url.slice(q) : ''
+}
+
 /** Read the request body (bounded) as UTF-8 text. */
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -141,7 +157,7 @@ function matchJobStatusPath(sub: string): string | null {
 function routeFor(
   sub: string,
   method: string,
-): { method: string; path: string; timeoutMs?: number } | null {
+): { method: string; path: string; timeoutMs?: number; passQuery?: boolean } | null {
   if (sub === '/runtime-source') {
     if (method === 'GET') return { method: 'GET', path: '/api/v1/runtime-update/source' }
     if (method === 'POST') return { method: 'POST', path: '/api/v1/runtime-update/source' }
@@ -158,6 +174,15 @@ function routeFor(
   if (sub === '/status') {
     return method === 'GET'
       ? { method: 'GET', path: '/api/v1/plugin-updates/status' }
+      : null
+  }
+  // Re-attach snapshot: process identity + the named job + stall detection.
+  // It is the read the panel uses while updating its OWN package (that install
+  // restarts DSH, so the page loses this forwarder for a moment and must be
+  // able to rebuild its state afterwards).
+  if (sub === '/activity') {
+    return method === 'GET'
+      ? { method: 'GET', path: '/api/v1/plugin-updates/activity', passQuery: true }
       : null
   }
   const jobId = matchJobStatusPath(sub)
@@ -224,6 +249,7 @@ const STATIC_SUB_PATHS = new Set([
   '/runtime-source',
   '/plugin-source',
   '/status',
+  '/activity',
 ])
 
 /**
@@ -280,8 +306,12 @@ export function createUpdateForwarder(
     const budget = target.timeoutMs ?? timeoutMs
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), budget)
+    // Only `/activity` carries a query today (`?job=`). Every other route maps
+    // to a fixed upstream path, so forwarding the query blindly would leak
+    // unrelated client params into hq-edge.
+    const upstreamUrl = `${base}${target.path}${target.passQuery === true ? parseQuery(req) : ''}`
     try {
-      const upstream = await fetch(`${base}${target.path}`, {
+      const upstream = await fetch(upstreamUrl, {
         method: target.method,
         headers: {
           'content-type': 'application/json; charset=utf-8',

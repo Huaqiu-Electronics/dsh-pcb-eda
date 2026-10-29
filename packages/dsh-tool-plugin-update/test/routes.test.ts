@@ -171,6 +171,41 @@ describe('plugin-update forwarding routes', () => {
     expect(bad.status).toBe(405)
   })
 
+  /**
+   * `/activity` is the re-attach read: it must reach hq-edge AND carry the
+   * caller's `?job=`, which is the only thing that identifies the job after the
+   * server that started it was replaced. No other route passes a query through.
+   */
+  it('forwards GET activity → GET /api/v1/plugin-updates/activity with ?job=', async () => {
+    const forwarder = createUpdateForwarder(() => baseUrl)
+    await startDshSide(forwarder)
+    const { status, json } = await driveRequest(
+      'GET',
+      `${UPDATE_ROUTE_PREFIX}/activity?job=uj_1793255677245_2fi1x0dltt`,
+    )
+    expect(status).toBe(200)
+    expect(json).toMatchObject({
+      echoed: true,
+      method: 'GET',
+      url: '/api/v1/plugin-updates/activity?job=uj_1793255677245_2fi1x0dltt',
+    })
+    expect(seen[0]).toMatchObject({
+      method: 'GET',
+      url: '/api/v1/plugin-updates/activity?job=uj_1793255677245_2fi1x0dltt',
+    })
+  })
+
+  it('forwards GET activity without a query, and rejects a write on it', async () => {
+    const forwarder = createUpdateForwarder(() => baseUrl)
+    await startDshSide(forwarder)
+    const bare = await driveRequest('GET', `${UPDATE_ROUTE_PREFIX}/activity`)
+    expect(bare.status).toBe(200)
+    expect(seen[0]).toMatchObject({ url: '/api/v1/plugin-updates/activity' })
+
+    const post = await driveRequest('POST', `${UPDATE_ROUTE_PREFIX}/activity`, '{}')
+    expect(post.status).toBe(405)
+  })
+
   it('forwards POST runtime-request → POST /api/v1/runtime-update/request', async () => {
     const forwarder = createUpdateForwarder(() => baseUrl)
     await startDshSide(forwarder)

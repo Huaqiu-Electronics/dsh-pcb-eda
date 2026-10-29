@@ -1025,3 +1025,95 @@ describe('job log drawer', () => {
     expect(logButton()?.title).toBe(zh.ui.logBusy)
   })
 })
+
+// ── A job that stops reporting (re-attach) ──────────────────────────────────
+/**
+ * When the set being installed contains this very plugin, the DSH restart that
+ * activates it takes the page's server away mid-job. The panel used to sit on a
+ * progress bar frozen at 100 % on the final step forever.
+ *
+ * The fix has two halves, and both are asserted here: the server tells the
+ * panel the job has stalled (`/activity.stalled`), and the panel stops claiming
+ * progress — amber card, "confirming" note, a retry that re-reads the durable
+ * state (which settles the job from the installed set).
+ */
+describe('stalled active job', () => {
+  function restartingJob(overrides: Partial<UpdateJob> = {}): UpdateJob {
+    return {
+      id: 'uj_stalled',
+      kind: 'plugin-set',
+      targetVersion: '0.6.1',
+      previousVersion: '0.6.0',
+      startedAt: '2026-10-29T08:00:00.000Z',
+      updatedAt: '2026-10-29T08:00:30.000Z',
+      phase: 'restarting',
+      progress: { percent: 100 },
+      ...overrides,
+    }
+  }
+
+  function updatable(): PluginUpdateReport {
+    return {
+      ...reportWith(runtimeEntry(), false),
+      items: [
+        { name: '@huaqiu/dsh-a', currentVersion: '0.6.0', availableVersion: '0.6.1', state: 'update' },
+      ],
+    }
+  }
+
+  const activeCard = (): HTMLElement | null =>
+    document.querySelector<HTMLElement>('[data-group="active-job"] .hqpu-active')
+
+  it('says it is confirming instead of animating a dead progress bar', () => {
+    const fetchStatus = vi.fn(async () => undefined)
+    openUpdateView(
+      fakeStore(updatable(), {
+        installing: () => true,
+        activeJob: () => restartingJob(),
+        stalled: () => true,
+        phaseAgeMs: () => 120_000,
+        fetchStatus,
+      }),
+      zh,
+    )
+
+    expect(activeCard()?.dataset.stalled).toBe('1')
+    expect(activeCard()?.textContent).toContain(zh.ui.stalledNote)
+    // The footer stops promising progress it cannot see.
+    expect(document.querySelector('.hqpu-foot-meta')?.textContent).toContain(
+      zh.ui.footerConfirming,
+    )
+
+    document.querySelector<HTMLButtonElement>('[data-stalled-recheck]')?.click()
+    expect(fetchStatus).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the running presentation while the server is still reporting', () => {
+    openUpdateView(
+      fakeStore(updatable(), {
+        installing: () => true,
+        activeJob: () => restartingJob({ phase: 'downloading', progress: { percent: 42 } }),
+        stalled: () => false,
+        phaseAgeMs: () => 900,
+      }),
+      zh,
+    )
+
+    expect(activeCard()?.hasAttribute('data-stalled')).toBe(false)
+    expect(activeCard()?.textContent).not.toContain(zh.ui.stalledNote)
+    expect(document.querySelector('.hqpu-foot-meta')?.textContent).toContain(zh.ui.footerBusy)
+  })
+
+  it('follows the accepted job id so its outcome survives a restart', async () => {
+    // `GET /activity?job=<id>` is the only read that can answer "what happened
+    // to my job" after the server that started it was replaced.
+    const watchJob = vi.fn()
+    installSet.mockResolvedValueOnce({ jobId: 'uj_42', state: 'accepted' } as never)
+    openUpdateView(fakeStore(updatable(), { watchJob }), zh)
+
+    cta()?.click()
+    await vi.waitFor(() => {
+      expect(watchJob).toHaveBeenCalledWith('uj_42')
+    })
+  })
+})
