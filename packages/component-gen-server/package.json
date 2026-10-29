@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/component-gen-server",
-  "version": "0.6.14",
+  "version": "0.6.15",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
@@ -34,7 +34,7 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-host-webserver": "^0.2.1-rc.2",
-    "@huaqiu/dsh-tool-symbol-footprint": "^0.6.14"
+    "@huaqiu/dsh-tool-symbol-footprint": "^0.6.15"
   },
   "devDependencies": {
     "@huaqiu/dsh-tool-symbol-footprint": "workspace:*",
