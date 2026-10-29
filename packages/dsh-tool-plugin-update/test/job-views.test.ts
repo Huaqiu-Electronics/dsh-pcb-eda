@@ -144,7 +144,7 @@ describe('active-job view', () => {
     expect(fill).not.toBeNull()
     expect(fill!.style.width).toBe('42%')
     // "Closing the panel does not cancel" is stated.
-    expect(view!.textContent).toContain(zh.job.closeNote)
+    expect(view!.textContent).toContain(zh.ui.activeCloseNote)
   })
 
   it('does not render a progress bar when the server gives no percentage', () => {
@@ -209,7 +209,7 @@ describe('check-status banner', () => {
     openUpdateView(storeFor(failed, null, []), zh)
     const view = document.querySelector<HTMLElement>('[data-hq-plugin-update-view]')
     expect(view!.textContent).toContain('manifest fetch timed out')
-    expect(view!.textContent).toContain(zh.retry)
+    expect(view!.textContent).toContain(zh.retryNow)
     // The silent success-empty state must NOT appear alongside a failure.
     expect(view!.textContent).not.toContain(zh.empty)
     expect(view!.querySelector('[data-group="check-status"]')).not.toBeNull()
