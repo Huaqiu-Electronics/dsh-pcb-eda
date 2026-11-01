@@ -62,6 +62,10 @@ export function createQuoteTools(env: QuoteToolEnv) {
     if (a.blength !== undefined) form.blength = a.blength
     if (a.bwidth !== undefined) form.bwidth = a.bwidth
     if (a.board_tg !== undefined) form.boardTg = a.board_tg
+    if (a.bheight !== undefined) form.bheight = a.bheight
+    if (a.lineweight !== undefined) form.lineweight = a.lineweight
+    if (a.vias !== undefined) form.vias = a.vias
+    if (a.insidecopper !== undefined) form.insidecopper = a.insidecopper
     if (a.color !== undefined) form.color = a.color
     if (a.cover !== undefined) form.cover = a.cover
     if (a.spray !== undefined) form.spray = a.spray
@@ -73,14 +77,16 @@ export function createQuoteTools(env: QuoteToolEnv) {
     derive_board_size: {
       type: 'boolean' as const,
       description:
-        'When true, ask hq-edge to derive board length/width from the current PCB board ' +
-        '(approximate bounding box of footprints; only when a board is open in the host).',
+        'Board length/width are ALWAYS derived from the open board (exact Edge.Cuts outline) ' +
+        'when a PCB editor has a board open — no flag needed. Set true to additionally allow the ' +
+        'footprint-bbox approximation when the exact outline is unavailable (e.g. no Edge.Cuts).',
     },
     derive_board_stackup: {
       type: 'boolean' as const,
       description:
-        'NOT SUPPORTED (explicit capability gap): hq-edge has no board-properties source, ' +
-        'so stack-up is never derived or fabricated. Provide blayer/bheight explicitly instead.',
+        'Layer count, thickness, min trace/space and min hole are ALWAYS derived from the open ' +
+        'board — no flag needed. Set true to require them: the quote then FAILS when no board is ' +
+        'available instead of pricing with the reference defaults.',
     },
     include_raw_response: {
       type: 'boolean' as const,
@@ -97,13 +103,13 @@ export function createQuoteTools(env: QuoteToolEnv) {
         'would cost, "报价", "价格", delivery time estimates, or comparing fab options. ' +
         'Returns the itemized price breakdown, total price, and delivery alternatives ' +
         '(name + build time in days + total price) with currency symbol (¥ CN / ￥ intl). ' +
-        'When derive_board_size / derive_board_stackup is set, the response also carries the ' +
-        'effective quote form: EDA-extracted board facts (length/width from the board outline, ' +
-        'layer count + thickness from the stack-up in KiCad) merged with the caller overrides — ' +
-        'plus server defaults applied on the wire (e.g. bcount default 5, endpoint-required ' +
-        'pbnum=1 / insidecopper). Inspect "form" in the result, adjust any parameter the user ' +
-        'wants to change (e.g. color, blayer, board_tg), and re-query with the corrected form ' +
-        'rather than guessing values. Progressive usage: quote_pcb for PCB fabrication, quote_smt ' +
+        'The quote prices the CURRENTLY OPEN board exactly like the KiCad "Huaqiu PCB" plugin: ' +
+        'board size, layer count, thickness, min trace/space and min drilled hole are read from ' +
+        'the board and snapped to the fabricator menus, so the returned price matches the plugin ' +
+        'for the same board. The response carries that effective "form"; inspect it, then override ' +
+        'any parameter the user wants to change (color, blayer, bheight, lineweight, vias, ' +
+        'board_tg, bcount …) and re-query instead of guessing values. Progressive usage: ' +
+        'quote_pcb for PCB fabrication, quote_smt ' +
         'for assembly, then the user places the order in the EDA host. This is a quote-only ' +
         'query — no order is created. All regions are anonymous-queryable (no login required). ' +
         'The pricing region is auto-detected by hq-edge from the trusted request context (CN / JP / ' +
@@ -136,7 +142,33 @@ export function createQuoteTools(env: QuoteToolEnv) {
         board_tg: {
           type: 'string',
           enum: ['tg130', 'tg150', 'tg170'],
-          description: 'Glass transition temperature grade (4+ layers only).',
+          description:
+            'Glass transition temperature grade (4+ layers only). Derived from the board ' +
+            '(TG130) unless given.',
+        },
+        bheight: {
+          type: 'number',
+          description:
+            'PCB thickness in mm. Derived from the board design thickness and snapped to the ' +
+            'fabricator menu (0.6/0.8/1.0/1.2/1.6/2.0/2.5/3.0/3.2 by layer count) unless given.',
+        },
+        lineweight: {
+          type: 'number',
+          description:
+            'Min trace/space in mil. Derived from the board (min routed track / clearance), ' +
+            'snapped to 10/8/6/5/4/3.5 mil unless given — a smaller value usually costs more.',
+        },
+        vias: {
+          type: 'number',
+          description:
+            'Min drilled hole in mm. Derived from the board vias, snapped to 0.3/0.25/0.2/0.15 mm ' +
+            'unless given — holes under 0.3 mm add a per-hole laser fee.',
+        },
+        insidecopper: {
+          type: 'number',
+          description:
+            'Inner copper weight (oz). 0.5 for boards with more than 2 layers, 0 for 2-layer ' +
+            'boards, unless given.',
         },
         color: {
           type: 'string',
@@ -176,10 +208,13 @@ export function createQuoteTools(env: QuoteToolEnv) {
         'Huaqiu agent part purchasing) for the requested region through Huaqiu/NextPCB. Use when the user ' +
         'asks about assembly costs, "贴片价格", "SMT 报价", "焊接费用", or delivery time for assembly. ' +
         'Embeds the PCB order (layers/size/quantity) used for the assembly quote. Returns the normalized ' +
-        'price with SMT fee detail (no-tax, total, tax) and currency symbol. When derive_board_size / ' +
-        'derive_board_stackup is set, the response carries the effective form: EDA-extracted board facts ' +
-        '(panel size, embedded PCB length/width/layers/thickness) merged with the caller overrides — ' +
-        'inspect "form" and re-query with corrected parameters instead of guessing. Quote-only — no ' +
+        'price with SMT fee detail (no-tax, total, tax) and currency symbol. The quote prices the ' +
+        'CURRENTLY OPEN board (panel size, embedded PCB facts, SMD/PTH pad counts and distinct ' +
+        'value/footprint pairs — the same numbers the KiCad "Huaqiu PCB" plugin sends), and the ' +
+        'response carries that effective "form": inspect it and re-query with corrected parameters ' +
+        'instead of guessing. Note: for INTERNATIONAL regions the upstream only returns a rolled-up ' +
+        'total when BOM detail is supplied, so totalPrice may be 0 while the fee items are non-zero — ' +
+        'report it as "assembly cost not available without a BOM" rather than "free". Quote-only — no ' +
         'order is created. The pricing region is auto-detected by hq-edge from the trusted request ' +
         'context (CN / JP / INTERNATIONAL) — do NOT force a region unless the user explicitly asks.',
       parameters: {
