@@ -34,6 +34,7 @@ const zh = {
   'subscription.package': '套餐：{name}',
   'subscription.quota': '可用次数：{count}',
   'subscription.quotaCount': '{used} / {total}次',
+  'subscription.quotaPercent': '{percent}%',
   'subscription.noQuota': '无可用次数',
   'subscription.unsubscribed': '未订阅',
   'subscription.subscribe': '订阅 / 升级',
@@ -45,13 +46,12 @@ const zh = {
   'subscription.upgrade': '订阅 / 升级套餐',
   'subscription.online': '在线',
   // AI token usage (`/user-rest/api/ai/usage`) — the third metric beside GEN
-  // and ERC. `aiUsageCount` is the available/total point balance (the same
-  // "what is left" convention as the GEN/ERC cards' `currentQuota`);
-  // `aiUsagePercent` is the hover detail, because the bar itself only shows
-  // the ratio visually.
+  // and ERC. The headline is the usage percent (e.g. "65%"); the exact
+  // "{available} / {total} 点" balance is shown as the hover title, because the
+  // bar itself only shows the ratio visually.
   'subscription.ai': 'AI 用量',
   'subscription.aiUsageCount': '{available} / {total} 点',
-  'subscription.aiUsagePercent': '剩余 {percent}%',
+  'subscription.aiUsagePercent': '{percent}%',
   'subscription.aiUsageUnknown': '暂无数据',
 
   'card.title': '华秋 EDA AI（eda.cn）登录',
@@ -87,6 +87,7 @@ const en: Record<AuthCopyKey, string> = {
   'subscription.package': 'Plan: {name}',
   'subscription.quota': 'Available: {count}',
   'subscription.quotaCount': '{used} / {total}',
+  'subscription.quotaPercent': '{percent}%',
   'subscription.noQuota': 'No quota left',
   'subscription.unsubscribed': 'Not subscribed',
   'subscription.subscribe': 'Subscribe / Upgrade',
@@ -98,13 +99,12 @@ const en: Record<AuthCopyKey, string> = {
   'subscription.upgrade': 'Subscribe / Upgrade plan',
   'subscription.online': 'Online',
   // AI token usage (`/user-rest/api/ai/usage`) — the third metric beside GEN
-  // and ERC. `aiUsageCount` is the available/total point balance (the same
-  // "what is left" convention as the GEN/ERC cards' `currentQuota`);
-  // `aiUsagePercent` is the hover detail, because the bar itself only shows
-  // the ratio visually.
+  // and ERC. The headline is the usage percent (e.g. "65%"); the exact
+  // "{available} / {total} pts" balance is shown as the hover title, because
+  // the bar itself only shows the ratio visually.
   'subscription.ai': 'AI usage',
   'subscription.aiUsageCount': '{available} / {total} pts',
-  'subscription.aiUsagePercent': '{percent}% remaining',
+  'subscription.aiUsagePercent': '{percent}%',
   'subscription.aiUsageUnknown': 'No data',
 
   'card.title': 'Huaqiu EDA AI (eda.cn) login',

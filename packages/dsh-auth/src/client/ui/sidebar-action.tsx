@@ -463,14 +463,20 @@ export function quotaReading(quota: SubscriptionQuota | null, t: Translate): Met
   const percent = quota.hasSubscription && typeof total === 'number' && total > 0
     ? Math.max(0, Math.min(100, Math.round((used / total) * 100)))
     : 0
+  const subscribed = quota.hasSubscription
   return {
-    value: quota.hasSubscription
+    // Headline shows the usage percent (e.g. "65%"); the exact
+    // "{used} / {total}" count is preserved as the hover title.
+    value: subscribed
       ? (typeof total === 'number'
-          ? t('subscription.quotaCount', { used, total })
-          : String(used))
+          ? t('subscription.quotaPercent', { percent })
+          : `${percent}%`)
       : t('subscription.unsubscribed'),
+    title: subscribed && typeof total === 'number'
+      ? t('subscription.quotaCount', { used, total })
+      : undefined,
     percent,
-    ok: quota.hasSubscription,
+    ok: subscribed,
   }
 }
 
@@ -498,9 +504,12 @@ export function aiUsageReading(usage: AiTokenUsage | null, t: Translate): Metric
   const percent = total > 0
     ? Math.min(100, Math.round((available / total) * 1000) / 10)
     : 0
+  // Headline shows the usage percent (e.g. "65%"); the exact
+  // "{available} / {total} pts" balance is preserved as the hover title.
+  const displayPercent = Math.round(percent)
   return {
-    value: t('subscription.aiUsageCount', { available, total }),
-    title: t('subscription.aiUsagePercent', { percent }),
+    value: t('subscription.aiUsagePercent', { percent: displayPercent }),
+    title: t('subscription.aiUsageCount', { available, total }),
     percent,
     ok: true,
   }
