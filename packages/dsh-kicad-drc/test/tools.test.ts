@@ -1,7 +1,4 @@
-// 注意：本文件依赖 @deepseek-ai/dsh-tools 与 @deepseek-ai/dsh-llm 的版本匹配。
-// 当前 workspace 装到的 dsh-tools@0.1.x 会 `import { CallId } from '@deepseek-ai/dsh-llm'`，
-// 而对应 dsh-llm 没有该导出，整个文件在 import 阶段就 SyntaxError，
-// 因此未纳入 package.json 的 `test` 脚本；依赖对齐后再加回去。
+// 本文件已在 devDependencies 对齐 @deepseek-ai/dsh-tools@^0.2.1-rc.2 后纳入 `pnpm test`。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createDrcTool, createBackendsTool, TOOL_NAME } from '../src/tools.ts'
@@ -108,7 +105,20 @@ test('render：有 viewUrl 时输出摘要块 + 客户端预览 JSON 块', () =>
   const blocks = tool.output.render(
     { pcbPath: 'D:/proj/board.kicad_pcb' },
     {
-      drcSummary: { totalIssues: 1, totalErrors: 0, totalWarnings: 1, totalExclusions: 0 },
+      drcSummary: {
+        totalIssues: 1,
+        totalErrors: 0,
+        totalWarnings: 1,
+        totalExclusions: 0,
+        totalInfo: 0,
+        categories: { silk_overlap: 1 },
+        format: 'kicad-cli',
+        kicadVersion: '10.0.6',
+        sourceFile: 'board.kicad_pcb',
+        date: '2026-11-03T00:00:00Z',
+        sampleErrors: [],
+        ignoredChecks: [],
+      },
       drcJsonPath: 'D:/proj/board_drc.json',
       viewUrl: '/drc-report/api/report?key=drc-abc',
     },
@@ -151,4 +161,63 @@ test('render：普通后端无报告时仍说"未生成报告"', () => {
   }
   const blocks = tool.output.render({ pcbPath: 'x' }, { verifiedBy: { backend: 'local' } })
   assert.match(blocks[0]!.text, /未生成报告/)
+})
+
+test('execute：服务端没跑 kicad-cli 时标 reportComplete=false，并把警示写在摘要最前面', async () => {
+  const tool = createDrcTool(
+    fakeExecutor({
+      reportFormat: 'pcblint',
+      metrics: { suppressedCount: 0, kicadDrcUsed: false, rulesExecuted: 11, drcRulesCount: 5 },
+    }),
+    600,
+  )
+  const out = await run(tool, { pcbPath: 'D:/proj/board.kicad_pcb' })
+  assert.equal(out.reportComplete, false)
+  // 结构化字段里也要留痕：有些消费方只读 verifiedBy，不看正文
+  const reasons = (out.verifiedBy as { reasons: string[] }).reasons
+  assert.match(reasons.join('\n'), /规则引擎结果（不完整）/)
+
+  const blocks = (tool as unknown as {
+    output: { render(a: unknown, v: unknown): Array<{ type: string, text: string }> }
+  }).output.render({ pcbPath: 'D:/proj/board.kicad_pcb' }, out)
+  // 必须在第一条：模型读到的正文以它开头，就不可能把条数当成完整结论
+  assert.match(blocks[0]!.text, /^⚠️ 报告不完整/)
+})
+
+test('execute：兜底推断认得 ipc 前缀，不会把 ipc 标成 local', async () => {
+  const tool = createDrcTool(fakeExecutor({ kicadCliPath: 'ipc:10.0.6' }), 600)
+  const out = await run(tool, { pcbPath: 'D:/proj/board.kicad_pcb' })
+  assert.equal((out.verifiedBy as Record<string, unknown>).backend, 'ipc')
+})
+
+test('execute：drcRules 参数解析成稀疏映射传给执行器，非法项跳过不致命', async () => {
+  const seen: DrcRunOptions[] = []
+  const recording: DrcExecutor = {
+    async run(options) {
+      seen.push(options)
+      return fakeExecutor().run(options)
+    },
+  }
+  const tool = createDrcTool(recording, 600)
+  await run(tool, {
+    pcbPath: 'D:/proj/board.kicad_pcb',
+    drcRules: 'silk_edge_clearance=error, unconnected_items=ignore, bad-item, lib_footprint_issues=verbose',
+  })
+  // 拼错的两项（bad-item、severity=verbose）被跳过，合法项仍然生效
+  assert.deepEqual(seen[0]!.drcRuleOverrides, {
+    silk_edge_clearance: 'error',
+    unconnected_items: 'ignore',
+  })
+})
+
+test('execute：内置规则开关全关（drcRulesCount=0）时同样标 reportComplete=false', async () => {
+  const tool = createDrcTool(fakeExecutor({
+    reportFormat: 'pcblint',
+    metrics: { suppressedCount: 0, kicadDrcUsed: true, rulesExecuted: 11, drcRulesCount: 0 },
+  }), 600)
+  const out = await run(tool, { pcbPath: 'D:/proj/board.kicad_pcb' })
+  assert.equal(out.reportComplete, false)
+  // kicadDrcUsed=true 时也要能区分出"开关全关"这第二种不完整
+  const reasons = (out.verifiedBy as { reasons: string[] }).reasons
+  assert.match(reasons.join('\n'), /drcRulesCount=0/)
 })

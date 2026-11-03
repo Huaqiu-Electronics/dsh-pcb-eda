@@ -6,6 +6,7 @@ import { existsSync, readFileSync, mkdtempSync, rmSync, readdirSync, statSync, c
 import { tmpdir, platform, homedir } from 'node:os'
 import { join, dirname, basename, resolve } from 'node:path'
 import {
+  DrcAbortedError,
   ExecutorError,
   type BackendHealth,
   type DrcExecutor,
@@ -400,6 +401,8 @@ export class LocalExecutor implements DrcExecutor {
 
   async run(options: DrcRunOptions): Promise<DrcRunResult> {
     const start = performance.now()
+    // 已经取消就不必启动进程：kicad-cli 起来要 1s+，白跑一遍没有意义
+    if (options.signal?.aborted) throw new DrcAbortedError()
     const pcbPath = resolve(options.pcbPath)
     if (!existsSync(pcbPath)) {
       throw new ExecutorError(`PCB 文件不存在: ${pcbPath}`)
@@ -426,9 +429,11 @@ export class LocalExecutor implements DrcExecutor {
     const timeoutMs = (options.timeoutSeconds ?? 600) * 1000
 
     try {
-      const { exitCode, stdout, stderr, timedOut } = await execProcess(
-        kicadCliPath, args, workDir, timeoutMs, buildChildEnv(this.configHome),
+      const { exitCode, stdout, stderr, timedOut, aborted } = await execProcess(
+        kicadCliPath, args, workDir, timeoutMs, buildChildEnv(this.configHome), options.signal,
       )
+      // 被取消时子进程已被杀掉，没有可信结果：抛出去让上层区分"取消"与"失败"
+      if (aborted) throw new DrcAbortedError()
 
       // 读取 drc.json
       let drcJson: string | null = null
@@ -469,10 +474,11 @@ function quoteIfNeeded(arg: string): string {
   return arg
 }
 
-/** 启动子进程并等待结束，超时强杀。 */
+/** 启动子进程并等待结束，超时或调用方取消都强杀。 */
 function execProcess(
-  cmd: string, args: string[], cwd: string, timeoutMs: number, env?: NodeJS.ProcessEnv,
-): Promise<{ exitCode: number, stdout: string, stderr: string, timedOut: boolean }> {
+  cmd: string, args: string[], cwd: string, timeoutMs: number,
+  env?: NodeJS.ProcessEnv, signal?: AbortSignal,
+): Promise<{ exitCode: number, stdout: string, stderr: string, timedOut: boolean, aborted: boolean }> {
   return new Promise((resolvePromise) => {
     const child = spawn(cmd, args, {
       cwd,
@@ -484,6 +490,7 @@ function execProcess(
     let stdout = ''
     let stderr = ''
     let timedOut = false
+    let aborted = false
     let timer: ReturnType<typeof setTimeout> | undefined
 
     child.stdout?.on('data', (d: Buffer) => { stdout += d.toString('utf-8') })
@@ -494,24 +501,29 @@ function execProcess(
       child.kill('SIGKILL')
     }, timeoutMs)
 
-    child.on('close', (code) => {
+    // 取消时同样强杀：kicad-cli 不会自己注意到调用方不要结果了
+    const onAbort = (): void => {
+      aborted = true
+      child.kill('SIGKILL')
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+
+    const finish = (code: number | null, tail = ''): void => {
       if (timer) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       resolvePromise({
         exitCode: code ?? -1,
         stdout,
-        stderr,
+        stderr: stderr + tail,
         timedOut,
+        aborted,
       })
-    })
+    }
+
+    child.on('close', (code) => { finish(code) })
 
     child.on('error', (err) => {
-      if (timer) clearTimeout(timer)
-      resolvePromise({
-        exitCode: -1,
-        stdout,
-        stderr: stderr + '\n' + err.message,
-        timedOut,
-      })
+      finish(-1, '\n' + err.message)
     })
   })
 }

@@ -22,6 +22,7 @@
 import { spawn } from 'node:child_process'
 import { resolve } from 'node:path'
 import {
+  DrcAbortedError,
   ExecutorError,
   type BackendHealth,
   type DrcExecutor,
@@ -341,6 +342,7 @@ function runScript(
   pythonPath: string,
   args: string[],
   timeoutMs: number,
+  signal?: AbortSignal,
 ): Promise<{ out: IpcScriptOutput, exitCode: number, stderr: string, elapsedMs: number }> {
   return new Promise((resolvePromise, reject) => {
     const started = performance.now()
@@ -357,13 +359,23 @@ function runScript(
 
     timer = setTimeout(() => { child.kill('SIGKILL') }, timeoutMs)
 
+    // 取消时杀掉脚本进程：它阻塞在 RPC 上，等它自己退出可能是一分钟
+    const onAbort = (): void => {
+      if (timer) clearTimeout(timer)
+      child.kill('SIGKILL')
+      reject(new DrcAbortedError())
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+
     child.on('error', (err) => {
       if (timer) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       reject(new ExecutorError(`无法启动 Python（${pythonPath}）: ${err.message}`))
     })
 
     child.on('close', (code) => {
       if (timer) clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       const elapsedMs = Math.round(performance.now() - started)
       const text = stdout.trim()
       if (!text) {
@@ -439,6 +451,7 @@ export class KicadIpcExecutor implements DrcExecutor {
   }
 
   async run(options: DrcRunOptions): Promise<DrcRunResult> {
+    if (options.signal?.aborted) throw new DrcAbortedError()
     const pcbPath = resolve(options.pcbPath)
     const timeoutMs = Math.min((options.timeoutSeconds ?? 600) * 1000, 120_000)
     // RPC 超时要略小于脚本超时：让 KiCad 侧的等待先结束，好拿到它自己的错误信息
@@ -449,7 +462,7 @@ export class KicadIpcExecutor implements DrcExecutor {
     if (options.allTrackErrors) args.push('--all-track-errors')
     if (options.severityAll) args.push('--severity-all')
 
-    const { out, elapsedMs } = await runScript(this.pythonPath, args, timeoutMs)
+    const { out, elapsedMs } = await runScript(this.pythonPath, args, timeoutMs, options.signal)
 
     // 服务端没有 RunDrc：这不是"这次运气不好"，而是能力缺失，标记冷却让 auto 别再选它
     if (out.runDrc === false) {

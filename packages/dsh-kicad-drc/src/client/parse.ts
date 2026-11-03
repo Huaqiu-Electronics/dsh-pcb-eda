@@ -119,10 +119,13 @@ export function indexPreviews(nodes: unknown[]): { byTurn: Map<number, DrcPrevie
   return { byTurn, latest }
 }
 
-/** KiCad 报告里的问题数组之外、需要跳过的顶层字段。 */
-const NON_ISSUE_SECTIONS = new Set(['ignored_checks'])
+/**
+ * 报告里的问题数组之外、需要跳过的顶层字段。
+ * `groups` 是 pcblint 的分类聚合视图，不跳会把它当成违规重复计数。
+ */
+const NON_ISSUE_SECTIONS = new Set(['ignored_checks', 'groups'])
 
-/** 从 violation 条目取坐标：旧格式在顶层 pos，KiCad 10 在 items[0].pos。 */
+/** 从 violation 条目取坐标：旧格式顶层 pos，KiCad 10 在 items[0].pos，pcblint 在 location。 */
 function posOf(it: Record<string, unknown>): { x?: number, y?: number } {
   const p = it.pos as Record<string, unknown> | undefined
   if (p && typeof p.x === 'number' && typeof p.y === 'number') return { x: p.x, y: p.y }
@@ -132,13 +135,27 @@ function posOf(it: Record<string, unknown>): { x?: number, y?: number } {
     const sp = first?.pos as Record<string, unknown> | undefined
     if (sp && typeof sp.x === 'number' && typeof sp.y === 'number') return { x: sp.x, y: sp.y }
   }
+  const loc = it.location as Record<string, unknown> | undefined
+  if (loc && typeof loc.x === 'number' && typeof loc.y === 'number') return { x: loc.x, y: loc.y }
   return {}
 }
 
+/** 取检查类型：kicad-cli 用 type，pcblint 用 ruleId 或 message 前缀。 */
+function typeOf(it: Record<string, unknown>, sectionName: string): string {
+  if (typeof it.type === 'string' && it.type) return it.type
+  if (typeof it.ruleId === 'string' && it.ruleId) return it.ruleId
+  const msg = typeof it.message === 'string' ? it.message : ''
+  const idx = msg.indexOf(':')
+  if (idx > 0) return msg.slice(0, idx).trim()
+  if (typeof it.title === 'string' && it.title) return it.title
+  return sectionName
+}
+
 /**
- * 把 drc.json 原始文本归一化成扁平违规列表。
- * 兼容两种格式：旧版按检查类型分顶层数组（clearance/track_width/…），
- * KiCad 10 统一 violations 数组（条目自带 type 字段）。
+ * 把报告原始文本归一化成扁平违规列表。
+ * 兼容三种格式：旧版按检查类型分顶层数组（clearance/track_width/…）、
+ * KiCad 10 统一 violations 数组（条目自带 type）、pcblint 语义服务
+ * （violations 数组，severity 大写、带 confidence/backend/objects）。
  */
 export function normalizeDrcReport(raw: string): DrcReportData {
   const data = JSON.parse(raw) as Record<string, unknown>
@@ -149,9 +166,14 @@ export function normalizeDrcReport(raw: string): DrcReportData {
       if (typeof item !== 'object' || item === null) continue
       const it = item as Record<string, unknown>
       violations.push({
-        severity: typeof it.severity === 'string' ? it.severity : '',
-        type: typeof it.type === 'string' ? it.type : sectionName,
-        description: typeof it.description === 'string' ? it.description : '',
+        // pcblint 的 severity 是大写枚举，统一小写后筛选/配色才生效
+        severity: typeof it.severity === 'string' ? it.severity.toLowerCase() : '',
+        type: typeOf(it, sectionName),
+        description: typeof it.description === 'string'
+          ? it.description
+          : typeof it.title === 'string'
+            ? it.title
+            : typeof it.message === 'string' ? it.message : '',
         ...posOf(it),
       })
     }

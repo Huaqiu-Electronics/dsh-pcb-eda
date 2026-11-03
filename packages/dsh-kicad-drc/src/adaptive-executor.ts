@@ -25,21 +25,27 @@
  */
 import { statSync } from 'node:fs'
 import {
+  DrcAbortedError,
   ExecutorError,
+  isAbortError,
   type BackendHealth,
   type DrcBackendName,
   type DrcExecutor,
   type DrcMode,
   type DrcRunOptions,
   type DrcRunResult,
+  type VerifiedBy,
 } from './executor.ts'
+
+/** 来源标注定义在执行器层（`DrcRunResult.verifiedBy` 要用），这里只做转出。 */
+export type { VerifiedBy } from './executor.ts'
 
 /** 本后端的基础耗时估计（毫秒），仅在没有历史数据时使用。 */
 const BASE_COST_MS: Record<DrcBackendName, number> = {
   /** 实测：405KB 板 + 配置隔离 1.2s，含进程启动与落盘。 */
   local: 1_500,
-  /** 上传 + 服务端排队 + 下载报告，实测 8~20s 区间。 */
-  remote: 9_000,
+  /** 上传 + 服务端规则引擎 + kicad-cli 原生检查，实测 78 器件板 5.4s（上传 0.2s + lint 5.2s）。 */
+  remote: 6_000,
   /**
    * 板已在进程内、规则已在内存里，只剩 DRC 引擎本身的时间（与 local 同一套引擎），
    * 省掉的是进程启动与配置发现，所以略低于 local。
@@ -73,20 +79,6 @@ const MAX_ATTEMPTS = 3
 
 /** 历史耗时平滑系数。 */
 const EWMA_ALPHA = 0.6
-
-/** 后端来源标注，随工具结果返回给 AI。 */
-export interface VerifiedBy {
-  backend: DrcBackendName
-  /** 实际端点：本地为 kicad-cli 路径，远程为服务地址。 */
-  endpoint: string
-  elapsedMs: number
-  /** 为什么选它（人类可读，直接给 AI 看）。 */
-  reasons: string[]
-  /** 若发生过回退，回退前的后端。 */
-  fallbackFrom?: DrcBackendName
-  /** 选中的后端是否启用了配置隔离（本地后端专用）。 */
-  isolatedConfig?: boolean
-}
 
 /** 选择结果（纯数据，便于单测）。 */
 export interface RankedCandidate {
@@ -209,6 +201,8 @@ export class AdaptiveExecutor implements DrcExecutor {
   }
 
   async run(options: DrcRunOptions): Promise<DrcRunResult & { verifiedBy: VerifiedBy }> {
+    // 已经取消就别再探活/选后端：探活本身要发 HTTP，用户已经不要结果了
+    if (options.signal?.aborted) throw new DrcAbortedError()
     const mode = options.mode ?? this.defaultMode
     const fingerprint = this.fingerprintOf(options.pcbPath)
     const sizeBytes = this.sizeOf(options.pcbPath)
@@ -263,6 +257,8 @@ export class AdaptiveExecutor implements DrcExecutor {
           },
         }
       } catch (e) {
+        // 取消不是"这个后端不行"：再换一个后端试只会白烧一次完整 DRC，用户已经不要了
+        if (isAbortError(e) || options.signal?.aborted) throw new DrcAbortedError()
         const message = e instanceof Error ? e.message : String(e)
         failures.push(`${candidate.backend} ${message}`)
         if (!fallbackFrom) fallbackFrom = candidate.backend

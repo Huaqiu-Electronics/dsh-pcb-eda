@@ -9,8 +9,7 @@ import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { parseDrcSummary, formatSummaryText, type DrcSummary, type JsonValue } from './drc-summary.ts'
-import type { BackendHealth, DrcExecutor, DrcMode } from './executor.ts'
-import type { VerifiedBy } from './adaptive-executor.ts'
+import type { BackendHealth, DrcExecutor, DrcMode, DrcRuleSeverity, VerifiedBy } from './executor.ts'
 
 /** 工具名（唯一来源；注册/卸载日志与 dispose 均使用它）。 */
 export const TOOL_NAME = 'kicad_drc_run'
@@ -30,6 +29,18 @@ interface KicadDrcOutput {
   kicadCliPath: string
   /** 实际执行的完整命令行（含参数）。 */
   command: string
+  /** 报告格式：kicad-cli（原生）或 pcblint（语义服务）。两种格式不可直接比较数字。 */
+  reportFormat?: string
+  /**
+   * 报告是否完整。false 的两种情况：
+   *   - 服务端没跑 kicad-cli（`kicadDrcUsed=false`）；
+   *   - 一条 KiCad 内置规则都没启用（`drcRulesCount=0`，pcblint 新版默认状态）——
+   *     两种情况下结果都只有 pcblint 规则引擎那半边。
+   * 字段缺失表示结果完整、或后端没给出可判定的口径。
+   */
+  reportComplete?: boolean
+  /** 内置规则开关的落地结果（传了 drcRules 参数才出现）。 */
+  drcRules?: Record<string, JsonValue>
   /** drc.json 持久化保存的绝对路径（PCB 文件同目录，可直接打开）。 */
   drcJsonPath?: string
   /** drc.json 原始 JSON 字符串（可能很大；仅 includeFullJson=true 时返回）。 */
@@ -38,6 +49,8 @@ interface KicadDrcOutput {
   drcSummary?: DrcSummary
   /** 本次验证由哪个后端执行、为什么选它（跨后端结果不可直接比较，务必读这个字段）。 */
   verifiedBy?: Record<string, JsonValue>
+  /** 规则口径：是否真的按工程板级约束检查（injected / skipped / failed / not-applicable）。 */
+  projectRules?: Record<string, JsonValue>
   /** Web GUI 报告查看器地址（浏览器半边经此拉取报告 JSON 并分页渲染；无 webServer 时省略）。 */
   viewUrl?: string
 }
@@ -59,22 +72,30 @@ export function createDrcTool(
     name: TOOL_NAME,
     description:
       '对 KiCad PCB 文件执行 DRC（设计规则检查）。\n\n'
-      + '【工作原理】插件在 Host 端执行如下格式的命令：\n\n'
-      + '  kicad-cli pcb drc <pcb文件> --output drc.json --format json --severity-all --refill-zones\n\n'
-      + '有两种后端（mode 参数可强制指定，默认 auto 自动选择）：\n'
+      + '【工作原理】三种后端执行方式不同：\n\n'
+      + '  - local / ipc：直接跑 kicad-cli pcb drc <pcb文件> --output drc.json --format json --severity-all --refill-zones\n'
+      + '  - remote：把 pcb 文件 multipart 上传到 pcblint DRC 服务（POST /api/s/upload → POST /api/s/lint-drc），\n'
+      + '    由服务端运行「语义规则引擎（NATIVE）+ 本地 kicad-cli 原生检查（EDA_DRC）」并合并返回\n\n'
+      + '三种后端（mode 参数可强制指定，默认 auto 自动选择）：\n'
       + '  - local:  本地 subprocess 直接调 kicad-cli（需本机安装 KiCad；'
       + '可执行文件按 插件配置 → 环境变量 KICAD_CLI_PATH → PATH → Windows 注册表 → 常见安装目录 自动探测）。'
-      + '约 1~2 秒，且能读取工程级规则，优先选它\n'
-      + '  - remote: PCB 文件上传到 pcblint-java 服务，由其转发 cli-runner 执行（本机无需 KiCad）。'
-      + '需上传与排队，约 8~20 秒；只上传单个 .kicad_pcb，工程级 DRC 规则可能丢失\n\n'
-      + 'auto 模式按「可用性 → 预期耗时 → 工程规则完整性」选择后端，失败会自动回退到下一个，'
-      + '并在结果的 verifiedBy 字段标注实际执行的后端。'
+      + '约 1~2 秒，且能读取工程级规则，但只有在 remote 不可用或失败时才会被选到\n'
+      + '  - remote: 上传到 pcblint 服务执行（本机无需 KiCad）。约 3~10 秒；'
+      + '除 kicad-cli 原生检查外还会跑服务端规则引擎，每条违规带 confidence（HIGH/MEDIUM/LOW）与 ruleId；'
+      + '只上传单个 .kicad_pcb，工程级规则（.kicad_pro）带不过去，因此违规数通常与 local 不同。'
+      + '⚠️ pcblint 新版默认一条 KiCad 内置规则都不启用——结果里只有服务端自研规则；'
+      + '要检查内置项（clearance、silk_edge_clearance 等）必须用 drcRules 参数显式打开\n'
+      + '  - ipc:   让正在运行的 KiCad 直接执行（需要华秋定制版 KiCad 提供 RunDrc）\n\n'
+      + 'auto 模式先按固定优先序列分层（默认 remote → local → ipc），前一层不可用或执行失败才降级；'
+      + '同一层内才按历史耗时排序，所以 local 更快也不会插队抢在 remote 前面。'
+      + '失败会自动回退到下一个，并在结果的 verifiedBy 字段标注实际执行的后端。'
       + '同一块板在会话内会保持在首次成功的后端上，保证多次结果可比。\n\n'
       + '传入 .kicad_pcb 文件的绝对路径（文件必须存在于本机文件系统），'
       + '工具返回 stdout、drcSummary（错误/警告数量、按类型分类、示例错误等）'
       + '和 drcJsonPath（完整报告持久化在 PCB 文件同目录，可直接读取该文件查看明细）。'
+      + '报告格式由 reportFormat 标明：kicad-cli（原生，severity 小写）或 pcblint（severity 大写 + confidence），两种格式的数字不可直接比较。'
       + '如果只关心概况，优先读 drcSummary；需要完整明细时传 includeFullJson=true 或直接读 drcJsonPath 指向的文件。\n\n'
-      + '【注意】默认输出不含 drc.json 原始 JSON（可能数百 KB），避免撑爆上下文。'
+      + '【注意】默认输出不含原始 JSON（可能数百 KB），避免撑爆上下文。'
       + 'success 表示 DRC 运行是否正常完成，不代表板子没有违规——有无违规请判断 drcSummary.totalIssues。',
 
     parameters: {
@@ -88,7 +109,7 @@ export function createDrcTool(
         description:
           `执行后端。默认 ${defaultMode}（auto 按优先序列选择：默认 remote → local → ipc，`
           + '前一个不可用或执行失败才降级到下一个）；'
-          + 'local 强制本地 kicad-cli；remote 强制走在线服务；'
+          + 'local 强制本地 kicad-cli；remote 强制走 pcblint 服务（语义规则 + 原生检查）；'
           + 'ipc 直接让正在运行的 KiCad 执行 DRC 并取回结构化结果'
           + '（作用于未保存的板、不产生 marker，需要华秋定制版 KiCad）。'
           + '需要可复现的固定环境时显式指定，其余情况留空即可。',
@@ -104,6 +125,15 @@ export function createDrcTool(
       allTrackErrors: {
         type: 'boolean',
         description: '报告所有走线错误（不仅是第一个）。默认 false。',
+      },
+      drcRules: {
+        type: 'string',
+        description:
+          'KiCad 内置规则开关，格式 "key=severity,key=severity"（severity ∈ error/warning/ignore），'
+          + '如 "silk_edge_clearance=error,unconnected_items=ignore"。仅 remote 后端生效：'
+          + 'pcblint 新版默认不返回任何内置规则违规（开关全关），需要内置检查项时必须在这里显式打开；'
+          + '未提到的 key 保持服务端当前值，锁定的 key（DRU 依赖的约束类型）由服务端忽略。'
+          + '只想看某几类问题时用它收窄口径，不要与 local 的全量结果直接比数字。',
       },
       includeFullJson: {
         type: 'boolean',
@@ -136,6 +166,30 @@ export function createDrcTool(
             required: true,
             description: '实际执行的完整命令行。',
           },
+          reportFormat: {
+            type: 'string',
+            description:
+              '报告格式：kicad-cli（kicad-cli 原生 JSON，severity 小写、按检查项分区）'
+              + '或 pcblint（pcblint 语义服务，severity 大写、带 confidence/ruleId/backend）。'
+              + '两种格式的违规数不可直接比较。',
+          },
+          reportComplete: {
+            type: 'boolean',
+            description:
+              '报告是否完整。值为 false 表示结果只有 pcblint 规则引擎条目——'
+              + '要么服务端没执行 kicad-cli（kicadDrcUsed=false），'
+              + '要么一条内置规则都没启用（drcRulesCount=0，pcblint 新版默认状态）。'
+              + '这类报告的违规数不能当作完整 DRC 结论，也不能与 local 的条数比较。'
+              + '字段缺失表示结果完整或该后端未给出可判定的口径。',
+          },
+          drcRules: {
+            type: 'object',
+            additionalProperties: true,
+            description:
+              '内置规则开关的落地结果（传了 drcRules 参数才出现）：'
+              + 'status=applied/unsupported/failed、keys、enabledCount。'
+              + 'unsupported 表示服务端太旧没有 /api/s/drc-rules 接口，开关未生效。',
+          },
           drcJsonPath: {
             type: 'string',
             description:
@@ -160,6 +214,14 @@ export function createDrcTool(
             description:
               '本次验证实际由哪个后端执行（backend: local/remote）、端点、耗时、选择原因，'
               + '以及发生回退时的 fallbackFrom。跨后端结果不可直接比较，比较两次 DRC 前请先看本字段。',
+          },
+          projectRules: {
+            type: 'object',
+            additionalProperties: true,
+            description:
+              '规则口径：status=injected 表示已把工程板级约束注入会话（applied/skipped 为条数），'
+              + 'skipped/failed 表示按服务端默认工程判定（线宽/间距类结论不可直接采信），'
+              + 'not-applicable 表示 local/ipc 由 kicad-cli 直接读工程目录、无需注入。',
           },
           viewUrl: {
             type: 'string',
@@ -189,7 +251,23 @@ export function createDrcTool(
         const backendLine = backend
           ? `\n\n执行后端: ${backend}${vb?.endpoint ? ` (${vb.endpoint})` : ''} · ${vb?.elapsedMs ?? '?'} ms`
           : ''
-        const blocks: Array<{ type: 'text'; text: string }> = [{ type: 'text', text: summary + pathLine + backendLine }]
+        // 规则口径同样只进结构化字段的话，模型看不见；落在正文里它才知道这批数字能不能用。
+        // 只在"没按本板规则跑"时才写（injected / not-applicable 是正常情况，不必占篇幅）。
+        const rules = value.projectRules as { status?: string; message?: string } | undefined
+        const rulesLine = rules && (rules.status === 'skipped' || rules.status === 'failed')
+          ? `\n\n⚠️ 规则口径: 未注入工程板级约束（${rules.status}${rules.message ? `：${rules.message}` : ''}），`
+            + '本次按服务端默认工程判定，线宽/间距类结论不可直接采信'
+          : ''
+        // 结果只有规则引擎那半边时（kicad-cli 没跑，或内置规则开关全关），
+        // drcSummary 的数字不是完整 DRC。模型基本只读摘要正文，所以这句必须
+        // 放在最前面——只写进 stderr 是看不见的。
+        const incompleteLine = value.reportComplete === false
+          ? '⚠️ 报告不完整：本次只有 pcblint 规则引擎结果（kicad-cli 未执行，或 KiCad 内置规则开关全关），'
+            + '不能当作完整 DRC 结论，也不要与 local 后端的违规数比较\n\n'
+          : ''
+        const blocks: Array<{ type: 'text'; text: string }> = [
+          { type: 'text', text: incompleteLine + summary + pathLine + backendLine + rulesLine },
+        ]
         // 第二块：客户端预览载荷。浏览器半边（src/client）逐块 JSON.parse 工具结果，
         // 找到 {ok:true, viewUrl} 即在该轮尾部渲染分页报告卡片。
         if (value.viewUrl) {
@@ -212,6 +290,8 @@ export function createDrcTool(
 
       // mode 是自由字符串，这里收敛到合法取值，避免拼错导致静默走默认
       const mode = normalizeMode(args.mode)
+      // drcRules 是 "key=severity,..." 自由字符串，同样先收敛再往下传
+      const drcRuleOverrides = parseDrcRules(args.drcRules)
 
       let result
       try {
@@ -220,9 +300,12 @@ export function createDrcTool(
           severityAll: args.severityAll,
           refillZones: args.refillZones,
           allTrackErrors: args.allTrackErrors,
+          ...(drcRuleOverrides ? { drcRuleOverrides } : {}),
           // 调用方未指定时回退到插件配置的默认超时
           timeoutSeconds: args.timeoutSeconds ?? defaultTimeoutSeconds,
           mode,
+          // 工具被取消时执行器要能真的停下来（否则用户取消后进程/HTTP 还在跑）
+          signal: exec.signal,
         })
       } catch (e) {
         // 把执行器错误（PCB 不存在、kicad-cli 未找到、HTTP 失败等）转成结构化输出，
@@ -262,19 +345,48 @@ export function createDrcTool(
         command: result.command,
       }
       if (result.drcJsonPath) output.drcJsonPath = result.drcJsonPath
+      if (result.reportFormat) output.reportFormat = result.reportFormat
+      // 两类"不完整"都要显式标出来：kicad-cli 没跑（kicadDrcUsed=false），
+      // 或一条内置规则都没启用（drcRulesCount=0，pcblint 新版默认状态）。
+      // 后者更隐蔽——kicadDrcUsed=true 看着一切正常，结果却只有自研规则。
+      if (result.metrics?.kicadDrcUsed === false || result.metrics?.drcRulesCount === 0) {
+        output.reportComplete = false
+      }
+      if (result.drcRules) {
+        output.drcRules = result.drcRules as unknown as Record<string, JsonValue>
+      }
       // 默认不回传原始 JSON，避免大报告撑爆 AI 上下文；仅在显式请求时包含
       if (result.drcJson && args.includeFullJson) output.drcJson = result.drcJson
       if (drcSummary) output.drcSummary = drcSummary
 
       // 自适应执行器会带回来源标注；直接用单执行器时补一个最小标注，
       // 保证 AI 任何时候都知道这次结果是哪个后端跑出来的。
-      const verifiedBy = (result as { verifiedBy?: VerifiedBy }).verifiedBy
-      output.verifiedBy = (verifiedBy ?? {
-        backend: result.kicadCliPath.startsWith('remote:') ? 'remote' : 'local',
-        endpoint: result.kicadCliPath,
-        elapsedMs: result.elapsedMs,
-        reasons: ['由固定后端执行（未启用自适应选择）'],
-      }) as unknown as Record<string, JsonValue>
+      const verifiedBy: VerifiedBy = result.verifiedBy
+        ? { ...result.verifiedBy, reasons: [...result.verifiedBy.reasons] }
+        : {
+            // 兜底按端点前缀认后端：ipc 的端点是 `ipc:<版本>`，不能一律算成 local
+            backend: result.kicadCliPath.startsWith('remote:')
+              ? 'remote'
+              : result.kicadCliPath.startsWith('ipc:') ? 'ipc' : 'local',
+            endpoint: result.kicadCliPath,
+            elapsedMs: result.elapsedMs,
+            reasons: ['由固定后端执行（未启用自适应选择）'],
+          }
+      // 结构化字段里也留一条：reasons 是"为什么这个结果可信/不可信"的正式位置，
+      // 有些消费方只读 verifiedBy，不看正文。
+      if (output.reportComplete === false) {
+        verifiedBy.reasons.push(
+          result.metrics?.kicadDrcUsed === false
+            ? '服务端未执行 kicad-cli 原生检查，报告仅含规则引擎结果（不完整）'
+            : '服务端未启用任何 KiCad 内置规则（drcRulesCount=0），报告仅含规则引擎结果（不完整）',
+        )
+      }
+      output.verifiedBy = verifiedBy as unknown as Record<string, JsonValue>
+
+      // 规则口径也进结构化输出：调用方/AI 要能判断这次是不是按本板规则跑的
+      if (result.projectRules) {
+        output.projectRules = result.projectRules as unknown as Record<string, JsonValue>
+      }
 
       // 登记报告到 webServer 路由，供浏览器半边拉取渲染（无 webServer 时跳过）
       if (result.drcJsonPath && registerReport) {
@@ -302,6 +414,32 @@ function normalizeMode(raw: unknown): DrcMode {
     console.warn(`[@huaqiu/dsh-kicad-drc] 未知 mode="${String(raw)}"，回退 auto`)
   }
   return 'auto'
+}
+
+/**
+ * 把 drcRules 参数（"key=severity,key=severity" 自由字符串）收敛成稀疏映射。
+ * 非法项跳过并留日志，而不是整份作废——AI 拼错一项时，其余项仍然生效。
+ */
+function parseDrcRules(raw: unknown): Record<string, DrcRuleSeverity> | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined
+  const out: Record<string, DrcRuleSeverity> = {}
+  for (const part of raw.split(',')) {
+    const entry = part.trim()
+    if (!entry) continue
+    const eq = entry.indexOf('=')
+    if (eq <= 0) {
+      console.warn(`[@huaqiu/dsh-kicad-drc] 忽略非法 drcRules 项 "${entry}"（应为 key=error/warning/ignore）`)
+      continue
+    }
+    const key = entry.slice(0, eq).trim()
+    const severity = entry.slice(eq + 1).trim() as DrcRuleSeverity
+    if (severity !== 'error' && severity !== 'warning' && severity !== 'ignore') {
+      console.warn(`[@huaqiu/dsh-kicad-drc] 忽略非法 drcRules 项 "${entry}"（severity 只能是 error/warning/ignore）`)
+      continue
+    }
+    out[key] = severity
+  }
+  return Object.keys(out).length > 0 ? out : undefined
 }
 
 /**

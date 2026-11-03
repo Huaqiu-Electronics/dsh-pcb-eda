@@ -7,8 +7,9 @@
  * 两个后端，由 AdaptiveExecutor 在运行时选择（mode=auto 时的默认行为）：
  *   - local:  当前机器 subprocess 调 kicad-cli（需本地安装 KiCad），
  *             默认用隔离的 KICAD_CONFIG_HOME 规避 ~5s 的默认配置发现开销
- *   - remote: HTTP 上传到 pcblint-java 服务（由其转发到 cli-runner 执行 kicad-cli），
- *             本机无需 KiCad，但只上传单个 .kicad_pcb，工程级规则可能丢失
+ *   - remote: HTTP 上传到 pcblint DRC 服务（本地部署版 E:\pcblint-local，生产版同源），
+ *             由服务端做语义规则引擎 + 本地 kicad-cli 原生检查后合并返回；
+ *             本机无需 KiCad，但只上传单个 .kicad_pcb，工程级规则（.kicad_pro）带不过去
  *
  * 选择依据：可用性 → 预期耗时 → 工程规则完整性；失败自动回退，
  * 并把实际后端写进结果的 verifiedBy 字段。
@@ -25,6 +26,7 @@ import { KicadIpcExecutor } from './kicad-ipc-executor.ts'
 import { resolveIpcPython, IPC_PYTHON_ENV } from './config.ts'
 import { createDrcTool, createBackendsTool, TOOL_NAME, BACKENDS_TOOL_NAME } from './tools.ts'
 import { createReportRegistry, createDrcReportHandler } from './web-routes.ts'
+import { createDrcService, DRC_SERVICE_NAME } from './service.ts'
 import type { DrcExecutor, DrcMode, DrcBackendName } from './executor.ts'
 
 /** 插件版本号（唯一来源：package.json），启动时打印用于确认生效版本。 */
@@ -38,11 +40,30 @@ export { AdaptiveExecutor, rankBackends } from './adaptive-executor.ts'
 export { resolveIpcPython, IPC_PYTHON_ENV } from './config.ts'
 export type { RankedCandidate, RankInput, VerifiedBy } from './adaptive-executor.ts'
 export { parseDrcSummary, formatSummaryText } from './drc-summary.ts'
+export {
+  createDrcService,
+  parseDrcViolations,
+  inRegion,
+  DRC_SERVICE_NAME,
+} from './service.ts'
+export type {
+  DrcCheckRequest,
+  DrcCheckResult,
+  DrcRegion,
+  DrcService,
+  DrcViolation,
+  DrcViolationLocation,
+} from './service.ts'
+export type { DrcRuleSources } from './executor.ts'
+export { DrcAbortedError, ExecutorError, isAbortError } from './executor.ts'
 export type {
   BackendHealth,
   DrcBackendName,
   DrcExecutor,
   DrcMode,
+  DrcProjectRules,
+  DrcProjectRulesStatus,
+  DrcRunMetrics,
   DrcRunOptions,
   DrcRunResult,
 } from './executor.ts'
@@ -68,19 +89,28 @@ export interface Config {
    * 对着不同 KiCad 版本，共用一份解释器配置会让独立部署变得不可能。
    */
   ipcPythonPath: string
-  /** 远程模式：pcblint-java 服务地址（由其转发到 cli-runner 执行 kicad-cli）。 */
+  /** 远程模式：pcblint DRC 服务地址（`/api/s/upload` + `/api/s/lint-drc`）。
+   *  本地单机部署一般为 `http://127.0.0.1:8096`（见 E:\pcblint-local\start.bat 打印的端口）。 */
   pcblintBaseUrl: string
-  /** 远程模式：cli-runner 工作目录根（共享磁盘上的路径，pcblint-java 和本插件均可访问）。 */
-  cliRunnerWorkDirRoot: string
-  /** 远程模式：静态文件服务器域名，用于把 cli-runner 返回的绝对路径（如 /data/kicad/drc/xxx/drc.json）
-   *  拼接成完整下载 URL（如 http://www.fdatasheets.com/data/kicad/drc/xxx/drc.json）。
-   *  配了之后插件通过 HTTP 下载 drc.json；显式设为空字符串则回退到共享磁盘 readFileSync。 */
-  fileBaseUrl: string
+  /** 远程模式：`x-token` 鉴权令牌。生产环境必填；本地部署开了
+   *  `pcblint.auth.local-bypass` 时留空即可。 */
+  pcblintToken: string
   /** DRC 默认超时秒数。 */
   defaultTimeoutSeconds: number
 }
 
-/** 运行时配置校验和默认值。 */
+/**
+ * 运行时配置校验和默认值。
+ *
+ * 形状以上面的 `Config` 接口为准，这里只负责运行时的默认值与校验。
+ *
+ * 为什么要 `as unknown as`：schemastery 3.18.4 起 `Schema` 多了第三个类型参数
+ * （`default()` 之后变成 `defined`），`Schema<Config>`（`plain`）与 `.default()`
+ * 推导出的类型在 `meta.default` 上不兼容；本仓库同时装着 3.18.2（本包）与 3.18.5
+ * （cordis 依赖），两份全局 `Schemastery` 声明会合并，写死 `Schema<Config>` 时
+ * `pnpm typecheck` 报错、不写死又会让 dts 生成失败（推导类型引用到另一份私有路径）。
+ * 两害相权，这里显式标注并断言，保证 typecheck 与声明产物都干净。
+ */
 export const Config: Schema<Config> = Schema.object({
   executorMode: Schema.union(['auto', 'local', 'remote', 'ipc'] as const).default('auto'),
   backendPriority: Schema.array(Schema.union(['remote', 'local', 'ipc'] as const))
@@ -88,11 +118,10 @@ export const Config: Schema<Config> = Schema.object({
   kicadCliPath: Schema.string().default(''),
   isolatedConfig: Schema.boolean().default(true),
   ipcPythonPath: Schema.string().default(''),
-  pcblintBaseUrl: Schema.string().default('http://47.100.4.100:8080'),
-  cliRunnerWorkDirRoot: Schema.string().default('/data/kicad/drc'),
-  fileBaseUrl: Schema.string().default('http://www.fdatasheets.com'),
+  pcblintBaseUrl: Schema.string().default('http://127.0.0.1:8096'),
+  pcblintToken: Schema.string().default(''),
   defaultTimeoutSeconds: Schema.number().default(600),
-})
+}) as unknown as Schema<Config>
 
 /** 插件名，Cordis 会显示。 */
 export const name = '@huaqiu/dsh-kicad-drc'
@@ -119,10 +148,7 @@ export function apply(ctx: Context, config: Config): void {
   const local = new LocalExecutor(config.kicadCliPath || undefined, { configHome })
   const remote = new RemoteExecutor({
     baseUrl: config.pcblintBaseUrl,
-    workDirRoot: config.cliRunnerWorkDirRoot,
-    // 注意：必须原样传递 config.fileBaseUrl（空字符串 = 显式禁用 HTTP 下载，走共享磁盘）；
-    // 若在这里转成 undefined，构造函数会兜底回硬编码默认值，导致"共享磁盘模式"永远无法启用。
-    fileBaseUrl: config.fileBaseUrl,
+    token: config.pcblintToken,
   })
 
   const backends: DrcExecutor[] = [local, remote, new KicadIpcExecutor(ipcPython)]
@@ -131,11 +157,17 @@ export function apply(ctx: Context, config: Config): void {
     priority: config.backendPriority,
   })
 
+  // 宿主服务：其它插件（@huaqiu/dsh-tool-pcb-autoplacement）按
+  // `ctx.inject(['kicadDrc'])` 取用。走服务而不是工具，是因为布局候选评估
+  // 由插件代码自动驱动、3 候选并行，不经过模型调用。
+  const drcService = createDrcService(adaptive)
+  ctx.effect(() => ctx.provide(DRC_SERVICE_NAME, drcService))
+
   console.log(
     `[@huaqiu/dsh-kicad-drc] 模式: ${config.executorMode}`
     + `；后端优先顺序: ${config.backendPriority.join(' → ')}`
     + `；本地配置隔离: ${configHome ? `开（${configHome}）` : '关'}`
-    + `；远程: ${config.pcblintBaseUrl}`
+    + `；远程: ${config.pcblintBaseUrl}${config.pcblintToken ? '（已配 x-token）' : '（无 x-token，需本地免鉴权）'}`
     + `；kicad-ipc: ${ipcPython}（需要华秋定制版 KiCad 提供 RunDrc）`,
   )
 

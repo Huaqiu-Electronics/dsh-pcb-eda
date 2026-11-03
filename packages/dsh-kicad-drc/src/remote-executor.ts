@@ -1,114 +1,176 @@
 /**
- * 远程 pcblint-java 执行器：HTTP 上传 PCB 文件到 pcblint-java 的 CliProxyController，
- * 由后者转发到 cli-runner 执行 kicad-cli。
+ * 远程执行器：把 `.kicad_pcb` 交给 pcblint DRC 服务（本地部署版 `E:\pcblint-local`，
+ * 生产版同源），取回语义化违规列表。
  *
- * 调用完成后，drc.json 会自动持久化到用户本地磁盘（与 .kicad_pcb 同目录），
- * 返回的 drcJsonPath 指向该本地持久化文件。
+ * 与已废弃的 cli-runner 通道的区别（不只是换了 URL）：
+ *   - 不再由客户端拼 `kicad-cli pcb drc ...` 命令，也不再上传 workDir / command / outputFiles；
+ *   - 不再需要共享磁盘或静态文件服务器取回 `drc.json`，报告直接走 HTTP 响应体；
+ *   - 服务端除了 kicad-cli 原生检查（backend=EDA_DRC），还跑自己的规则引擎（backend=NATIVE），
+ *     每条违规带 `confidence`（HIGH/MEDIUM/LOW）与 `ruleId`，这是纯 kicad-cli 给不出来的信息。
  *
- * 两种获取 drc.json 内容的方式：
- *   1. 配了 fileBaseUrl → 把 cli-runner 返回的绝对路径拼到 fileBaseUrl 上，HTTP 下载
- *      （适合插件与 cli-runner 不在同一文件系统，但有静态文件服务器暴露产物目录）。
- *   2. 没配 fileBaseUrl → 直接从共享磁盘 readFileSync 读取（适合同机/同 PV 部署）。
+ * 因此本后端产出的报告是 **pcblint 格式**，与 local/ipc 的 kicad-cli 原生格式不同：
+ * 顶层是 `violations`（severity 大写、带 confidence/backend/objects），而不是按检查项分组的数组。
+ * 报告落盘时会在最前面补 `format: 'pcblint'` 与 `source`/`date`/`endpoint` 四个字段，
+ * 其余字段原样保留（不裁剪、不改写），便于下游按 `format` 分支处理。
  */
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs'
-import { basename, dirname, resolve, join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { basename, dirname, join, resolve } from 'node:path'
 import {
+  DrcAbortedError,
   ExecutorError,
   type BackendHealth,
   type DrcExecutor,
+  type DrcProjectRules,
+  type DrcRuleOverridesResult,
+  type DrcRuleSeverity,
+  type DrcRuleSources,
+  type DrcRunMetrics,
   type DrcRunOptions,
   type DrcRunResult,
 } from './executor.ts'
+import { PcblintClient, PcblintError } from './pcblint-client.ts'
+import {
+  buildProjectRuleSet,
+  describeProjectRules,
+  injectProjectDru,
+  injectProjectRules,
+  type ProjectRuleSet,
+} from './project-rules.ts'
 
-/** 远程失败后的冷却时间：期间探测判为不可用，让自适应选择优先走本地。 */
+/**
+ * 从 `.kicad_pcb` 里收集网络名。
+ *
+ * 网络类规则要按 **NetName** 写条件（远端没有本工程的网络类），所以需要先把
+ * 类成员落到具体网络上。脚注里的 `(net N "名字")` 与焊盘引用都能覆盖到，
+ * 去重即可，不必真的解析整份 S 表达式。
+ */
+function readPcbNetNames(pcbPath: string): string[] {
+  try {
+    const names = new Set<string>()
+    for (const match of readFileSync(pcbPath, 'utf-8').matchAll(/\(net\s+\d+\s+"((?:[^"\\]|\\.)*)"\)/gu)) {
+      const name = match[1].replace(/\\(.)/gu, '$1').trim()
+      if (name && !name.startsWith('unconnected-')) names.add(name)
+    }
+    return [...names]
+  } catch {
+    return []
+  }
+}
+
+/** 远程失败后的冷却时间：期间探测判为不可用，让自适应选择优先走其他后端。 */
 const FAILURE_COOLDOWN_MS = 60_000
 
-/** pcblint-java CliProxyController 的响应结构。 */
-interface CliProxyResponse {
-  exitCode: number
-  stdout: string
-  stderr: string
-  truncated: boolean
-  timedOut: boolean
-  workDir: string
-  /** key=输出文件相对路径，value=在共享磁盘上的绝对路径。 */
-  outputFilePaths?: Record<string, string>
-  elapsedMillis: number
-}
+/** 健康检查超时：探活不能拖慢 auto 模式的选路。 */
+const HEALTH_TIMEOUT_MS = 3_000
 
-/** 延迟（重试间隔用）。 */
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms))
-}
+/** 落盘的报告格式标识。 */
+const REPORT_FORMAT = 'pcblint'
 
-/** 是否中止类错误。超时/主动中止不重试，避免长任务总时长翻倍。 */
-function isAbortError(e: unknown): boolean {
-  return e instanceof Error && (e.name === 'AbortError' || e.name === 'TimeoutError')
-}
+/** 工程规则注入的结果（决定要不要在结果里标注口径）。 */
+type ProjectRuleInjection =
+  | { status: 'absent' }
+  | { status: 'skipped', message: string }
+  | { status: 'injected', set: ProjectRuleSet, dru?: boolean }
+  | { status: 'failed', message: string }
 
-/** 带重试的 fetch：最多 2 次尝试；网络错误或 HTTP 5xx 时重试一次（间隔 1s），中止/超时立即抛出。 */
-async function fetchWithRetry(url: string, init: RequestInit, label: string): Promise<Response> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const resp = await fetch(url, init)
-      if (resp.status >= 500 && attempt < 2) {
-        await resp.body?.cancel().catch(() => {})
-        console.warn(`[@huaqiu/dsh-kicad-drc] ${label} HTTP ${resp.status}，1s 后重试`)
-        await sleep(1000)
-        continue
-      }
-      return resp
-    } catch (e) {
-      if (isAbortError(e) || attempt >= 2) throw e
-      console.warn(`[@huaqiu/dsh-kicad-drc] ${label} 网络错误: ${(e as Error).message}，1s 后重试`)
-      await sleep(1000)
+/**
+ * 内部注入结果 → 对外字段。
+ *
+ * 内部要拿 `set` 拼 notes（人读的文本），对外只给可判定的状态与计数，
+ * 两边各自需要的粒度不同，所以留一层映射而不是直接把内部结构抛出去。
+ */
+function toPublicRules(injection: ProjectRuleInjection): DrcProjectRules {
+  if (injection.status === 'injected') {
+    return {
+      status: 'injected',
+      source: injection.set.source,
+      applied: injection.set.applied.length,
+      skipped: injection.set.skipped.map((item) => item.key),
+      druMerged: injection.dru === true,
     }
   }
-  throw new Error('unreachable')
+  return {
+    status: injection.status,
+    applied: 0,
+    skipped: [],
+    druMerged: false,
+    ...('message' in injection ? { message: injection.message } : {}),
+  }
+}
+
+export interface RemoteExecutorOptions {
+  /** pcblint 服务根地址。 */
+  baseUrl?: string
+  /** `x-token`；本地免鉴权部署可留空。 */
+  token?: string
+  /** 注入 fetch，便于单测。 */
+  fetchImpl?: typeof fetch
 }
 
 export class RemoteExecutor implements DrcExecutor {
   readonly name = 'remote' as const
   private readonly baseUrl: string
-  private readonly workDirRoot: string
-  /** null = 共享磁盘读取模式（fileBaseUrl 显式传空字符串时）。 */
-  private readonly fileBaseUrl: string | null
+  private readonly client: PcblintClient
   /** 最近一次失败的时间戳（用于冷却期内降级，避免每次都等 HTTP 超时）。 */
   private lastFailureAt = 0
 
-  constructor(opts: {
-    baseUrl?: string
-    workDirRoot?: string
-    /** 静态文件服务器域名。undefined = 用内置默认值；'' = 禁用 HTTP 下载，走共享磁盘。 */
-    fileBaseUrl?: string
-  } = {}) {
-    this.baseUrl = (opts.baseUrl ?? 'http://47.100.4.100:8080').replace(/\/$/, '')
-    this.workDirRoot = (opts.workDirRoot ?? '/data/kicad/drc').replace(/\/$/, '')
-    const fbu = opts.fileBaseUrl?.replace(/\/$/, '') ?? 'http://www.fdatasheets.com'
-    this.fileBaseUrl = fbu ? fbu : null
+  constructor(opts: RemoteExecutorOptions = {}) {
+    this.baseUrl = (opts.baseUrl ?? 'http://127.0.0.1:8096').replace(/\/+$/, '')
+    this.client = new PcblintClient({
+      baseUrl: this.baseUrl,
+      ...(opts.token ? { token: opts.token } : {}),
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    })
   }
 
   /**
-   * 探测远程后端可用性。
+   * 探测 pcblint 服务可用性：真发一次 `/api/s/health`。
    *
-   * 不做 HTTP 探活：每次调用都发健康检查会额外增加延迟，而服务不可用时
-   * `run()` 本身就会快速失败。这里改用"失败冷却"策略——最近一分钟内失败过
-   * 就判为不可用，让自适应选择优先走本地；否则乐观认为可用。
+   * 之所以不再用"失败冷却 + 乐观可用"，是因为换成 HTTP 服务后探活成本很低
+   * （本机 <5ms），而反过来误判可用的代价是一次完整上传 + DRC（数秒）。
+   * 探测失败同样进入冷却期，避免连不上时每次都等满健康检查超时。
    */
   async probe(): Promise<BackendHealth> {
-    const cooling = Date.now() - this.lastFailureAt < FAILURE_COOLDOWN_MS
-    return {
-      backend: 'remote',
-      available: !cooling,
-      endpoint: this.baseUrl,
-      ...(cooling ? { reason: '最近一次远程调用失败，冷却期内降级' } : {}),
+    if (Date.now() - this.lastFailureAt < FAILURE_COOLDOWN_MS) {
+      return {
+        backend: 'remote',
+        available: false,
+        endpoint: this.baseUrl,
+        reason: '最近一次远程调用失败，冷却期内降级',
+      }
     }
-  }
-
-  /** 记录一次失败（供 probe 在冷却期内降级）。 */
-  private fail(message: string): never {
-    this.lastFailureAt = Date.now()
-    throw new ExecutorError(message)
+    const ctrl = new AbortController()
+    const timer = setTimeout(() => ctrl.abort(), HEALTH_TIMEOUT_MS)
+    try {
+      const health = await this.client.health(ctrl.signal)
+      if (!health.ok) {
+        this.lastFailureAt = Date.now()
+        return { backend: 'remote', available: false, endpoint: this.baseUrl, reason: 'pcblint 健康检查未通过' }
+      }
+      // 探测成功即清冷却：否则一次瞬时失败会让之后 60s 内一直报"不可用"，
+      // 哪怕服务其实早就恢复了，自适应选择会被这条过期状态带去走 local。
+      this.lastFailureAt = 0
+      // 顺手问一次 kicad-cli 状态，写进 reason：服务在线但 kicad-cli 不可用时，
+      // remote 的结果只有规则引擎那半边，AI/调用方看 reason 就能预判口径。
+      // 旧版服务只报"配置了 runner"不验证路径，所以这里只展示、不当可用性判据。
+      let suffix = ''
+      try {
+        const status = await this.client.drcStatus(ctrl.signal)
+        suffix = status.available ? ' · kicad-cli 可用' : ' · ⚠️ kicad-cli 不可用'
+      } catch { /* 旧版没有该接口或响应异常：不影响可用性判定 */ }
+      return {
+        backend: 'remote',
+        available: true,
+        endpoint: this.baseUrl,
+        reason: `pcblint ${health.version ?? ''} 在线${suffix}`.trim(),
+      }
+    } catch (e) {
+      this.lastFailureAt = Date.now()
+      const message = e instanceof Error ? e.message : String(e)
+      return { backend: 'remote', available: false, endpoint: this.baseUrl, reason: message }
+    } finally {
+      clearTimeout(timer)
+    }
   }
 
   async run(options: DrcRunOptions): Promise<DrcRunResult> {
@@ -118,135 +180,281 @@ export class RemoteExecutor implements DrcExecutor {
       throw new ExecutorError(`PCB 文件不存在: ${pcbPath}`)
     }
 
-    const filename = basename(pcbPath)
-    const fileBytes = readFileSync(pcbPath)
-    const jobId = crypto.randomUUID()
-    const workDir = `${this.workDirRoot}/${jobId}`
-    const outputName = 'drc.json'
-
-    // 持久化目标：与 .kicad_pcb 同目录，命名为 <pcb_stem>_drc.json
-    const pcbStem = filename.replace(/\.kicad_pcb$/i, '')
-    const pcbDir = dirname(pcbPath)
-    const localPersistPath = join(pcbDir, `${pcbStem}_drc.json`)
-
-    // 组装 command
-    const cmdParts = ['kicad-cli', 'pcb', 'drc', '--format', 'json', '--output', outputName]
-    if (options.severityAll !== false) cmdParts.push('--severity-all')
-    if (options.refillZones !== false) cmdParts.push('--refill-zones')
-    if (options.allTrackErrors) cmdParts.push('--all-track-errors')
-    cmdParts.push(filename)
-    const command = cmdParts.join(' ')
-
+    const fileName = basename(pcbPath)
+    const bytes = readFileSync(pcbPath)
     const timeoutSeconds = options.timeoutSeconds ?? 600
 
-    // multipart/form-data 调用 pcblint-java 的 /api/cli/run-with-file
-    const url = `${this.baseUrl}/api/cli/run-with-file`
-    const formData = new FormData()
-    formData.append('file', new Blob([fileBytes]), filename)
-    formData.append('workDir', workDir)
-    formData.append('command', command)
-    // outputFiles 传给 pcblint-java，用于拼 outputFilePaths（不会转发给 cli-runner）
-    formData.append('outputFiles', outputName)
-    formData.append('timeoutSeconds', String(timeoutSeconds))
+    // 超时与调用方取消是两个来源，合成一个信号往下传：
+    // 只用自己的定时器会漏掉调用方的取消（任务被取消后 DRC 仍跑完 13s+，
+    // 而服务端是串行队列，后面排队的候选只能干等）。
+    const timeoutCtrl = new AbortController()
+    const timer = setTimeout(() => timeoutCtrl.abort(), timeoutSeconds * 1000)
+    const signal = options.signal
+      ? AbortSignal.any([timeoutCtrl.signal, options.signal])
+      : timeoutCtrl.signal
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), (timeoutSeconds + 30) * 1000)
-
-    let resp: Response
+    let lint
+    let upload
+    let injection: ProjectRuleInjection = { status: 'absent' }
+    let drcRuleOverrides: DrcRuleOverridesResult | undefined
     try {
-      resp = await fetchWithRetry(url, {
-        method: 'POST',
-        body: formData,
-        signal: controller.signal,
-      }, 'pcblint-java 调用')
+      // 不能再用 client.run：必须在 upload 与 lint 之间把工程规则写进会话
+      upload = await this.client.upload(fileName, bytes, signal)
+      injection = await this.injectProjectRules(
+        pcbPath,
+        upload.sessionToken,
+        signal,
+        options.ruleSources,
+      )
+      drcRuleOverrides = await this.applyDrcRuleOverrides(
+        upload.sessionToken,
+        options.drcRuleOverrides,
+        signal,
+      )
+      lint = await this.client.lintDrc(upload.sessionToken, signal)
     } catch (e) {
-      clearTimeout(timeoutId)
-      this.fail(`pcblint-java HTTP 请求失败: ${(e as Error).message}`)
-    }
-    clearTimeout(timeoutId)
-
-    if (!resp.ok) {
-      const text = await resp.text().catch(() => '')
-      this.fail(`pcblint-java 返回 HTTP ${resp.status}: ${text.slice(0, 500)}`)
-    }
-
-    const data = (await resp.json()) as CliProxyResponse
-
-    // 获取 drc.json 内容：优先 HTTP 下载（fileBaseUrl 配了），回退共享磁盘
-    let drcJson: string | null = null
-    if (data.outputFilePaths && outputName in data.outputFilePaths) {
-      const remotePath = data.outputFilePaths[outputName]
-
-      if (this.fileBaseUrl) {
-        // 方式 1：HTTP 下载
-        const fileUrl = `${this.fileBaseUrl}${remotePath}`
-        drcJson = await this.downloadViaHttp(fileUrl)
-      } else if (remotePath && existsSync(remotePath)) {
-        // 方式 2：共享磁盘直接读
-        try {
-          const raw = readFileSync(remotePath, 'utf-8')
-          JSON.parse(raw) // 验证 JSON 合法
-          drcJson = raw
-        } catch {
-          drcJson = null
-        }
-      } else {
-        console.warn(`[@huaqiu/dsh-kicad-drc] outputFilePath 不可读: ${remotePath}`)
+      // 取消不是失败：不进冷却期（否则取消一次就把 remote 下线一分钟），也不重试
+      if (options.signal?.aborted) throw new DrcAbortedError()
+      this.lastFailureAt = Date.now()
+      if (timeoutCtrl.signal.aborted) {
+        throw new ExecutorError(`pcblint 调用超时（${timeoutSeconds}s）: ${this.baseUrl}`)
       }
+      if (e instanceof PcblintError) throw new ExecutorError(e.message)
+      throw new ExecutorError(`pcblint 调用失败: ${(e as Error).message}`)
+    } finally {
+      clearTimeout(timer)
     }
 
-    // 持久化到用户本地磁盘（与 .kicad_pcb 同目录）
+    // 跑通一次就说明服务可用：清掉冷却标记，别让一次瞬时失败继续影响后续探测
+    this.lastFailureAt = 0
+
+    const violations = Array.isArray(lint.violations) ? lint.violations : []
+
+    // 报告落盘：与 .kicad_pcb 同目录。文件名带格式后缀，避免与 local/ipc 的
+    // <pcb名>_drc.json 互相覆盖——同一块板换后端跑一次，两个报告要能同时存在，
+    // 否则 drcJsonPath/viewUrl 指向的文件会被后一次覆盖成另一个格式。
+    const pcbStem = fileName.replace(/\.kicad_pcb$/i, '')
+    const pcbDir = dirname(pcbPath)
+    const reportPath = join(pcbDir, `${pcbStem}_drc.${REPORT_FORMAT}.json`)
+    const report = {
+      format: REPORT_FORMAT,
+      source: fileName,
+      date: new Date().toISOString(),
+      endpoint: this.baseUrl,
+      ...lint,
+    }
+    const drcJson = JSON.stringify(report, null, 2)
+
     let drcJsonPath: string | null = null
-    if (drcJson) {
-      try {
-        mkdirSync(pcbDir, { recursive: true })
-        writeFileSync(localPersistPath, drcJson, 'utf-8')
-        drcJsonPath = localPersistPath
-        console.log(`[@huaqiu/dsh-kicad-drc] drc.json 已持久化: ${localPersistPath}`)
-      } catch (e) {
-        console.warn(`[@huaqiu/dsh-kicad-drc] 写入本地文件失败: ${(e as Error).message}`)
-        drcJsonPath = localPersistPath // 即使写入失败也返回目标路径，方便排查
+    try {
+      mkdirSync(pcbDir, { recursive: true })
+      writeFileSync(reportPath, drcJson, 'utf-8')
+      drcJsonPath = reportPath
+      console.log(`[@huaqiu/dsh-kicad-drc] pcblint 报告已持久化: ${reportPath}`)
+    } catch (e) {
+      console.warn(`[@huaqiu/dsh-kicad-drc] 写入本地报告失败: ${(e as Error).message}`)
+    }
+
+    // stderr 只放"结果口径"提示：哪些检查没跑、哪些被过滤，避免被当成完整 DRC 结论。
+    const notes: string[] = []
+    if (lint.kicadDrcUsed === false) {
+      notes.push(
+        '警告: 服务端未执行 kicad-cli 原生检查（kicadDrcAvailable='
+        + `${String(lint.kicadDrcAvailable)}），本次只有 pcblint 规则引擎结果，`
+        + '不能与本地 kicad-cli 的违规数直接比较',
+      )
+    }
+    if (typeof lint.suppressedCount === 'number' && lint.suppressedCount > 0) {
+      notes.push(`提示: 服务端按抑制规则过滤掉 ${lint.suppressedCount} 条违规`)
+    }
+    if (injection.status === 'injected') {
+      if (injection.set.applied.length > 0) {
+        notes.push(describeProjectRules(injection.set))
+      }
+      if (injection.dru) {
+        notes.push(
+          injection.set.applied.length > 0
+            ? '提示: 工程自带的 .kicad_dru 也已合并进会话规则'
+            : '工程自带的 .kicad_dru 已合并进会话规则（本次没有板级约束可注入）',
+        )
+      }
+      if (injection.set.skipped.length > 0) {
+        notes.push(
+          `提示: ${injection.set.skipped.length} 项工程约束未注入（沿用服务端默认值）: `
+          + injection.set.skipped.map((s) => s.key).join(', '),
+        )
+      }
+    } else if (injection.status === 'failed') {
+      notes.push(
+        '警告: 找不到/无法应用工程规则文件，本次按服务端默认工程判定，'
+        + `线宽/过孔/间距类结果可能与本地 kicad-cli 不同（${injection.message}）`,
+      )
+    } else if (injection.status === 'skipped') {
+      notes.push(`提示: ${injection.message}，本次按服务端默认工程判定`)
+    }
+    if (drcRuleOverrides) {
+      if (drcRuleOverrides.status === 'applied') {
+        notes.push(
+          `提示: 已保存 KiCad 内置规则开关（${drcRuleOverrides.keys.join(', ')}），`
+          + '结果只含这些内置规则的违规 + pcblint 自研规则',
+        )
+      } else if (drcRuleOverrides.status === 'unsupported') {
+        notes.push(
+          `警告: 服务端没有校验开关接口（${drcRuleOverrides.message ?? ''}），`
+          + '内置规则开关未生效，结果按服务端当前开关集返回',
+        )
+      } else {
+        notes.push(
+          `警告: 内置规则开关写入失败（${drcRuleOverrides.message ?? ''}），`
+          + '结果按服务端当前开关集返回',
+        )
       }
     }
 
-    // kicad-cli 执行成功但报告取回失败时，在 stderr 里显式标注，避免被误读为"DRC 未生成报告"
-    let stderr = data.stderr ?? ''
-    if (drcJson === null && data.exitCode === 0) {
-      stderr += '\n[@huaqiu/dsh-kicad-drc] 警告: kicad-cli 执行成功(exit 0)，但插件未能取回 drc.json（HTTP 下载或共享磁盘读取失败）'
-    }
+    const stdout = JSON.stringify({
+      service: 'pcblint',
+      endpoint: this.baseUrl,
+      sessionReused: upload.reused === true,
+      kicadDrcUsed: lint.kicadDrcUsed ?? null,
+      rulesExecuted: lint.rulesExecuted ?? null,
+      suppressedCount: lint.suppressedCount ?? null,
+      violations: violations.length,
+      projectRules: injection.status,
+      ...(drcRuleOverrides
+        ? { drcRuleOverrides: drcRuleOverrides.status, drcRulesEnabled: drcRuleOverrides.enabledCount }
+        : {}),
+      drcRulesCount: lint.drcRulesCount ?? null,
+      ...(injection.status === 'injected'
+        ? {
+            projectRulesSource: injection.set.source,
+            projectRuleConstraints: injection.set.applied.length,
+            projectDruMerged: injection.dru === true,
+          }
+        : {}),
+    })
 
-    const elapsedMs = Math.round(performance.now() - start)
+    // 口径指标同时给结构化和 stdout 两份：stdout 是历史字段（日志/工具输出在用），
+    // 结构化字段给程序判定用，避免消费方去 parse 那行 JSON。
+    const metrics: DrcRunMetrics = {
+      suppressedCount: typeof lint.suppressedCount === 'number' ? lint.suppressedCount : null,
+      kicadDrcUsed: typeof lint.kicadDrcUsed === 'boolean' ? lint.kicadDrcUsed : null,
+      rulesExecuted: typeof lint.rulesExecuted === 'number' ? lint.rulesExecuted : null,
+      drcRulesCount: typeof lint.drcRulesCount === 'number' ? lint.drcRulesCount : null,
+    }
 
     return {
-      exitCode: data.exitCode,
-      stdout: data.stdout ?? '',
-      stderr,
+      exitCode: 0,
+      stdout,
+      stderr: notes.join('\n'),
       drcJson,
-      elapsedMs,
-      timedOut: data.timedOut,
-      kicadCliPath: 'remote:' + this.baseUrl,
-      command,
+      elapsedMs: Math.round(performance.now() - start),
+      timedOut: false,
+      kicadCliPath: `remote:${this.baseUrl}`,
+      command: `POST ${this.baseUrl}/api/s/upload → POST ${this.baseUrl}/api/s/lint-drc (${fileName})`,
       drcJsonPath,
+      reportFormat: REPORT_FORMAT,
+      projectRules: toPublicRules(injection),
+      ...(drcRuleOverrides ? { drcRules: drcRuleOverrides } : {}),
+      metrics,
     }
   }
 
-  /** 通过 HTTP 下载产物文件（带重试），验证 JSON 合法后返回内容。 */
-  private async downloadViaHttp(fileUrl: string): Promise<string | null> {
-    try {
-      const ctrl = new AbortController()
-      const t = setTimeout(() => ctrl.abort(), 30_000)
-      const resp = await fetchWithRetry(fileUrl, { signal: ctrl.signal }, '下载 drc.json')
-      clearTimeout(t)
-      if (!resp.ok) {
-        console.warn(`[@huaqiu/dsh-kicad-drc] 下载 drc.json 失败: HTTP ${resp.status} ${fileUrl}`)
-        return null
+  /**
+   * 把工程板级约束写进会话规则文件。
+   *
+   * 规则来源有两种，优先级从高到低：
+   *   1. `options.ruleSources.projectFile`：调用方冻结的 `.kicad_pro` 内容
+   *      （自动布局的候选板目录里没有 `.kicad_pro`，只能这样传）
+   *   2. 与 `.kicad_pcb` 同目录的 `.kicad_pro`（agent 手动跑 DRC 的常规情况）
+   *
+   * 另外，`options.ruleSources.drcFile`（工程自带的 `.kicad_dru`）会追加在
+   * 板级约束块之前：会话里已有的服务端语义规则保留不动，工程自定义规则叠加。
+   *
+   * 失败不致命：没有规则源、JSON 坏了、接口不支持，都退回"服务端默认工程"，
+   * 只在结果里标注口径——DRC 本身照常跑完，不会因为规则注入失败而没有结论。
+   */
+  private async injectProjectRules(
+    pcbPath: string,
+    sessionToken: string,
+    signal?: AbortSignal,
+    ruleSources?: DrcRuleSources,
+  ): Promise<ProjectRuleInjection> {
+    let projectText: string | undefined
+    let sourceName: string
+    if (ruleSources?.projectFile) {
+      projectText = ruleSources.projectFile
+      sourceName = ruleSources.name ?? 'inline'
+    } else {
+      const proPath = pcbPath.replace(/\.kicad_pcb$/i, '.kicad_pro')
+      if (existsSync(proPath)) {
+        projectText = readFileSync(proPath, 'utf-8')
+        sourceName = basename(proPath)
+      } else {
+        // 只有 .kicad_dru 时也要注入，此时没有板级约束可用
+        projectText = undefined
+        sourceName = ruleSources?.name ?? 'inline'
       }
-      const raw = await resp.text()
-      JSON.parse(raw) // 验证 JSON 合法
-      return raw
+    }
+
+    let set: ProjectRuleSet = { source: sourceName, applied: [], skipped: [], block: '' }
+    if (projectText !== undefined) {
+      try {
+        set = buildProjectRuleSet(projectText, sourceName, readPcbNetNames(pcbPath))
+      } catch (e) {
+        return { status: 'failed', message: e instanceof Error ? e.message : String(e) }
+      }
+    }
+    if (set.applied.length === 0 && !ruleSources?.drcFile) {
+      return { status: 'skipped', message: `${set.source} 里没有可注入的板级约束` }
+    }
+
+    try {
+      // 先读再写：服务端按板分类生成的语义规则（ic_keepout 等）必须保留
+      const current = await this.client.getDru(sessionToken, signal)
+      // 顺序不能反：KiCad 后出现的规则覆盖先出现的，工程自定义规则必须最后写入
+      const withRules = injectProjectRules(current.content, set)
+      await this.client.putDru(sessionToken, injectProjectDru(withRules, ruleSources?.drcFile), signal)
+      return { status: 'injected', set, ...(ruleSources?.drcFile?.trim() ? { dru: true } : {}) }
     } catch (e) {
-      console.warn(`[@huaqiu/dsh-kicad-drc] 下载 drc.json 异常: ${(e as Error).message} ${fileUrl}`)
-      return null
+      return { status: 'failed', message: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
+  /**
+   * 把 KiCad 内置规则开关写进会话（`PUT /api/s/drc-rules`）。
+   *
+   * 这是局部 DRC 的规则维度：布局评分只关心几类规则时，用稀疏映射打开它们，
+   * 服务端 lint 时就只跑这些内置规则（没开的不会出现在结果里）。
+   *
+   * 三种失败都不是致命的：
+   *   - 旧版服务没有该接口（404）→ `unsupported`，结果按服务端当前开关集返回；
+   *   - 写入失败 → `failed`，同上；
+   *   - 两者都只在结果里标注，DRC 本身照常跑完——开关是"收窄口径"，不是前提。
+   *
+   * 注意 404 的识别方式：`PcblintClient.request` 把 HTTP 状态码拼进错误 message，
+   * 这里靠正则取回。够用（状态码有独立空格边界），不值得为此改 request 的返回结构。
+   */
+  private async applyDrcRuleOverrides(
+    sessionToken: string,
+    overrides: Record<string, DrcRuleSeverity> | undefined,
+    signal?: AbortSignal,
+  ): Promise<DrcRuleOverridesResult | undefined> {
+    if (!overrides) return undefined
+    const keys = Object.keys(overrides)
+    if (keys.length === 0) return undefined
+    try {
+      const saved = await this.client.putDrcRules(sessionToken, overrides, signal)
+      return {
+        status: 'applied',
+        keys,
+        enabledCount: saved.rules.filter((rule) => rule.enabled).length,
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      const status: DrcRuleOverridesResult['status'] = /\b404\b/u.test(message)
+        ? 'unsupported'
+        : 'failed'
+      return { status, keys, enabledCount: null, message }
     }
   }
 }

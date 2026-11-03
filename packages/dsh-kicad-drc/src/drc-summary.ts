@@ -9,9 +9,13 @@ export type DrcSummary = {
   totalErrors: number
   totalWarnings: number
   totalExclusions: number
+  /** pcblint 的 INFO 级条目（规则引擎给出的"建议人工确认"项，kicad-cli 一般不产出）。 */
+  totalInfo: number
   totalIssues: number
   /** issue type → count */
   categories: Record<string, number>
+  /** 报告格式：`kicad-cli`（本地/ipc）或 `pcblint`（远程）。两者不可直接比较数字。 */
+  format: string
   kicadVersion: string
   sourceFile: string
   date: string
@@ -21,14 +25,32 @@ export type DrcSummary = {
   ignoredChecks: string[]
 }
 
-/** drc.json 顶层中不是问题列表的字段（不参与统计）。 */
-const NON_ISSUE_SECTIONS = new Set(['ignored_checks'])
+/**
+ * drc.json 顶层中不是问题列表的字段（不参与统计）。
+ *
+ * `groups` 是 pcblint 给的分类聚合视图（同一份违规的二次归组），
+ * 必须排除，否则违规数会被算两遍。
+ */
+const NON_ISSUE_SECTIONS = new Set(['ignored_checks', 'groups'])
+
+/** 从一条违规里取"检查类型"：kicad-cli 用 type，pcblint 用 ruleId 或 message 前缀。 */
+function issueTypeOf(rec: Record<string, unknown>, section: string): string {
+  if (typeof rec.type === 'string' && rec.type) return rec.type
+  if (typeof rec.ruleId === 'string' && rec.ruleId) return rec.ruleId
+  // pcblint 的 message 形如 `courtyards_overlap: Courtyards overlap`
+  const msg = typeof rec.message === 'string' ? rec.message : ''
+  const idx = msg.indexOf(':')
+  if (idx > 0) return msg.slice(0, idx).trim()
+  if (typeof rec.title === 'string' && rec.title) return rec.title
+  return section
+}
 
 /**
  * 从 drc.json 字符串生成 DrcSummary。
  *
  * 泛化扫描所有顶层数组字段（除 NON_ISSUE_SECTIONS 外），
  * 这样未来 KiCad 版本新增的检查 section 也不会被漏计。
+ * 兼容两种报告格式：kicad-cli 原生（severity 小写）与 pcblint（severity 大写）。
  */
 export function parseDrcSummary(jsonStr: string): DrcSummary {
   const data = JSON.parse(jsonStr) as Record<string, unknown>
@@ -36,6 +58,7 @@ export function parseDrcSummary(jsonStr: string): DrcSummary {
   let totalErrors = 0
   let totalWarnings = 0
   let totalExclusions = 0
+  let totalInfo = 0
   const categories: Record<string, number> = {}
   const sampleErrors: JsonValue[] = []
 
@@ -45,11 +68,13 @@ export function parseDrcSummary(jsonStr: string): DrcSummary {
     for (const item of value) {
       if (typeof item !== 'object' || item === null) continue
       const rec = item as Record<string, unknown>
-      const sev = typeof rec.severity === 'string' ? rec.severity : 'unknown'
+      // pcblint 的 severity 是大写枚举（ERROR/WARNING/INFO），统一小写后归类
+      const sev = typeof rec.severity === 'string' ? rec.severity.toLowerCase() : 'unknown'
       if (sev === 'error') totalErrors++
       else if (sev === 'warning') totalWarnings++
       else if (sev === 'exclusion') totalExclusions++
-      const cat = typeof rec.type === 'string' ? rec.type : section
+      else if (sev === 'info') totalInfo++
+      const cat = issueTypeOf(rec, section)
       categories[cat] = (categories[cat] ?? 0) + 1
       if (sev === 'error' && sampleErrors.length < 5) {
         // item 来自 JSON.parse，结构上必为 JsonValue
@@ -73,8 +98,10 @@ export function parseDrcSummary(jsonStr: string): DrcSummary {
     totalErrors,
     totalWarnings,
     totalExclusions,
-    totalIssues: totalErrors + totalWarnings + totalExclusions,
+    totalInfo,
+    totalIssues: totalErrors + totalWarnings + totalExclusions + totalInfo,
     categories,
+    format: typeof data.format === 'string' ? data.format : 'kicad-cli',
     kicadVersion: (data.kicad_version as string) ?? 'unknown',
     sourceFile: (data.source as string) ?? '?',
     date: (data.date as string) ?? '?',
@@ -83,10 +110,27 @@ export function parseDrcSummary(jsonStr: string): DrcSummary {
   }
 }
 
+/** 取违规坐标：kicad-cli 在 pos 或 items[0].pos，pcblint 在 location。 */
+function posOf(rec: Record<string, unknown>): { x?: unknown, y?: unknown } {
+  const own = rec.pos as Record<string, unknown> | undefined
+  if (own) return { x: own.x, y: own.y }
+  const items = rec.items
+  if (Array.isArray(items) && items.length > 0) {
+    const first = items[0] as Record<string, unknown> | undefined
+    const p = first?.pos as Record<string, unknown> | undefined
+    if (p) return { x: p.x, y: p.y }
+  }
+  const loc = rec.location as Record<string, unknown> | undefined
+  if (loc) return { x: loc.x, y: loc.y }
+  return {}
+}
+
 /** 生成纯文本摘要，适合给 AI 模型当 tool 输出。 */
 export function formatSummaryText(s: DrcSummary): string {
+  const title = s.format === 'pcblint' ? 'DRC 报告摘要（pcblint 语义服务）' : 'KiCad DRC 报告摘要'
   const lines: string[] = [
-    'KiCad DRC 报告摘要',
+    title,
+    `  报告格式:     ${s.format}`,
     `  KiCad 版本:   ${s.kicadVersion}`,
     `  源文件:       ${s.sourceFile}`,
     `  生成时间:     ${s.date}`,
@@ -95,6 +139,8 @@ export function formatSummaryText(s: DrcSummary): string {
     `    - 错误 (error):       ${s.totalErrors}`,
     `    - 警告 (warning):     ${s.totalWarnings}`,
     `    - 排除 (exclusion):   ${s.totalExclusions}`,
+    // INFO 是 pcblint 规则引擎的"建议人工确认"项；为 0 时不显示，避免干扰 kicad-cli 报告的原有观感
+    ...(s.totalInfo > 0 ? [`    - 提示 (info):        ${s.totalInfo}`] : []),
     '',
     '  按类型分类:',
   ]
@@ -107,15 +153,12 @@ export function formatSummaryText(s: DrcSummary): string {
     lines.push(`  示例错误 (前 ${s.sampleErrors.length} 条):`)
     s.sampleErrors.forEach((e, i) => {
       const item = e as Record<string, unknown>
-      // KiCad 10 的 violation 条目顶层没有 pos，坐标在子项 items[].pos 里；旧格式则直接在顶层
-      let pos = item.pos as Record<string, unknown> | undefined
-      if (!pos && Array.isArray(item.items) && item.items.length > 0) {
-        const first = item.items[0] as Record<string, unknown> | undefined
-        pos = first?.pos as Record<string, unknown> | undefined
-      }
+      const pos = posOf(item)
+      // pcblint 的条目没有 description 字段，用 title/message 兜底，避免显示成 "?"
+      const desc = item.description ?? item.title ?? item.message ?? '?'
       lines.push(
-        `    ${i + 1}. [${item.severity ?? '?'}] ${item.description ?? '?'}`
-        + `  pos=(${pos?.x ?? '?'}, ${pos?.y ?? '?'})`,
+        `    ${i + 1}. [${item.severity ?? '?'}] ${desc}`
+        + `  pos=(${pos.x ?? '?'}, ${pos.y ?? '?'})`,
       )
     })
   }

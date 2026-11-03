@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AdaptiveExecutor, rankBackends } from '../src/adaptive-executor.ts'
+import { DrcAbortedError } from '../src/executor.ts'
 import type {
   BackendHealth,
   DrcBackendName,
@@ -210,4 +211,32 @@ test('rankBackends：ipc 可用时仍排在 remote / local 之后（优先序列
     history: new Map(),
   })
   assert.deepEqual(ranked.map((r) => r.backend), ['remote', 'local', 'ipc'])
+})
+
+test('signal 已取消时直接抛 DrcAbortedError，不探活也不跑后端', async () => {
+  const local = fakeBackend('local')
+  const ctrl = new AbortController()
+  ctrl.abort()
+  await assert.rejects(
+    () => new AdaptiveExecutor([local]).run({ pcbPath: '/tmp/not-exist.kicad_pcb', signal: ctrl.signal }),
+    (e: unknown) => e instanceof DrcAbortedError,
+  )
+  assert.equal(local.calls, 0)
+})
+
+test('取消不触发后端回退：后面的后端一次都不跑', async () => {
+  const ctrl = new AbortController()
+  const remote = fakeBackend('remote', {
+    run: async () => {
+      ctrl.abort()
+      throw new DrcAbortedError()
+    },
+  })
+  const local = fakeBackend('local')
+  await assert.rejects(
+    () => new AdaptiveExecutor([remote, local]).run({ pcbPath: '/tmp/not-exist.kicad_pcb', signal: ctrl.signal }),
+    (e: unknown) => e instanceof DrcAbortedError,
+  )
+  assert.equal(remote.calls, 1)
+  assert.equal(local.calls, 0, '取消不是失败，不能换个后端再烧一次')
 })
