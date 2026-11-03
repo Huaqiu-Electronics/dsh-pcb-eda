@@ -10,11 +10,13 @@ export interface AuthTransport {
   pushSession(info: AuthTokenPayload): Promise<void>
   pushLogout(): Promise<void>
   /**
-   * Whether the plugin runs under an HQ Edge host. In host mode hq-edge already
-   * holds the operator credential (EDA hands it over on launch), so the
-   * browser half's own login UI (sidebar entrypoint) is suppressed.
+   * Runtime config resolved by the node half (`/config`):
+   * - `hostMode`: whether the plugin runs under an HQ Edge host (in host mode
+   *   the browser half's own login UI is suppressed);
+   * - `subscriptionOrigin`: the SAME `HQ_AI_ENV`-resolved origin used for the
+   *   subscription dialog (null → standalone PROD fallback).
    */
-  fetchHostMode(): Promise<boolean>
+  fetchRuntimeConfig(): Promise<AuthRuntimeConfig>
   /**
    * Fetch the node half's authoritative session. The node resolves host-mode
    * credentials first (host session → pushed browser session → persisted
@@ -39,11 +41,12 @@ export interface AuthTransport {
   fetchUserInfo(): Promise<EdaUserProfile | null>
   /**
    * Fetch the account's AI token usage from the NODE half (`/ai-usage`), which
-   * performs the upstream `GET http://www.fdatasheets.com/user-rest/api/ai/usage`
-   * with the `X-Token` header. This half must NOT call that endpoint itself: it
-   * is plain `http`, which the WebView refuses on two independent grounds — App
-   * Transport Security and CORS — and the failures are what the browser console
-   * reports as a blocked resource. Null on failure (the sidebar shows「—」).
+   * performs the upstream usage call (endpoint resolved by HQ Edge from
+   * `HQ_AI_ENV`) with the `X-Token` header. This half must NOT call that
+   * endpoint itself: the TEST endpoint is plain `http`, which the WebView
+   * refuses on two independent grounds — App Transport Security and CORS — and
+   * the failures are what the browser console reports as a blocked resource.
+   * Null on failure (the sidebar shows「—」).
    */
   fetchAiUsage(): Promise<AiTokenUsage | null>
 }
@@ -54,6 +57,27 @@ export interface HostSessionUser {
   token?: string
   nickname?: string
   expiresAt?: number
+}
+
+/** Runtime config served by the node `/config` route. */
+export interface AuthRuntimeConfig {
+  hostMode: boolean
+  /** Absolute http(s) origin; null = standalone (client keeps its default). */
+  subscriptionOrigin: string | null
+}
+
+/** Accept only an absolute http(s) origin; anything else → null. */
+function normalizeOrigin(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (!trimmed) return null
+  try {
+    const url = new URL(trimmed)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+    return trimmed
+  } catch {
+    return null
+  }
 }
 
 /** Rich eda.cn profile served by the node `/user-info` route. */
@@ -86,20 +110,23 @@ export function createWebServerAuthTransport(
       const res = await doFetch(`${base}/logout`, { method: 'POST' })
       if (!res.ok) throw new Error(`auth logout push failed: HTTP ${res.status}`)
     },
-    async fetchHostMode() {
+    async fetchRuntimeConfig() {
       try {
         const res = await doFetch(`${base}/config`, {
           method: 'GET',
           headers: { accept: 'application/json' },
         })
-        if (!res.ok) return false
-        const body = await res.json() as { hostMode?: unknown }
-        return body.hostMode === true
+        if (!res.ok) return { hostMode: false, subscriptionOrigin: null }
+        const body = await res.json() as { hostMode?: unknown; subscriptionOrigin?: unknown }
+        return {
+          hostMode: body.hostMode === true,
+          subscriptionOrigin: normalizeOrigin(body.subscriptionOrigin),
+        }
       } catch {
         // Offline/same-origin failure: fall back to standalone (show the login
         // entrypoint) rather than hiding it — a login UI is never a security
         // regression, but a missing one in standalone would lock the user out.
-        return false
+        return { hostMode: false, subscriptionOrigin: null }
       }
     },
     async fetchSession() {

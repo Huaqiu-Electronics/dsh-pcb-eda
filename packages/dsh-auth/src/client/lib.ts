@@ -28,12 +28,16 @@ export const PROFILE_URL = 'https://www.eda.cn/account/profile'
 
 /**
  * Subscription landing page — the same page `hq-eda-ai` serves at
- * `gen.eda.cn/subscription` (token taken from the URL query; see its
+ * `<origin>/subscription` (token taken from the URL query; see its
  * `UserInfoContext`). The preferred window size for BOTH surfaces (KiCad
  * native dialog via DialogService.OpenUrl and the standalone iframe dialog)
  * is 1400×740.
+ *
+ * This constant is the standalone-DSH fallback only. Under HQ Edge the origin
+ * arrives from the node half's `/config` route, resolved ONCE from `HQ_AI_ENV`
+ * (PROD: gen.eda.cn / TEST: gen.fdatasheets.com).
  */
-export const SUBSCRIPTION_ORIGIN = 'https://gen.eda.cn'
+export const DEFAULT_SUBSCRIPTION_ORIGIN = 'https://gen.eda.cn'
 export const SUBSCRIPTION_PATH = '/subscription'
 export const SUBSCRIPTION_PREFERRED_SIZE = { width: 1400, height: 740 } as const
 
@@ -60,15 +64,14 @@ export const ERC_PRODUCT_CODE = 'erc'
  * (points × 50) and `usd` its money equivalent. All three pairs are reported
  * because the endpoint reports all three; the UI reads `points`.
  *
- * WHY THE BROWSER NEVER CALLS THIS ENDPOINT DIRECTLY: it is served over plain
- * `http` (`http://www.fdatasheets.com/user-rest/api/ai/usage`), which the
- * WebView refuses twice over — App Transport Security ("the resource could not
- * be loaded because the App Transport Security policy requires the use of a
- * secure connection") and CORS (the response carries no
- * `Access-Control-Allow-Origin`). The node half has neither restriction — it is
- * the same process that already calls this host for the Huaqiu AI gateway — so
- * IT performs the fetch and this half reads a same-origin route, exactly like
- * the eda.cn profile on `/user-info`.
+ * WHY THE BROWSER NEVER CALLS THIS ENDPOINT DIRECTLY: the TEST endpoint is
+ * served over plain `http`, which the WebView refuses twice over — App
+ * Transport Security ("the resource could not be loaded because the App
+ * Transport Security policy requires the use of a secure connection") and CORS
+ * (the response carries no `Access-Control-Allow-Origin`). The node half has
+ * neither restriction — it is the same process that already calls the AI host
+ * for the Huaqiu gateway — so IT performs the fetch and this half reads a
+ * same-origin route, exactly like the eda.cn profile on `/user-info`.
  */
 export interface AiTokenUsage {
   availablePoints: number
@@ -81,12 +84,16 @@ export interface AiTokenUsage {
 
 /**
  * Build the subscription landing URL. Mirrors `buildProfileUrl`: the token is
- * always attached — `gen.eda.cn/subscription` consumes it to establish the
+ * always attached — the subscription page consumes it to establish the
  * session and hides it itself. `encodeURIComponent` is required (tokens are
  * base64-ish and may contain `+`, `/` or `=`).
+ *
+ * `origin` comes from the node half (HQ Edge → `HQ_AI_ENV`); omitted in
+ * standalone DSH, which keeps the PROD fallback.
  */
-export function buildSubscriptionUrl(options: { token: string }): string {
-  return `${SUBSCRIPTION_ORIGIN}${SUBSCRIPTION_PATH}?token=${encodeURIComponent(options.token)}`
+export function buildSubscriptionUrl(options: { token: string; origin?: string }): string {
+  const origin = (options.origin ?? DEFAULT_SUBSCRIPTION_ORIGIN).replace(/\/+$/, '')
+  return `${origin}${SUBSCRIPTION_PATH}?token=${encodeURIComponent(options.token)}`
 }
 
 /** Normalized active-subscription quota view (whatever the backend sends). */

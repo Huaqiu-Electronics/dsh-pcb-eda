@@ -85,11 +85,10 @@ export const AUTH_ROUTE_PREFIX = '/api/v1/huaqiu/auth'
  * could not be loaded because the App Transport Security policy requires the
  * use of a secure connection") and, independently, by CORS (the response sends
  * no `Access-Control-Allow-Origin`). Node's fetch is subject to neither, and
- * this process already talks to this very host for the Huaqiu AI gateway
- * (`http://www.fdatasheets.com/user-rest/ai/v1`, see hq-edge's
- * `HUAQIU_AI_GATEWAY_BASE_URL`) — so the call is known to work from here.
+ * this process already talks to the same AI host for the Huaqiu gateway — so
+ * the call is known to work from here. The endpoint is injected as resolved
+ * config by HQ Edge (`HQ_AI_ENV`); this module has no hardcoded env URL.
  */
-export const AI_USAGE_URL = 'http://www.fdatasheets.com/user-rest/api/ai/usage'
 
 /**
  * Normalized AI token usage — the `/user-rest/api/ai/usage` result.
@@ -121,10 +120,11 @@ export interface AiTokenUsage {
  */
 export async function fetchAiTokenUsage(
   token: string,
+  usageUrl: string,
   doFetch: typeof fetch = globalThis.fetch.bind(globalThis),
 ): Promise<AiTokenUsage | null> {
   try {
-    const res = await doFetch(AI_USAGE_URL, {
+    const res = await doFetch(usageUrl, {
       method: 'GET',
       headers: {
         Accept: 'application/json, text/plain, */*',
@@ -228,7 +228,13 @@ export function createAuthHandler(service: HuaqiuAuthService): AuthHandler {
       }
 
       if (req.method === 'GET' && pathname === `${AUTH_ROUTE_PREFIX}/config`) {
-        sendJson(res, 200, { hostMode: service.hostMode })
+        // `subscriptionOrigin` is the SAME resolved HQ_AI_ENV value as the
+        // usage endpoint; the browser half uses it to build the host-dialog
+        // URL instead of hardcoding gen.eda.cn.
+        sendJson(res, 200, {
+          hostMode: service.hostMode,
+          subscriptionOrigin: service.subscriptionOrigin,
+        })
         return
       }
 
@@ -248,15 +254,15 @@ export function createAuthHandler(service: HuaqiuAuthService): AuthHandler {
 
       if (req.method === 'GET' && pathname === `${AUTH_ROUTE_PREFIX}/ai-usage`) {
         // The WebView CANNOT reach this endpoint itself (plain http → ATS +
-        // CORS, see AI_USAGE_URL), so the node half performs the call with the
-        // credential IT resolved (host → pushed → persisted) — the same shape
-        // as /user-info above.
+        // CORS), so the node half performs the call with the credential IT
+        // resolved (host → pushed → persisted) — the same shape as /user-info
+        // above. The URL itself is resolved by HQ Edge; absent → no call.
         const token = await service.auth.getAccessToken()
-        if (!token) {
+        if (!token || !service.aiUsageUrl) {
           sendJson(res, 200, { usage: null })
           return
         }
-        sendJson(res, 200, { usage: await fetchAiTokenUsage(token) })
+        sendJson(res, 200, { usage: await fetchAiTokenUsage(token, service.aiUsageUrl) })
         return
       }
 

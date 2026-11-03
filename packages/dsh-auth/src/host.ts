@@ -45,6 +45,17 @@ export interface HuaqiuAuthConfig {
   hostSessionTtlSeconds?: number
   /** Seconds remote token-validation results are cached. Default 60. */
   validationTtlSeconds?: number
+  /**
+   * AI token-usage endpoint resolved by HQ Edge from `HQ_AI_ENV` (task
+   * ai-env-swithcing-for-internal-test.md). Absent → `/ai-usage` returns null
+   * instead of calling a stale/default endpoint.
+   */
+  aiUsageUrl?: string
+  /**
+   * Subscription landing-page origin resolved by HQ Edge from the SAME
+   * `HQ_AI_ENV`. Absent → the browser half keeps its standalone PROD default.
+   */
+  subscriptionOrigin?: string
 }
 
 export const DEFAULT_HOST_AUTH_PATH = '/api/v1/auth/token'
@@ -90,6 +101,13 @@ export function resolveHostConfig(
     const parsed = Number.parseInt(vTtlRaw, 10)
     if (Number.isFinite(parsed) && parsed > 0) validationTtlSeconds = parsed
   }
+  // Resolved AI endpoints: overlay config (what HQ Edge injects) wins; explicit
+  // env URLs are the standalone escape hatch. HQ_AI_ENV itself is NOT read here
+  // — the prod/test mapping lives only in HQ Edge's central config.
+  const aiUsageUrl = (config?.aiUsageUrl ?? env.HQ_AI_USAGE_URL ?? '').trim()
+  const subscriptionOrigin = (config?.subscriptionOrigin ?? env.HQ_AI_SUBSCRIPTION_ORIGIN ?? '')
+    .trim()
+    .replace(/\/+$/, '')
   return {
     hqEdgeBaseUrl: baseUrl,
     hostAuthPath,
@@ -97,6 +115,8 @@ export function resolveHostConfig(
     hostLogoutPath,
     hostSessionTtlSeconds: ttl,
     validationTtlSeconds,
+    aiUsageUrl,
+    subscriptionOrigin,
   }
 }
 

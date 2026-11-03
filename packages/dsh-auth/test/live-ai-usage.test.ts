@@ -7,6 +7,8 @@
  *
  *   DSH_LIVE_AI_TOKEN=<access token> pnpm test live-ai-usage
  *
+ * Set `DSH_LIVE_AI_USAGE_URL` to probe a non-default environment.
+ *
  * It exercises the REAL node-side `fetchAiTokenUsage` (same URL, same `X-Token`
  * header, same envelope) because that call is the one thing the mocked unit
  * tests cannot prove: the endpoint is served over plain `http`, and only a real
@@ -14,13 +16,17 @@
  * documented `{ code: 200000, result }` envelope.
  */
 import { describe, expect, it } from 'vitest'
-import { AI_USAGE_URL, fetchAiTokenUsage } from '../src/routes.js'
+import { fetchAiTokenUsage } from '../src/routes.js'
 
 const token = process.env.DSH_LIVE_AI_TOKEN
+// The production code has no hardcoded env URL; this optional probe keeps its
+// TEST default (override with DSH_LIVE_AI_USAGE_URL for prod).
+const AI_USAGE_URL =
+  process.env.DSH_LIVE_AI_USAGE_URL ?? 'http://www.fdatasheets.com/user-rest/api/ai/usage'
 
 describe.skipIf(!token)('fetchAiTokenUsage (live)', () => {
   it('resolves the account balance from the real endpoint', async () => {
-    const usage = await fetchAiTokenUsage(token!)
+    const usage = await fetchAiTokenUsage(token!, AI_USAGE_URL)
     // A block (ATS/CORS/host unreachable) yields null — surface the URL so the
     // failure reads as what it is rather than as a bare `expect(null)`.
     expect(usage, `no usage returned by ${AI_USAGE_URL}`).not.toBeNull()

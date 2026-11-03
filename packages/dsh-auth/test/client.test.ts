@@ -44,7 +44,10 @@ function makeClient() {
   const transport = {
     pushSession: vi.fn(async (info: AuthTokenPayload) => { pushes.push(['session', info]) }),
     pushLogout: vi.fn(async () => { pushes.push(['logout']) }),
-    fetchHostMode: vi.fn(async () => false),
+    fetchRuntimeConfig: vi.fn(async () => ({
+      hostMode: false,
+      subscriptionOrigin: null as string | null,
+    })),
     fetchSession: vi.fn(async (): Promise<{ authenticated: boolean; user: HostSessionUser | null }> =>
       ({ authenticated: false, user: null })),
     triggerLogin: vi.fn(async () => { pushes.push(['login']) }),
@@ -497,7 +500,7 @@ describe('auth client behaviors (acceptance groups A–D)', () => {
 describe('host mode (hq-edge integration)', () => {
   it('adopts the host-owned session so the auth gate reads authenticated', async () => {
     const { client, transport } = makeClient()
-    transport.fetchHostMode.mockResolvedValue(true)
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
     transport.fetchSession.mockResolvedValue({
       authenticated: true,
       user: { id: 6215935, token: 'host-tok-1', nickname: '老铁' },
@@ -519,7 +522,7 @@ describe('host mode (hq-edge integration)', () => {
 
   it('standalone refreshHost keeps the login entrypoint and storage gate', async () => {
     const { client, transport, storage } = makeClient()
-    transport.fetchHostMode.mockResolvedValue(false)
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: false, subscriptionOrigin: null })
     expect(await client.refreshHost()).toBe(false)
     expect(client.auth.isAuthenticated()).toBe(false)
     // Standalone login still opens the iframe.
@@ -533,7 +536,7 @@ describe('host mode (hq-edge integration)', () => {
 
   it('logout in host mode REQUESTS host logout and adopts the host verdict', async () => {
     const { client, transport } = makeClient()
-    transport.fetchHostMode.mockResolvedValue(true)
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 7, token: 't7' } })
     await client.refreshHost()
     expect(client.auth.isAuthenticated()).toBe(true)
@@ -550,7 +553,7 @@ describe('host mode (hq-edge integration)', () => {
 
   it('logout in host mode keeps the authenticated state when the host rejects it', async () => {
     const { client, transport } = makeClient()
-    transport.fetchHostMode.mockResolvedValue(true)
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 7, token: 't7' } })
     await client.refreshHost()
 
@@ -568,7 +571,7 @@ describe('host mode (hq-edge integration)', () => {
     // makeClient uses the real shared localStorage and earlier cases leave a
     // credential behind; host mode must never fall back to it.
     storage.clear()
-    transport.fetchHostMode.mockResolvedValue(true)
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 7, token: 't7' } })
     const seen: unknown[] = []
     client.auth.onAuthStateChanged((info) => seen.push(info))
@@ -601,7 +604,7 @@ describe('host mode (hq-edge integration)', () => {
 
   it('host session survives a reconnect until refreshHost resolves a later absence', async () => {
     const { client, transport } = makeClient()
-    transport.fetchHostMode.mockResolvedValue(true)
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
     await client.refreshHost()
     expect(client.auth.isAuthenticated()).toBe(true)
@@ -707,7 +710,7 @@ describe('subscription (quota + dialog)', () => {
 
   it('openSubscriptionDialog asks the host (openHostDialog) in host mode, no iframe', async () => {
     const { client, transport } = makeClient()
-    transport.fetchHostMode.mockResolvedValue(true)
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
     await client.refreshHost()
     expect(client.auth.isHostMode()).toBe(true)
@@ -727,5 +730,27 @@ describe('subscription (quota + dialog)', () => {
     expect(openHostDialog.mock.calls[0]![1]).toMatchObject({ size: { width: 1400, height: 740 }, key: 'hq-subscription-dialog' })
     // No in-app iframe is opened over the host UI.
     expect(document.querySelector('[data-hq-sub-dialog]')).toBeNull()
+  })
+
+  it('openSubscriptionDialog uses the TEST subscription origin resolved by the node (/config)', async () => {
+    const { transport } = makeClient()
+    transport.fetchRuntimeConfig.mockResolvedValue({
+      hostMode: true,
+      subscriptionOrigin: 'http://gen.fdatasheets.com',
+    })
+    transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
+    const openHostDialog = vi.fn(async (_url: string, _opts?: Record<string, unknown>) => undefined)
+    const hostClient = createAuthClient({
+      storage: createAuthStorage(localStorage),
+      transport,
+      windowLike: window as never,
+      documentLike: document,
+      openHostDialog,
+    })
+    await hostClient.refreshHost()
+    await hostClient.auth.openSubscriptionDialog()
+    expect(openHostDialog.mock.calls[0]![0]).toBe(
+      'http://gen.fdatasheets.com/subscription?token=h1-tok',
+    )
   })
 })

@@ -5,8 +5,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rmSync } from 'node:fs'
 import { InMemoryHuaqiuAuthService } from '../src/service.js'
-import { AUTH_ROUTE_PREFIX, AI_USAGE_URL, createAuthHandler, fetchAiTokenUsage } from '../src/routes.js'
+import { AUTH_ROUTE_PREFIX, createAuthHandler, fetchAiTokenUsage } from '../src/routes.js'
 import { authFetch } from './helpers.js'
+
+// Test-environment values the way HQ Edge resolves them from HQ_AI_ENV=test.
+const TEST_AI_USAGE_URL = 'http://www.fdatasheets.com/user-rest/api/ai/usage'
+const TEST_SUBSCRIPTION_ORIGIN = 'http://gen.fdatasheets.com'
 
 // Isolate the persisted-session directory to a temp dir so the standalone
 // (browser-login) tests never read a real `~/.dsh/auth/session.json` left by
@@ -21,7 +25,10 @@ describe('auth webServer routes (browser→node transport)', () => {
 
   beforeEach(async () => {
     rmSync(TMP, { recursive: true, force: true })
-    svc = new InMemoryHuaqiuAuthService({}, { fetchImpl: authFetch() })
+    svc = new InMemoryHuaqiuAuthService(
+      { aiUsageUrl: TEST_AI_USAGE_URL, subscriptionOrigin: TEST_SUBSCRIPTION_ORIGIN },
+      { fetchImpl: authFetch() },
+    )
     server = http.createServer(createAuthHandler(svc))
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -103,9 +110,18 @@ describe('auth webServer routes (browser→node transport)', () => {
     expect((await post(`${AUTH_ROUTE_PREFIX}/nope`, {})).status).toBe(404)
   })
 
-  it('GET /config reports standalone mode (hostMode=false)', async () => {
+  it('GET /config reports standalone mode (hostMode=false) and no AI origin', async () => {
     const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/config`)).text)
     expect(res.hostMode).toBe(false)
+    // Only HQ Edge supplies the resolved origin; standalone keeps the client's
+    // PROD fallback (represented as null here).
+    const standaloneSvc = new InMemoryHuaqiuAuthService({})
+    expect(standaloneSvc.subscriptionOrigin).toBeNull()
+  })
+
+  it('GET /config exposes the subscription origin resolved from the same AI env', async () => {
+    const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/config`)).text)
+    expect(res.subscriptionOrigin).toBe(TEST_SUBSCRIPTION_ORIGIN)
   })
 
   it('GET /config reports host mode when an HQ Edge base URL is configured', async () => {
@@ -200,7 +216,7 @@ describe('auth webServer routes (browser→node transport)', () => {
     // Exactly one upstream call, made by the node half — the endpoint is plain
     // http, so the browser must never be the caller (ATS + CORS reject it).
     expect(calls).toHaveLength(1)
-    expect(calls[0]![0]).toBe(AI_USAGE_URL)
+    expect(calls[0]![0]).toBe(TEST_AI_USAGE_URL)
     expect((calls[0]![1]!.headers as Record<string, string>)['X-Token']).toBe('tok-9')
   })
 
@@ -218,11 +234,11 @@ describe('auth webServer routes (browser→node transport)', () => {
     expect(JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)).toEqual({ usage: null })
   })
 
-  it('fetchAiTokenUsage targets the fdatasheets endpoint and coerces missing fields to 0', async () => {
+  it('fetchAiTokenUsage uses the supplied endpoint and coerces missing fields to 0', async () => {
     const doFetch = vi.fn(async () => (
       { ok: true, status: 200, json: async () => ({ code: 200000, result: { usedPoints: 1265 } }) } as Response
     )) as unknown as typeof fetch
-    const usage = await fetchAiTokenUsage('tok-1', doFetch)
+    const usage = await fetchAiTokenUsage('tok-1', TEST_AI_USAGE_URL, doFetch)
     expect(usage).toEqual({
       availablePoints: 0,
       availableQuota: 0,
@@ -232,7 +248,7 @@ describe('auth webServer routes (browser→node transport)', () => {
       usedUsd: 0,
     })
     const [url, init] = (doFetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit]
-    expect(url).toBe(AI_USAGE_URL)
+    expect(url).toBe(TEST_AI_USAGE_URL)
     expect(url.startsWith('http://')).toBe(true)
     expect((init.headers as Record<string, string>)['X-Token']).toBe('tok-1')
   })

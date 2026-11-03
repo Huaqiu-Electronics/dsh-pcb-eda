@@ -122,6 +122,11 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
   let hostMode = false
   let hostSession: AuthTokenPayload | null = null
   let hostSessionLoaded = false
+  /**
+   * Subscription origin resolved by HQ Edge from `HQ_AI_ENV` and served on the
+   * node `/config` route. Null in standalone → lib's PROD fallback.
+   */
+  let subscriptionOrigin: string | null = null
 
   const emit = (info: AuthTokenPayload | null): void => {
     for (const listener of listeners) listener(info)
@@ -258,7 +263,10 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       if (hostMode && !hostSessionLoaded) await resolveHost()
       const token = await auth.getAccessToken()
       if (!token) return
-      const url = buildSubscriptionUrl({ token })
+      const url = buildSubscriptionUrl({
+        token,
+        ...(subscriptionOrigin ? { origin: subscriptionOrigin } : {}),
+      })
       if (hostMode) {
         // The EDA host owns the UI — open its native dialog (fire-and-forget).
         // No dialog service → no-op; the caller keeps its subscribe button.
@@ -335,9 +343,12 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       const prevToken = hostSession?.token ?? storage.get()?.token ?? null
       let mode = false
       try {
-        mode = await transport.fetchHostMode()
+        const runtime = await transport.fetchRuntimeConfig()
+        mode = runtime.hostMode
+        subscriptionOrigin = runtime.subscriptionOrigin
       } catch {
         mode = false
+        subscriptionOrigin = null
       }
       hostMode = mode
       hostSessionLoaded = false
@@ -375,6 +386,7 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       hostMode = false
       hostSession = null
       hostSessionLoaded = false
+      subscriptionOrigin = null
       void trustedOrigin // referenced for clarity: the auth iframe URL comes from it
     },
   }
