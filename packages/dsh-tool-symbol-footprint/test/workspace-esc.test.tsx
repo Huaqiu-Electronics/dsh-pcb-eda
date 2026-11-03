@@ -87,27 +87,30 @@ it('closes the workspace popup on Escape', () => {
   act(() => { root!.render(Overlay ? <Overlay /> : null) })
 
   // Closed initially.
-  expect(container.querySelector('.cga-stub')).toBeNull()
+  expect(document.body.querySelector('.cga-stub')).toBeNull()
 
   // Open the footprint workspace by clicking the injected sidebar row.
   const foot = document.querySelector<HTMLButtonElement>('[data-hqcg-footprint-entry]')!
   expect(foot).toBeTruthy()
   act(() => { foot.click() })
-  expect(container.querySelector('.cga-stub')).not.toBeNull()
+  expect(document.body.querySelector('.cga-stub')).not.toBeNull()
+  // The popup is portalled beside the render container, not nested inside the
+  // frame's overlay layer (whose z-index 20 loses to the drawer sidebar at 71).
+  expect(container.querySelector('.cga-stub')).toBeNull()
 
   // Escape closes the popup.
   act(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
   })
-  expect(container.querySelector('.cga-stub')).toBeNull()
+  expect(document.body.querySelector('.cga-stub')).toBeNull()
 
   // A non-Escape key does not close it — reopen then verify.
   act(() => { foot.click() })
-  expect(container.querySelector('.cga-stub')).not.toBeNull()
+  expect(document.body.querySelector('.cga-stub')).not.toBeNull()
   act(() => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
   })
-  expect(container.querySelector('.cga-stub')).not.toBeNull()
+  expect(document.body.querySelector('.cga-stub')).not.toBeNull()
 })
 
 it('tracks click_generate_symbol whenever its sidebar entry is clicked', () => {

@@ -23,8 +23,8 @@ export default defineConfig([
     dts: false,
     sourcemap: true,
     clean: false,
-    // react stays external (platform seed word), @deepseek-ai stays external
-    // (provided by the DSH platform). @huaqiu/component-gen-app and the
+    // react and react-dom stay external (platform seed words), @deepseek-ai stays
+    // external (provided by the DSH platform). @huaqiu/component-gen-app and the
     // browser-safe @huaqiu/dsh-artifacts/placement subpath are plain library
     // modules (not DSH client plugins) that never register themselves in the
     // DSH client module table, so they MUST be bundled into this client
@@ -33,7 +33,7 @@ export default defineConfig([
     // `@huaqiu/dsh-artifacts/placement` and would silently externalize it.
     // Force-bundle them here.
     deps: {
-      neverBundle: [/^react$/, /^react\//, /^@deepseek-ai\//],
+      neverBundle: [/^react$/, /^react\//, /^react-dom$/, /^react-dom\//, /^@deepseek-ai\//],
       // Subpath-aware patterns: an anchored `^...$` regex would NOT match
       // `@huaqiu/dsh-artifacts/placement` and would silently externalize it.
       // @huaqiu/dsh-sidebar-entry is the shared family sidebar-entry helper —

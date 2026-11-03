@@ -24,6 +24,7 @@
  * consumes its public surface.
  */
 import { useCallback, useEffect, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import {
   ComponentGenApp, createHttpPorts, injectAppStyles, translateFor,
   type ComponentGenAuthPort, type ComponentGenPage, type ComponentGenPorts,
@@ -208,7 +209,17 @@ export function createWorkspacePorts(
   return track ? { ...ports, track } : ports
 }
 
-/** Full-viewport overlay panel hosting the app. */
+/**
+ * Full-viewport overlay panel hosting the app.
+ *
+ * Portalled to `document.body`, the same layer dsh's own `Modal` and `Toast`
+ * primitives use: `shell.overlay` entries render inside the frame's
+ * `.overlayLayer` (z-index 20), whose stacking context caps any child —
+ * including this fixed layer — so in drawer mode (viewport < 768px) the
+ * absolute, z-index 71 sidebar column paints over the whole workspace.
+ * Escaping the frame puts the modal overlay back on the root layer, above the
+ * drawer chrome and below nothing it needs to be behind.
+ */
 function WorkspaceOverlay({ ports }: { ports: ComponentGenPorts }): JSX.Element {
   const { open, page } = useWorkspaceState()
   const lang = detectLocale()
@@ -241,7 +252,7 @@ function WorkspaceOverlay({ ports }: { ports: ComponentGenPorts }): JSX.Element 
     '--dsh-scrollbar-thumb': 'var(--dsw-alias-scrollbar-bg-l2)',
     '--dsh-scrollbar-thumb-hover': 'var(--dsw-alias-scrollbar-hover-l2)',
   } as CSSProperties
-  return (
+  return createPortal(
     <div
       style={{
         position: 'fixed',
@@ -270,7 +281,8 @@ function WorkspaceOverlay({ ports }: { ports: ComponentGenPorts }): JSX.Element 
           <ComponentGenApp ports={ports} page={page} lang={lang} onClose={close} />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
