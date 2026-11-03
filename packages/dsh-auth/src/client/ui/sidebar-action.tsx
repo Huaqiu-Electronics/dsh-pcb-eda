@@ -922,20 +922,6 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
               </div>
               <div role="presentation" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <QuotaMetric
-                  label={t('subscription.gen')}
-                  icon={<CpuIcon />}
-                  reading={quotaReading(quota?.gen ?? null, t)}
-                  gradient={palette.genGradient}
-                  palette={palette}
-                />
-                <QuotaMetric
-                  label={t('subscription.erc')}
-                  icon={<WaveIcon />}
-                  reading={quotaReading(quota?.erc ?? null, t)}
-                  gradient={palette.ercGradient}
-                  palette={palette}
-                />
-                <QuotaMetric
                   label={t('subscription.ai')}
                   icon={<SparklesIcon />}
                   reading={aiUsageReading(quota?.ai ?? null, t)}
