@@ -49,7 +49,7 @@
       ]
     },
     "@huaqiu/dsh-auth": {
-      "version": "0.6.20",
+      "version": "0.6.21",
       "hosts": [
         "all"
       ],
@@ -260,12 +260,12 @@
       ]
     },
     "@huaqiu/dsh-tool-symbol-footprint": {
-      "version": "0.6.20",
+      "version": "0.6.21",
       "hosts": [
         "all"
       ],
       "requiresHqEdge": false,
-      "minHqEdge": null,
+      "minHqEdge": ">=0.4.1",
       "maxHqEdge": null,
       "minDsh": null,
       "displayName": "符号封装",
