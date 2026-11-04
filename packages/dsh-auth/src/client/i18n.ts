@@ -45,12 +45,9 @@ const zh = {
   'subscription.quotaHeader': '套餐与使用额度',
   'subscription.upgrade': '订阅 / 升级套餐',
   'subscription.online': '在线',
-  // AI token usage (`/user-rest/api/ai/usage`) — the third metric beside GEN
-  // and ERC. The headline is the usage percent (e.g. "65%"); the exact
-  // "{available} / {total} 点" balance is shown as the hover title, because the
-  // bar itself only shows the ratio visually.
+  // AI usage — the third metric beside GEN and ERC. The headline is the
+  // upstream `quotaRemainPercent`, passed through unchanged (`99.68%`).
   'subscription.ai': 'AI 用量',
-  'subscription.aiUsageCount': '{available} / {total} 点',
   'subscription.aiUsagePercent': '{percent}%',
   'subscription.aiUsageUnknown': '暂无数据',
 
@@ -98,12 +95,9 @@ const en: Record<AuthCopyKey, string> = {
   'subscription.quotaHeader': 'Plan & usage quota',
   'subscription.upgrade': 'Subscribe / Upgrade plan',
   'subscription.online': 'Online',
-  // AI token usage (`/user-rest/api/ai/usage`) — the third metric beside GEN
-  // and ERC. The headline is the usage percent (e.g. "65%"); the exact
-  // "{available} / {total} pts" balance is shown as the hover title, because
-  // the bar itself only shows the ratio visually.
+  // AI usage — the third metric beside GEN and ERC. The headline is the
+  // upstream `quotaRemainPercent`, passed through unchanged (`99.68%`).
   'subscription.ai': 'AI usage',
-  'subscription.aiUsageCount': '{available} / {total} pts',
   'subscription.aiUsagePercent': '{percent}%',
   'subscription.aiUsageUnknown': 'No data',
 

@@ -52,35 +52,23 @@ export const SUBSCRIPTION_PREFERRED_SIZE = { width: 1400, height: 740 } as const
 export const GEN_PRODUCT_CODE = 'auto-design'
 export const ERC_PRODUCT_CODE = 'erc'
 
-// ── AI token usage ──────────────────────────────────────────────────────────
+// ── AI usage (subscription balances) ────────────────────────────────────────
 
 /**
- * Normalized AI token usage — the shape the node half's `/ai-usage` route
- * returns (the node half owns the upstream call; see
- * `routes.ts#fetchAiTokenUsage`).
+ * Client-facing AI usage shape. Re-exported (type-only) from the single
+ * authoritative contract in `../subscription-balances.ts`; the browser half
+ * must not import node modules, and a type-only re-export adds no runtime
+ * code to this bundle.
  *
- * `points` is the account-level token balance (what the user thinks of as
- * "tokens"); `quota` is the same figure in the gateway's internal unit
- * (points × 50) and `usd` its money equivalent. All three pairs are reported
- * because the endpoint reports all three; the UI reads `points`.
- *
- * WHY THE BROWSER NEVER CALLS THIS ENDPOINT DIRECTLY: the TEST endpoint is
- * served over plain `http`, which the WebView refuses twice over — App
+ * WHY THE BROWSER NEVER CALLS THE UPSTREAM ENDPOINT DIRECTLY: the TEST endpoint
+ * is served over plain `http`, which the WebView refuses twice over — App
  * Transport Security ("the resource could not be loaded because the App
  * Transport Security policy requires the use of a secure connection") and CORS
  * (the response carries no `Access-Control-Allow-Origin`). The node half has
- * neither restriction — it is the same process that already calls the AI host
- * for the Huaqiu gateway — so IT performs the fetch and this half reads a
+ * neither restriction, so IT performs the fetch and this half reads a
  * same-origin route, exactly like the eda.cn profile on `/user-info`.
  */
-export interface AiTokenUsage {
-  availablePoints: number
-  availableQuota: number
-  availableUsd: number
-  usedPoints: number
-  usedQuota: number
-  usedUsd: number
-}
+export type { AiUsage } from '../subscription-balances.js'
 
 /**
  * Build the subscription landing URL. Mirrors `buildProfileUrl`: the token is
@@ -132,11 +120,15 @@ function quotaOf(subscription: Record<string, unknown> | null | undefined): Subs
 }
 
 /**
- * Fetch the active subscription quota DIRECTLY from eda.cn
- * (`GET {baseUrl}/sub-api/subscriptions/active?userId&productCode` with
- * `x-token` + `X-User-Id` headers) — the same API `hq-eda-ai`'s
- * `getActiveSubscription` and `hq-edge`'s ERC quota proxy call, so displaying
- * the available quota never depends on an hq-edge hop.
+ * Fetch the active subscription quota (`GET {baseUrl}/sub-api/subscriptions/
+ * active?userId&productCode` with `x-token` + `X-User-Id` headers) — the same
+ * API `hq-eda-ai`'s `getActiveSubscription` and `hq-edge`'s ERC quota proxy
+ * call.
+ *
+ * `baseUrl` is the origin the node half derives from the resolved
+ * subscription-balances endpoint (`HQ_AI_ENV`), so this call follows the
+ * selected environment and DSH Auth never hardcodes a production host. No
+ * configured origin → null (the UI shows「—」).
  *
  * Returns null when the fetch/unwrap fails (callers decide fail-open vs
  * fail-closed); a well-formed response always yields a `SubscriptionQuota`
@@ -149,7 +141,8 @@ export async function fetchSubscriptionQuota(options: {
   baseUrl?: string
   fetchImpl?: typeof fetch
 }): Promise<SubscriptionQuota | null> {
-  const { userId, token, productCode, baseUrl = 'https://www.eda.cn' } = options
+  const { userId, token, productCode, baseUrl } = options
+  if (!baseUrl) return null
   const fetchImpl = options.fetchImpl ?? fetch
   const url = `${baseUrl}${SUB_API_PREFIX}/subscriptions/active?${new URLSearchParams({
     userId: String(userId),

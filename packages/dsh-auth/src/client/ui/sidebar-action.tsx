@@ -30,7 +30,7 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { getAuth, getAuthState, getHqEdge, setProfile, subscribeAuth } from '../auth-state.js'
-import { buildProfileUrl, ERC_PRODUCT_CODE, GEN_PRODUCT_CODE, type AiTokenUsage, type SubscriptionQuota } from '../lib.js'
+import { buildProfileUrl, ERC_PRODUCT_CODE, GEN_PRODUCT_CODE, type AiUsage, type SubscriptionQuota } from '../lib.js'
 import { useIsDark, useLocale } from '../ui-env.js'
 import { useT, type Translate } from '../i18n.js'
 import { HQ_ICON } from './hq-icon.jsx'
@@ -546,36 +546,19 @@ export function quotaReading(quota: SubscriptionQuota | null, t: Translate): Met
 }
 
 /**
- * AI token reading from `/user-rest/api/ai/usage`.
+ * AI reading from the subscription-balances AI Points group.
  *
- * The headline number is the AVAILABLE (remaining) balance, not the consumed
- * one — the same convention as the GEN/ERC cards beside it, which display
- * `currentQuota` (the REMAINING quota: hq-edge exposes it as
- * `availableQuota`/"Available Quota", hq-eda-ai as `remainingQuota`). Showing
- * `usedPoints` here made the AI card the only surface in the product that
- * reported consumption as the balance: an account that burned 77 of its 100
- * points read "77 / 100 pts" where the user expects "23 / 100 pts".
- *
- * The balance is reported as `usedPoints` + `availablePoints`, so the total is
- * their sum — there is no separate `totalPoints` field to read. Percent keeps
- * one decimal: a fresh account has well over 99% of its balance left, and
- * rounding 99.6% up to "100%" would read as an exhausted account.
+ * The percentage is the upstream `quotaRemainPercent` — the REMAINING share —
+ * passed through unchanged: no local ratio and no re-rounding, so `99.68`
+ * renders as `99.68%`. A missing / `null` / non-finite value is unavailable
+ * (the card shows「—」); the bar clamps to 0–100 while the label does not.
  */
-export function aiUsageReading(usage: AiTokenUsage | null, t: Translate): MetricReading | null {
-  if (!usage) return null
-  const used = Math.max(0, usage.usedPoints)
-  const available = Math.max(0, usage.availablePoints)
-  const total = used + available
-  const percent = total > 0
-    ? Math.min(100, Math.round((available / total) * 1000) / 10)
-    : 0
-  // Headline shows the usage percent (e.g. "65%"); the exact
-  // "{available} / {total} pts" balance is preserved as the hover title.
-  const displayPercent = Math.round(percent)
+export function aiUsageReading(usage: AiUsage | null, t: Translate): MetricReading | null {
+  const percent = usage?.quotaRemainPercent
+  if (typeof percent !== 'number' || !Number.isFinite(percent)) return null
   return {
-    value: t('subscription.aiUsagePercent', { percent: displayPercent }),
-    title: t('subscription.aiUsageCount', { available, total }),
-    percent,
+    value: t('subscription.aiUsagePercent', { percent }),
+    percent: Math.max(0, Math.min(100, percent)),
     ok: true,
   }
 }
@@ -739,7 +722,7 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null)
   const [avatarBroken, setAvatarBroken] = useState(false)
   const [hovered, setHovered] = useState(false)
-  const [quota, setQuota] = useState<{ gen: SubscriptionQuota | null; erc: SubscriptionQuota | null; ai: AiTokenUsage | null } | null>(null)
+  const [quota, setQuota] = useState<{ gen: SubscriptionQuota | null; erc: SubscriptionQuota | null; ai: AiUsage | null } | null>(null)
   const [subscribing, setSubscribing] = useState(false)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -796,10 +779,9 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
 
   // Live quota: EVERY time the menu opens (and every time the auth state
   // flips to authenticated) re-fetch the active subscription for GEN and ERC
-  // DIRECTLY from eda.cn — the sidebar must never show a stale count. The AI
-  // token balance rides the same pass (`/user-rest/api/ai/usage`, one GET, no
-  // hq-edge hop), so all three metrics share one loading window instead of
-  // three staggered ones.
+  // from the environment's subscription API, and the AI percentage from the
+  // node-proxied subscription balances. All three share one loading window
+  // instead of three staggered ones.
   useEffect(() => {
     if (!menuOpen || !authenticated) {
       if (!menuOpen) setQuota(null)

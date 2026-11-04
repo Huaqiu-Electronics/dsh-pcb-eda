@@ -96,11 +96,17 @@ export interface HuaqiuAuthService {
    */
   readonly hostMode: boolean
   /**
-   * Resolved AI token-usage endpoint injected by HQ Edge (`config.aiUsageUrl`),
-   * or null when none was configured. `/ai-usage` never falls back to a stale
-   * hardcoded environment endpoint.
+   * Resolved subscription balances endpoint injected by HQ Edge
+   * (`config.subscriptionBalancesUrl`), or null when none was configured.
+   * `/ai-usage` never falls back to a stale hardcoded environment endpoint.
    */
-  readonly aiUsageUrl: string | null
+  readonly subscriptionBalancesUrl: string | null
+  /**
+   * Origin of {@link subscriptionBalancesUrl} (e.g. `https://www.eda.cn`), used
+   * by the browser half for the GEN/ERC active-subscription calls. Null when no
+   * endpoint was configured — DSH Auth never hardcodes a production host.
+   */
+  readonly subscriptionApiBaseUrl: string | null
   /**
    * Resolved subscription origin injected by HQ Edge (`config.subscriptionOrigin`),
    * or null when none was configured (standalone keeps its PROD default).
@@ -117,6 +123,15 @@ function safeHost(url: string): string {
     return new URL(url).host
   } catch {
     return '<invalid-url>'
+  }
+}
+
+/** Scheme + host origin of a URL, or null when it does not parse. */
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
   }
 }
 
@@ -222,7 +237,12 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
       fetchImpl: this.doFetch,
     })
     this.hostMode = this.host.enabled
-    this.aiUsageUrl = resolved.aiUsageUrl?.length ? resolved.aiUsageUrl : null
+    this.subscriptionBalancesUrl = resolved.subscriptionBalancesUrl?.length
+      ? resolved.subscriptionBalancesUrl
+      : null
+    this.subscriptionApiBaseUrl = this.subscriptionBalancesUrl
+      ? originOf(this.subscriptionBalancesUrl)
+      : null
     this.subscriptionOrigin = resolved.subscriptionOrigin?.length
       ? resolved.subscriptionOrigin
       : null
@@ -231,15 +251,19 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
       hostAuthPath: resolved.hostAuthPath,
       hostSessionTtlSeconds: resolved.hostSessionTtlSeconds,
       // Hosts only — never a complete URL that could carry a credential.
-      aiUsageHost: this.aiUsageUrl ? safeHost(this.aiUsageUrl) : null,
+      subscriptionBalancesHost: this.subscriptionBalancesUrl
+        ? safeHost(this.subscriptionBalancesUrl)
+        : null,
       subscriptionOrigin: this.subscriptionOrigin,
     })
   }
 
   /** Host mode is active iff a host base URL was configured (see HostSessionResolver.enabled). */
   readonly hostMode: boolean
-  /** AI usage endpoint resolved by HQ Edge (`HQ_AI_ENV`); null → no call. */
-  readonly aiUsageUrl: string | null
+  /** Subscription balances endpoint resolved by HQ Edge (`HQ_AI_ENV`); null → no call. */
+  readonly subscriptionBalancesUrl: string | null
+  /** Origin used for GEN/ERC active-subscription calls; null → unavailable. */
+  readonly subscriptionApiBaseUrl: string | null
   /** Subscription origin resolved by HQ Edge (`HQ_AI_ENV`); null → standalone. */
   readonly subscriptionOrigin: string | null
 

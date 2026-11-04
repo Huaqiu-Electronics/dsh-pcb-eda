@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { AUTH_ORIGIN, buildLoginUrl, parseAuthMessage, handleAuthMessage, type AiTokenUsage, type AuthTokenPayload } from '../src/client/lib.js'
+import { AUTH_ORIGIN, buildLoginUrl, parseAuthMessage, handleAuthMessage, type AiUsage, type AuthTokenPayload } from '../src/client/lib.js'
 import { createAuthStorage } from '../src/client/storage.js'
 import { createAuthClient } from '../src/client/client.js'
 import type { HostSessionUser } from '../src/client/transport.js'
@@ -47,12 +47,13 @@ function makeClient() {
     fetchRuntimeConfig: vi.fn(async () => ({
       hostMode: false,
       subscriptionOrigin: null as string | null,
+      subscriptionApiBaseUrl: null as string | null,
     })),
     fetchSession: vi.fn(async (): Promise<{ authenticated: boolean; user: HostSessionUser | null }> =>
       ({ authenticated: false, user: null })),
     triggerLogin: vi.fn(async () => { pushes.push(['login']) }),
     fetchUserInfo: vi.fn(async () => null),
-    fetchAiUsage: vi.fn(async (): Promise<AiTokenUsage | null> => null),
+    fetchAiUsage: vi.fn(async (): Promise<AiUsage | null> => null),
   }
   const storage = createAuthStorage(localStorage)
   const listeners: Array<(e: MessageEvent) => void> = []
@@ -500,7 +501,7 @@ describe('auth client behaviors (acceptance groups A–D)', () => {
 describe('host mode (hq-edge integration)', () => {
   it('adopts the host-owned session so the auth gate reads authenticated', async () => {
     const { client, transport } = makeClient()
-    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
     transport.fetchSession.mockResolvedValue({
       authenticated: true,
       user: { id: 6215935, token: 'host-tok-1', nickname: '老铁' },
@@ -522,7 +523,7 @@ describe('host mode (hq-edge integration)', () => {
 
   it('standalone refreshHost keeps the login entrypoint and storage gate', async () => {
     const { client, transport, storage } = makeClient()
-    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: false, subscriptionOrigin: null })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: false, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
     expect(await client.refreshHost()).toBe(false)
     expect(client.auth.isAuthenticated()).toBe(false)
     // Standalone login still opens the iframe.
@@ -536,7 +537,7 @@ describe('host mode (hq-edge integration)', () => {
 
   it('logout in host mode REQUESTS host logout and adopts the host verdict', async () => {
     const { client, transport } = makeClient()
-    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 7, token: 't7' } })
     await client.refreshHost()
     expect(client.auth.isAuthenticated()).toBe(true)
@@ -553,7 +554,7 @@ describe('host mode (hq-edge integration)', () => {
 
   it('logout in host mode keeps the authenticated state when the host rejects it', async () => {
     const { client, transport } = makeClient()
-    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 7, token: 't7' } })
     await client.refreshHost()
 
@@ -571,7 +572,7 @@ describe('host mode (hq-edge integration)', () => {
     // makeClient uses the real shared localStorage and earlier cases leave a
     // credential behind; host mode must never fall back to it.
     storage.clear()
-    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 7, token: 't7' } })
     const seen: unknown[] = []
     client.auth.onAuthStateChanged((info) => seen.push(info))
@@ -604,7 +605,7 @@ describe('host mode (hq-edge integration)', () => {
 
   it('host session survives a reconnect until refreshHost resolves a later absence', async () => {
     const { client, transport } = makeClient()
-    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
     await client.refreshHost()
     expect(client.auth.isAuthenticated()).toBe(true)
@@ -636,12 +637,16 @@ describe('subscription (quota + dialog)', () => {
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     ))
     const quota = await fetchSubscriptionQuota({
-      userId: 'u1', token: 'tok-1', productCode: 'auto-design', fetchImpl,
+      userId: 'u1',
+      token: 'tok-1',
+      productCode: 'auto-design',
+      baseUrl: 'https://www.eda.cn',
+      fetchImpl,
     })
     expect(quota).toEqual({ hasSubscription: true, packageName: 'Pro', currentQuota: 3, totalQuota: 10 })
     // The request must hit /sub-api/subscriptions/active with auth headers.
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
-    expect(url).toContain('/sub-api/subscriptions/active')
+    expect(url.startsWith('https://www.eda.cn/sub-api/subscriptions/active')).toBe(true)
     expect(url).toContain('productCode=auto-design')
     expect(url).toContain('userId=u1')
     expect((init.headers as Record<string, string>)['x-token']).toBe('tok-1')
@@ -658,14 +663,7 @@ describe('subscription (quota + dialog)', () => {
     const c = makeClient()
     // Sign in — the gate reads the persisted credential.
     c.client.handleMessageEvent({ origin: AUTH_ORIGIN, data: JSON.stringify(validEnvelope) })
-    const usage = {
-      availablePoints: 198735,
-      availableQuota: 9936735,
-      availableUsd: 19.87347,
-      usedPoints: 1265,
-      usedQuota: 63265,
-      usedUsd: 0.12653,
-    }
+    const usage = { quotaRemainPercent: 99.68 }
     c.transport.fetchAiUsage.mockResolvedValue(usage)
     // A direct call to the upstream would be refused by the WebView (plain http
     // → App Transport Security + CORS), so make one fatal: reaching it would
@@ -710,7 +708,7 @@ describe('subscription (quota + dialog)', () => {
 
   it('openSubscriptionDialog asks the host (openHostDialog) in host mode, no iframe', async () => {
     const { client, transport } = makeClient()
-    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
     await client.refreshHost()
     expect(client.auth.isHostMode()).toBe(true)
@@ -737,6 +735,7 @@ describe('subscription (quota + dialog)', () => {
     transport.fetchRuntimeConfig.mockResolvedValue({
       hostMode: true,
       subscriptionOrigin: 'http://gen.fdatasheets.com',
+      subscriptionApiBaseUrl: null,
     })
     transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
     const openHostDialog = vi.fn(async (_url: string, _opts?: Record<string, unknown>) => undefined)

@@ -9,12 +9,14 @@ describe('createWebServerAuthTransport', () => {
       json: async () => ({
         hostMode: true,
         subscriptionOrigin: 'http://gen.fdatasheets.com',
+        subscriptionApiBaseUrl: 'http://www.fdatasheets.com',
       }),
     })) as unknown as typeof fetch
     const t = createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch)
     await expect(t.fetchRuntimeConfig()).resolves.toEqual({
       hostMode: true,
       subscriptionOrigin: 'http://gen.fdatasheets.com',
+      subscriptionApiBaseUrl: 'http://www.fdatasheets.com',
     })
     expect(doFetch).toHaveBeenCalledWith('/api/v1/huaqiu/auth/config', expect.objectContaining({ method: 'GET' }))
   })
@@ -27,17 +29,23 @@ describe('createWebServerAuthTransport', () => {
     await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchRuntimeConfig()).resolves.toEqual({
       hostMode: false,
       subscriptionOrigin: null,
+      subscriptionApiBaseUrl: null,
     })
   })
 
   it('fetchRuntimeConfig rejects a non-http(s) or relative origin', async () => {
     const doFetch = vi.fn(async () => ({
       ok: true,
-      json: async () => ({ hostMode: true, subscriptionOrigin: 'javascript:alert(1)' }),
+      json: async () => ({
+        hostMode: true,
+        subscriptionOrigin: 'javascript:alert(1)',
+        subscriptionApiBaseUrl: 'not-a-url',
+      }),
     })) as unknown as typeof fetch
     await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchRuntimeConfig()).resolves.toEqual({
       hostMode: true,
       subscriptionOrigin: null,
+      subscriptionApiBaseUrl: null,
     })
   })
 
@@ -48,6 +56,7 @@ describe('createWebServerAuthTransport', () => {
     await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchRuntimeConfig()).resolves.toEqual({
       hostMode: false,
       subscriptionOrigin: null,
+      subscriptionApiBaseUrl: null,
     })
   })
 
@@ -84,14 +93,7 @@ describe('createWebServerAuthTransport', () => {
   })
 
   it('fetchAiUsage reads the /ai-usage route (never the external endpoint)', async () => {
-    const usage = {
-      availablePoints: 198735,
-      availableQuota: 9936735,
-      availableUsd: 19.87347,
-      usedPoints: 1265,
-      usedQuota: 63265,
-      usedUsd: 0.12653,
-    }
+    const usage = { quotaRemainPercent: 99.68 }
     const doFetch = vi.fn(async () => ({
       ok: true,
       json: async () => ({ usage }),

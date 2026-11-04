@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rmSync } from 'node:fs'
 import { InMemoryHuaqiuAuthService } from '../src/service.js'
-import { AUTH_ROUTE_PREFIX, createAuthHandler, fetchAiTokenUsage } from '../src/routes.js'
+import { AUTH_ROUTE_PREFIX, createAuthHandler, fetchAiUsage } from '../src/routes.js'
 import { authFetch } from './helpers.js'
 
 // Test-environment values the way HQ Edge resolves them from HQ_AI_ENV=test.
-const TEST_AI_USAGE_URL = 'http://www.fdatasheets.com/user-rest/api/ai/usage'
+const TEST_BALANCES_URL = 'http://www.fdatasheets.com/sub-api/subscriptions/balances/current'
 const TEST_SUBSCRIPTION_ORIGIN = 'http://gen.fdatasheets.com'
 
 // Isolate the persisted-session directory to a temp dir so the standalone
@@ -26,7 +26,10 @@ describe('auth webServer routes (browser→node transport)', () => {
   beforeEach(async () => {
     rmSync(TMP, { recursive: true, force: true })
     svc = new InMemoryHuaqiuAuthService(
-      { aiUsageUrl: TEST_AI_USAGE_URL, subscriptionOrigin: TEST_SUBSCRIPTION_ORIGIN },
+      {
+        subscriptionBalancesUrl: TEST_BALANCES_URL,
+        subscriptionOrigin: TEST_SUBSCRIPTION_ORIGIN,
+      },
       { fetchImpl: authFetch() },
     )
     server = http.createServer(createAuthHandler(svc))
@@ -111,17 +114,20 @@ describe('auth webServer routes (browser→node transport)', () => {
   })
 
   it('GET /config reports standalone mode (hostMode=false) and no AI origin', async () => {
-    const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/config`)).text)
-    expect(res.hostMode).toBe(false)
-    // Only HQ Edge supplies the resolved origin; standalone keeps the client's
-    // PROD fallback (represented as null here).
+    // Only HQ Edge supplies the resolved endpoints; standalone (no overlay
+    // config, no env) reports no origin and no quota API base.
     const standaloneSvc = new InMemoryHuaqiuAuthService({})
+    expect(standaloneSvc.hostMode).toBe(false)
     expect(standaloneSvc.subscriptionOrigin).toBeNull()
+    expect(standaloneSvc.subscriptionApiBaseUrl).toBeNull()
   })
 
   it('GET /config exposes the subscription origin resolved from the same AI env', async () => {
     const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/config`)).text)
     expect(res.subscriptionOrigin).toBe(TEST_SUBSCRIPTION_ORIGIN)
+    // The GEN/ERC quota calls take the balances endpoint's origin, so they
+    // follow the same HQ_AI_ENV resolution and no host is hardcoded.
+    expect(res.subscriptionApiBaseUrl).toBe('http://www.fdatasheets.com')
   })
 
   it('GET /config reports host mode when an HQ Edge base URL is configured', async () => {
@@ -184,22 +190,60 @@ describe('auth webServer routes (browser→node transport)', () => {
 
   // ── AI usage (plain-http upstream, so the node half must be the caller) ────
 
-  /** The endpoint's real payload, verbatim from the documented curl. */
-  const AI_USAGE_RESULT = {
-    availablePoints: 198735,
-    availableQuota: 9936735,
-    availableUsd: 19.87347,
-    usedPoints: 1265,
-    usedQuota: 63265,
-    usedUsd: 0.12653,
-  }
+  /** `result[]` verbatim from the documented curl for the new endpoint. */
+  const AI_BALANCES_RESULT = [
+    {
+      id: 574,
+      userId: 6388241,
+      subscriptionId: 278,
+      quotaGroupId: 28,
+      groupCode: 'internal',
+      groupName: 'erc内部组',
+      periodStart: 1793326077000,
+      periodEnd: 1796004477000,
+      quotaTotal: 999,
+      quotaUsed: 0,
+      quotaRemain: 999,
+      quotaRemainPercent: null,
+      aiPoints: false,
+      status: 1,
+    },
+    {
+      id: 575,
+      userId: 6388241,
+      subscriptionId: 278,
+      quotaGroupId: 32,
+      groupCode: 'internal-auto-design',
+      groupName: 'sch内部组',
+      quotaTotal: 999,
+      quotaUsed: 0,
+      quotaRemain: 999,
+      quotaRemainPercent: null,
+      aiPoints: false,
+      status: 1,
+    },
+    {
+      id: 576,
+      userId: 6388241,
+      subscriptionId: 278,
+      quotaGroupId: 36,
+      groupCode: 'internal-ai-points',
+      groupName: 'AI点数内部组',
+      quotaTotal: null,
+      quotaUsed: null,
+      quotaRemain: null,
+      quotaRemainPercent: 99.68,
+      aiPoints: true,
+      status: 1,
+    },
+  ]
 
   it('GET /ai-usage returns null when no credential is resolved', async () => {
     const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)
     expect(res).toEqual({ usage: null })
   })
 
-  it('GET /ai-usage fetches the balance node-side and authenticates with X-Token', async () => {
+  it('GET /ai-usage selects the AI Points group and authenticates with X-Token', async () => {
     await post(`${AUTH_ROUTE_PREFIX}/session`, { token: 'tok-9', userId: 'u9' })
     const calls: Array<[string, RequestInit | undefined]> = []
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -207,16 +251,18 @@ describe('auth webServer routes (browser→node transport)', () => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ code: 200000, message: 'success', result: AI_USAGE_RESULT }),
+        json: async () => ({ code: 200000, message: 'success', result: AI_BALANCES_RESULT }),
       } as Response
     }))
 
     const res = JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)
-    expect(res.usage).toEqual(AI_USAGE_RESULT)
+    // Only the AI group's remaining percentage reaches the browser — the
+    // non-AI groups and their null percentages are ignored.
+    expect(res.usage).toEqual({ quotaRemainPercent: 99.68 })
     // Exactly one upstream call, made by the node half — the endpoint is plain
     // http, so the browser must never be the caller (ATS + CORS reject it).
     expect(calls).toHaveLength(1)
-    expect(calls[0]![0]).toBe(TEST_AI_USAGE_URL)
+    expect(calls[0]![0]).toBe(TEST_BALANCES_URL)
     expect((calls[0]![1]!.headers as Record<string, string>)['X-Token']).toBe('tok-9')
   })
 
@@ -234,22 +280,53 @@ describe('auth webServer routes (browser→node transport)', () => {
     expect(JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/ai-usage`)).text)).toEqual({ usage: null })
   })
 
-  it('fetchAiTokenUsage uses the supplied endpoint and coerces missing fields to 0', async () => {
+  it('fetchAiUsage passes the resolved URL and X-Token and returns quotaRemainPercent', async () => {
     const doFetch = vi.fn(async () => (
-      { ok: true, status: 200, json: async () => ({ code: 200000, result: { usedPoints: 1265 } }) } as Response
+      { ok: true, status: 200, json: async () => ({ code: 200000, result: AI_BALANCES_RESULT }) } as Response
     )) as unknown as typeof fetch
-    const usage = await fetchAiTokenUsage('tok-1', TEST_AI_USAGE_URL, doFetch)
-    expect(usage).toEqual({
-      availablePoints: 0,
-      availableQuota: 0,
-      availableUsd: 0,
-      usedPoints: 1265,
-      usedQuota: 0,
-      usedUsd: 0,
-    })
+    const usage = await fetchAiUsage('tok-1', TEST_BALANCES_URL, doFetch)
+    expect(usage).toEqual({ quotaRemainPercent: 99.68 })
     const [url, init] = (doFetch as unknown as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit]
-    expect(url).toBe(TEST_AI_USAGE_URL)
-    expect(url.startsWith('http://')).toBe(true)
+    expect(url).toBe(TEST_BALANCES_URL)
     expect((init.headers as Record<string, string>)['X-Token']).toBe('tok-1')
+  })
+
+  it('fetchAiUsage returns null when no group is flagged aiPoints', async () => {
+    const doFetch = vi.fn(async () => (
+      { ok: true, status: 200, json: async () => ({ code: 200000, result: AI_BALANCES_RESULT.slice(0, 2) }) } as Response
+    )) as unknown as typeof fetch
+    await expect(fetchAiUsage('t', TEST_BALANCES_URL, doFetch)).resolves.toBeNull()
+  })
+
+  it('fetchAiUsage returns null when the AI group has no quotaRemainPercent', async () => {
+    const payload = AI_BALANCES_RESULT.map((group) => (
+      group.aiPoints ? { ...group, quotaRemainPercent: null } : group
+    ))
+    const doFetch = vi.fn(async () => (
+      { ok: true, status: 200, json: async () => ({ code: 200000, result: payload }) } as Response
+    )) as unknown as typeof fetch
+    await expect(fetchAiUsage('t', TEST_BALANCES_URL, doFetch)).resolves.toBeNull()
+  })
+
+  it('fetchAiUsage returns null for an object result or a malformed group', async () => {
+    for (const payload of [
+      { code: 200000, result: { availablePoints: 198735 } },
+      { code: 200000, result: [{ ...AI_BALANCES_RESULT[2], aiPoints: 'yes' }] },
+      { code: 200000, result: 'nope' },
+    ]) {
+      const doFetch = vi.fn(async () => (
+        { ok: true, status: 200, json: async () => payload } as Response
+      )) as unknown as typeof fetch
+      await expect(fetchAiUsage('t', TEST_BALANCES_URL, doFetch)).resolves.toBeNull()
+    }
+  })
+
+  it('fetchAiUsage aborts on the timeout budget and returns null', async () => {
+    const doFetch = vi.fn((_url: string, init?: RequestInit) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+    })) as unknown as typeof fetch
+    await expect(
+      fetchAiUsage('t', TEST_BALANCES_URL, doFetch, { timeoutMs: 5 }),
+    ).resolves.toBeNull()
   })
 })

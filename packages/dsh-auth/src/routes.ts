@@ -5,9 +5,9 @@
  *   POST /api/v1/huaqiu/auth/session   body { token, userId, nickname?, expiresAt? } → cache set
  *   POST /api/v1/huaqiu/auth/logout                                → cache cleared
  *   GET  /api/v1/huaqiu/auth/session   → { authenticated, user }
- *   GET  /api/v1/huaqiu/auth/config    → { hostMode }
+ *   GET  /api/v1/huaqiu/auth/config    → { hostMode, subscriptionOrigin, subscriptionApiBaseUrl }
  *   GET  /api/v1/huaqiu/auth/user-info → { userInfo } (node-side eda.cn call)
- *   GET  /api/v1/huaqiu/auth/ai-usage  → { usage }    (node-side AI balance call)
+ *   GET  /api/v1/huaqiu/auth/ai-usage  → { usage }    (node-side subscription-balances call)
  *
  * `config` tells the browser half whether it is running under an HQ Edge host
  * (hq-edge passes the operator credential to hq-edge itself, so the sidebar
@@ -19,6 +19,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { getLogger, type PluginLogger } from '@huaqiu/dsh-plugin-log'
 import type { HuaqiuAuthService, HuaqiuUserInfo } from './service.js'
+import { aiUsageFromPayload, type AiUsage } from './subscription-balances.js'
 
 // Lazy so test suites that `vi.mock('@deepseek-ai/dsh-home-paths', …)` before
 // their TMP constant is initialised don't trigger `dshHomePath('logs')` at
@@ -75,82 +76,84 @@ export async function fetchEdaUserProfile(
 
 export const AUTH_ROUTE_PREFIX = '/api/v1/huaqiu/auth'
 
-// ── AI token usage (proxied by the node half) ────────────────────────────────
+// ── Subscription balances / AI usage (proxied by the node half) ──────────────
 
 /**
- * The account's AI balance endpoint.
+ * The authoritative subscription-balances endpoint
+ * (`GET /sub-api/subscriptions/balances/current`).
  *
- * It is served over PLAIN `http`, which is why the node half must be the one to
- * call it: a WebView fetch is refused by App Transport Security ("the resource
- * could not be loaded because the App Transport Security policy requires the
- * use of a secure connection") and, independently, by CORS (the response sends
- * no `Access-Control-Allow-Origin`). Node's fetch is subject to neither, and
- * this process already talks to the same AI host for the Huaqiu gateway — so
- * the call is known to work from here. The endpoint is injected as resolved
- * config by HQ Edge (`HQ_AI_ENV`); this module has no hardcoded env URL.
+ * It may be served over PLAIN `http`, which is why the node half must be the one
+ * to call it: a WebView fetch is refused by App Transport Security ("the
+ * resource could not be loaded because the App Transport Security policy
+ * requires the use of a secure connection") and, independently, by CORS (the
+ * response sends no `Access-Control-Allow-Origin`). Node's fetch is subject to
+ * neither. The URL is injected as resolved config by HQ Edge (`HQ_AI_ENV`);
+ * this module has no hardcoded environment URL, and every payload is validated
+ * against the single schema in `./subscription-balances.js`.
  */
 
-/**
- * Normalized AI token usage — the `/user-rest/api/ai/usage` result.
- *
- * `points` is the account-level token balance (what the user thinks of as
- * "tokens"); `quota` is the same figure in the gateway's internal unit
- * (points × 50) and `usd` its money equivalent. All three pairs are reported
- * because the endpoint reports all three; the UI reads `points`.
- *
- * (Mirrored as a type-only declaration in `client/lib.ts` — the browser half
- * must not import node modules, and the two halves are built as separate
- * bundles.)
- */
-export interface AiTokenUsage {
-  availablePoints: number
-  availableQuota: number
-  availableUsd: number
-  usedPoints: number
-  usedQuota: number
-  usedUsd: number
+/** Upstream budget for one balances call. */
+export const AI_USAGE_TIMEOUT_MS = 10_000
+
+/** Host-only label for diagnostics (never log the full URL or the token). */
+function safeHost(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return '<invalid-url>'
+  }
 }
 
 /**
- * Fetch the account's AI token usage for a token. Null on any failure (the UI
- * degrades to「—」) — never throws.
+ * Fetch and normalize AI usage for a token.
  *
- * The header is `X-Token` (capital T), which is what this endpoint expects; the
- * subscription endpoint next door uses `x-token` + `X-User-Id`.
+ * `quotaRemainPercent` comes straight from the AI Points group — no local ratio
+ * is derived. `null` on any failure (invalid payload, timeout, network, non-2xx)
+ * so the UI degrades to「—」; never throws.
+ *
+ * The upstream header is `X-Token` (capital T).
  */
-export async function fetchAiTokenUsage(
+export async function fetchAiUsage(
   token: string,
-  usageUrl: string,
+  subscriptionBalancesUrl: string,
   doFetch: typeof fetch = globalThis.fetch.bind(globalThis),
-): Promise<AiTokenUsage | null> {
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<AiUsage | null> {
+  const timeoutMs = options.timeoutMs ?? AI_USAGE_TIMEOUT_MS
+  const controller = new AbortController()
+  const onAbort = () => controller.abort(options.signal?.reason)
+  if (options.signal) {
+    if (options.signal.aborted) controller.abort(options.signal.reason)
+    else options.signal.addEventListener('abort', onAbort, { once: true })
+  }
+  const timer = setTimeout(() => controller.abort(new Error('timeout')), timeoutMs)
+  const host = safeHost(subscriptionBalancesUrl)
   try {
-    const res = await doFetch(usageUrl, {
+    const res = await doFetch(subscriptionBalancesUrl, {
       method: 'GET',
       headers: {
-        Accept: 'application/json, text/plain, */*',
-        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'X-Token': token,
       },
+      signal: controller.signal,
     })
-    if (!res.ok) return null
-    const body = (await res.json()) as { code?: number; result?: Record<string, unknown> }
-    if (body.code !== 200000 || !body.result) return null
-    const result = body.result
-    const num = (key: string): number => {
-      const v = Number(result[key])
-      return Number.isFinite(v) ? v : 0
+    if (!res.ok) {
+      log().warn('subscription balances request failed', { host, status: res.status })
+      return null
     }
-    return {
-      availablePoints: num('availablePoints'),
-      availableQuota: num('availableQuota'),
-      availableUsd: num('availableUsd'),
-      usedPoints: num('usedPoints'),
-      usedQuota: num('usedQuota'),
-      usedUsd: num('usedUsd'),
-    }
+    const usage = aiUsageFromPayload(await res.json())
+    if (!usage) log().warn('subscription balances payload unusable', { host })
+    return usage
   } catch (err) {
-    log().warn('fetchAiTokenUsage failed', { error: String((err as Error)?.message || err) })
+    log().warn('subscription balances request failed', {
+      host,
+      error: String((err as Error)?.message || err),
+    })
     return null
+  } finally {
+    clearTimeout(timer)
+    options.signal?.removeEventListener('abort', onAbort)
   }
 }
 
@@ -234,6 +237,9 @@ export function createAuthHandler(service: HuaqiuAuthService): AuthHandler {
         sendJson(res, 200, {
           hostMode: service.hostMode,
           subscriptionOrigin: service.subscriptionOrigin,
+          // Origin of the resolved balances API — lets the browser build the
+          // GEN/ERC active-subscription calls without hardcoding eda.cn.
+          subscriptionApiBaseUrl: service.subscriptionApiBaseUrl,
         })
         return
       }
@@ -258,11 +264,25 @@ export function createAuthHandler(service: HuaqiuAuthService): AuthHandler {
         // resolved (host → pushed → persisted) — the same shape as /user-info
         // above. The URL itself is resolved by HQ Edge; absent → no call.
         const token = await service.auth.getAccessToken()
-        if (!token || !service.aiUsageUrl) {
+        if (!token || !service.subscriptionBalancesUrl) {
           sendJson(res, 200, { usage: null })
           return
         }
-        sendJson(res, 200, { usage: await fetchAiTokenUsage(token, service.aiUsageUrl) })
+        const controller = new AbortController()
+        const onClose = () => controller.abort()
+        res.on('close', onClose)
+        let usage: AiUsage | null
+        try {
+          usage = await fetchAiUsage(
+            token,
+            service.subscriptionBalancesUrl,
+            globalThis.fetch.bind(globalThis),
+            { signal: controller.signal },
+          )
+        } finally {
+          res.off('close', onClose)
+        }
+        sendJson(res, 200, { usage })
         return
       }
 

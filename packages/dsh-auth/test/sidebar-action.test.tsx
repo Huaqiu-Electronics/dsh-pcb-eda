@@ -308,7 +308,7 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     expect(menu()).toBeNull()
   })
 
-  it('renders the AI token usage metric (percent headline + balance hover) when the menu opens', async () => {
+  it('renders the upstream quotaRemainPercent unchanged (99.68 → 99.68%)', async () => {
     const container = await renderSettled()
     const auth = (await import('../src/client/auth-state.js')).getAuth() as unknown as {
       getSubscriptionQuota: ReturnType<typeof vi.fn>
@@ -320,14 +320,7 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
         ? { hasSubscription: true, packageName: 'Pro', currentQuota: 3, totalQuota: 10 }
         : { hasSubscription: false, packageName: '', currentQuota: 0, totalQuota: 0 },
     )
-    auth.getAiTokenUsage = vi.fn(async () => ({
-      availablePoints: 198735,
-      availableQuota: 9936735,
-      availableUsd: 19.87347,
-      usedPoints: 1265,
-      usedQuota: 63265,
-      usedUsd: 0.12653,
-    }))
+    auth.getAiTokenUsage = vi.fn(async () => ({ quotaRemainPercent: 99.68 }))
 
     click(trigger(container))
     // Flush the quota effect's Promise.all (and its setState).
@@ -343,18 +336,17 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     expect(menuEl.textContent).toContain('AI 用量')
     expect(menuEl.textContent).toContain('Pro')
 
-    // The AI metric card headlines the usage PERCENT and keeps the exact
-    // available/total balance as the hover title. Pick the SHORTEST div
-    // containing the label: ancestors also contain it, so length picks the leaf.
+    // The AI metric card headlines the upstream remaining percentage, passed
+    // through without rounding. Pick the SHORTEST div containing the label:
+    // ancestors also contain it, so length picks the leaf.
     const aiCard = [...menuEl.querySelectorAll('div')]
       .filter((d) => (d.textContent ?? '').includes('AI 用量'))
       .sort((a, b) => (a.textContent?.length ?? 0) - (b.textContent?.length ?? 0))[0]
     expect(aiCard).toBeTruthy()
     const aiSpans = aiCard!.querySelectorAll('span')
     const aiValue = aiSpans[aiSpans.length - 1]!
-    // 198735 / (1265 + 198735) = 198735 / 200000 点 remaining → 99.4% → "99%".
-    expect(aiValue.textContent).toBe('99%')
-    expect(aiValue.getAttribute('title')).toContain('198735 / 200000')
+    // The upstream value is 99.68; the card must NOT round it to 100%.
+    expect(aiValue.textContent).toBe('99.68%')
   })
 
   it('renders an empty AI metric (—) when the usage fetch yields nothing', async () => {

@@ -9,7 +9,7 @@ import {
   fetchSubscriptionQuota,
   handleAuthMessage,
   SUBSCRIPTION_PREFERRED_SIZE,
-  type AiTokenUsage,
+  type AiUsage,
   type AuthMessageEventLike,
   type AuthTokenPayload,
   type LoginOptions,
@@ -66,10 +66,11 @@ export interface AuthClient {
      */
     logout(): Promise<void>
     /**
-     * Active subscription quota for one eda.cn product, fetched DIRECTLY from
-     * eda.cn (`/sub-api/subscriptions/active`) — no hq-edge hop, so the
-     * sidebar can show live quota even in standalone DSH. Null on fetch
-     * failure / no credential (callers decide fail-open vs fail-closed).
+     * Active subscription quota for one eda.cn product, fetched directly from
+     * the environment's subscription API (`/sub-api/subscriptions/active`) —
+     * the origin is injected by HQ Edge via the node `/config` route, so this
+     * follows `HQ_AI_ENV` and no host is hardcoded. Null on fetch failure /
+     * no credential / no configured origin.
      */
     getSubscriptionQuota(productCode: string): Promise<SubscriptionQuota | null>
     /**
@@ -79,7 +80,7 @@ export interface AuthClient {
      * request must not be made from here. Null on fetch failure / no credential,
      * the same one-round-trip shape as {@link getSubscriptionQuota}.
      */
-    getAiTokenUsage(): Promise<AiTokenUsage | null>
+    getAiTokenUsage(): Promise<AiUsage | null>
     /**
      * Open the subscription landing page (`gen.eda.cn/subscription` with the
      * token). Host mode: ask the EDA host to open its NATIVE dialog through
@@ -127,6 +128,11 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
    * node `/config` route. Null in standalone → lib's PROD fallback.
    */
   let subscriptionOrigin: string | null = null
+  /**
+   * Origin of the resolved subscription-balances API (node `/config`). Null
+   * when no environment is configured → GEN/ERC quota calls are skipped.
+   */
+  let subscriptionApiBaseUrl: string | null = null
 
   const emit = (info: AuthTokenPayload | null): void => {
     for (const listener of listeners) listener(info)
@@ -250,9 +256,14 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
         ? (hostSession?.id ?? null)
         : (hostSession?.id ?? storage.get()?.id ?? null)
       if (!token || !id) return null
-      return fetchSubscriptionQuota({ userId: id, token, productCode })
+      return fetchSubscriptionQuota({
+        userId: id,
+        token,
+        productCode,
+        ...(subscriptionApiBaseUrl ? { baseUrl: subscriptionApiBaseUrl } : {}),
+      })
     },
-    getAiTokenUsage: async (): Promise<AiTokenUsage | null> => {
+    getAiTokenUsage: async (): Promise<AiUsage | null> => {
       if (hostMode && !hostSessionLoaded) await resolveHost()
       // Gate on a credential first: the node route resolves the token itself,
       // so a request without one is a guaranteed-null round trip.
@@ -346,9 +357,11 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
         const runtime = await transport.fetchRuntimeConfig()
         mode = runtime.hostMode
         subscriptionOrigin = runtime.subscriptionOrigin
+        subscriptionApiBaseUrl = runtime.subscriptionApiBaseUrl
       } catch {
         mode = false
         subscriptionOrigin = null
+        subscriptionApiBaseUrl = null
       }
       hostMode = mode
       hostSessionLoaded = false
@@ -387,6 +400,7 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       hostSession = null
       hostSessionLoaded = false
       subscriptionOrigin = null
+      subscriptionApiBaseUrl = null
       void trustedOrigin // referenced for clarity: the auth iframe URL comes from it
     },
   }
