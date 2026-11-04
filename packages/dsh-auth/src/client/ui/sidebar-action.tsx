@@ -17,11 +17,15 @@
  *   `UserMenu`, portalled to `document.body` with fixed positioning so the
  *   sidebar's `overflow: hidden` can never clip it.
  *
- * THEMING: colors prefer DSH's `--dsw-alias-*` tokens (so a custom host theme
- * is honored) and fall back to an explicit light/dark pair chosen from
- * `useIsDark()`; the two paths cannot disagree, because ui-layout's presenter
- * writes `body[data-ds-dark-theme]` from the very snapshot that installs those
- * tokens.
+ * THEMING: the LIGHT palette stays token-first (DSH `--dsw-alias-*` with an
+ * explicit fallback), so a custom host theme is honored. The DARK palette is
+ * deliberately EXPLICIT: it follows `docs/prototype/avatar_popup_redesign_prototype.html`,
+ * whose "before" is exactly what the host token produces — `--dsw-alias-bg-overlay`
+ * resolves to `rgb(97, 102, 107)` in dark mode, the muddy medium-gray surface
+ * the prototype calls out as the contrast defect. Keeping the token would
+ * silently re-introduce it, so the popup pins its own deep-slate color schema
+ * instead. `useIsDark()` still selects the pair, driven by the same
+ * `body[data-ds-dark-theme]` snapshot ui-layout's presenter writes.
  */
 import { memo, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
@@ -38,43 +42,68 @@ export interface SidebarFooterActionOwnerProps {
 const AVATAR_SIZE = 26
 const ICON_SIZE = 22
 
-/** One color scheme's menu colors (DSH token first, explicit fallback second). */
+/**
+ * The popup's color schema. Every painted value comes from here, so the dark
+ * palette can be swapped as one coherent unit. The values are the concrete
+ * equivalents of the prototype's Tailwind classes (see `DARK_PALETTE`).
+ */
 interface Palette {
   surface: string
+  /** Popup border + the 1px section dividers. */
   border: string
   text: string
+  /** Header name + metric headline (prototype `text-white` in dark). */
+  heading: string
   muted: string
   hover: string
   danger: string
   dangerHover: string
   avatarBg: string
   shadow: string
-  /** Profile-header card background (prototype `bg-white/[0.03]`). */
+  /** Profile-header card background + hairline. */
   card: string
-  /** 1px hairline used on cards inside the popup. */
+  headerBorder: string
+  /** 1px hairline used on the quota metric card. */
   cardBorder: string
-  /** Quota metric card background (prototype `bg-black/20`). */
+  /** Quota metric card background. */
   metric: string
   metricHover: string
-  /** Huaqiu brand red (#e62e2d). */
+  /** Plan badge: fill, label and hairline (prototype red-500/20 + red-400). */
+  badgeBg: string
+  badgeText: string
+  badgeBorder: string
+  /** "Online" pill: dot/text, translucent fill and hairline (emerald). */
+  online: string
+  onlineBg: string
+  onlineBorder: string
+  /** Huaqiu brand red — CTA gradient start + hover start. */
   primary: string
   primaryHover: string
-  /** Badge tint: primary at ~10% (prototype `bg-hq-primary/10`). */
-  primarySoft: string
-  /** Progress-bar track (prototype `dark:bg-gray-800`). */
+  /** CTA gradient end + hover end. */
+  ctaEnd: string
+  ctaHoverEnd: string
+  /** CTA glow. */
+  ctaShadow: string
+  /** Progress-bar track. */
   track: string
-  /** GEN / ERC / AI progress gradients (prototype blue→indigo, purple→pink). */
+  /** AI metric sparkles glyph. */
+  aiIcon: string
+  /** GEN / ERC / AI progress gradients. */
   genGradient: string
   ercGradient: string
   aiGradient: string
-  /** "Online" dot green. */
-  online: string
 }
 
-const LIGHT_PALETTE: Palette = {
+/**
+ * Light scheme keeps the DSH token-first convention (custom host themes win).
+ * The extra tokens introduced for the dark redesign are filled with the values
+ * that were previously hardcoded inline, so light rendering is unchanged.
+ */
+export const LIGHT_PALETTE: Palette = {
   surface: 'var(--dsw-alias-bg-overlay, #ffffff)',
   border: 'var(--dsw-alias-border-l1, #e4e7ec)',
   text: 'var(--dsw-alias-label-primary, #3a4356)',
+  heading: 'var(--dsw-alias-label-primary, #3a4356)',
   muted: 'var(--dsw-alias-label-secondary, #8a94a6)',
   hover: 'var(--dsw-alias-interactive-bg-hover, #f5f7fa)',
   danger: 'var(--dsw-alias-state-error-primary, #d4380d)',
@@ -82,41 +111,68 @@ const LIGHT_PALETTE: Palette = {
   avatarBg: 'var(--dsw-alias-bg-layer-2, #eef2f7)',
   shadow: '0 20px 40px -15px rgba(0, 0, 0, 0.12), 0 0 1px 1px rgba(0, 0, 0, 0.05)',
   card: '#f7f8fa',
+  headerBorder: '#e8ebf0',
   cardBorder: '#e8ebf0',
   metric: '#f7f8fa',
   metricHover: '#eef1f5',
+  badgeBg: 'rgba(230, 46, 45, 0.08)',
+  badgeText: '#e62e2d',
+  badgeBorder: 'rgba(230, 46, 45, 0.08)',
+  online: '#10b981',
+  onlineBg: 'rgba(16, 185, 129, 0.10)',
+  onlineBorder: 'rgba(16, 185, 129, 0.20)',
   primary: '#e62e2d',
   primaryHover: '#cc2423',
-  primarySoft: 'rgba(230, 46, 45, 0.08)',
+  ctaEnd: '#e11d48',
+  ctaHoverEnd: '#be123c',
+  ctaShadow: '0 8px 20px rgba(230, 46, 45, 0.22)',
   track: '#e4e7ec',
+  aiIcon: '#10b981',
   genGradient: 'linear-gradient(90deg, #3b82f6, #6366f1)',
   ercGradient: 'linear-gradient(90deg, #a855f7, #ec4899)',
   aiGradient: 'linear-gradient(90deg, #10b981, #06b6d4)',
-  online: '#10b981',
 }
 
-const DARK_PALETTE: Palette = {
-  surface: 'var(--dsw-alias-bg-overlay, #1e1b24)',
-  border: 'var(--dsw-alias-border-l1, rgba(255, 255, 255, 0.10))',
-  text: 'var(--dsw-alias-label-primary, #e6eaf0)',
-  muted: 'var(--dsw-alias-label-secondary, #8b95a5)',
-  hover: 'var(--dsw-alias-interactive-bg-hover, rgba(255, 255, 255, 0.08))',
-  danger: 'var(--dsw-alias-state-error-primary, #ff7875)',
-  dangerHover: 'rgba(255, 120, 117, 0.14)',
-  avatarBg: 'var(--dsw-alias-bg-layer-2, rgba(255, 255, 255, 0.10))',
-  shadow: '0 20px 40px -15px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.1)',
-  card: 'rgba(255, 255, 255, 0.03)',
-  cardBorder: 'rgba(255, 255, 255, 0.08)',
-  metric: 'rgba(0, 0, 0, 0.20)',
-  metricHover: 'rgba(0, 0, 0, 0.30)',
-  primary: '#e62e2d',
-  primaryHover: '#cc2423',
-  primarySoft: 'rgba(230, 46, 45, 0.10)',
-  track: 'rgba(255, 255, 255, 0.10)',
+/**
+ * Dark color schema from `avatar_popup_redesign_prototype.html` (the "AFTER"
+ * card and the interactive popover's `dark:` classes). Explicit values, not
+ * `var(--dsw-alias-*, …)`: the host's dark `--dsw-alias-bg-overlay` is
+ * `rgb(97, 102, 107)`, the muddy surface the prototype replaces with a crisp
+ * deep slate. Alpha-tinted badges, the cyan→blue meter and the brighter brand
+ * red are the other three contrast fixes the prototype prescribes.
+ */
+export const DARK_PALETTE: Palette = {
+  surface: '#1C1E24',                              // dark:bg-[#1C1E24]
+  border: 'rgba(255, 255, 255, 0.10)',            // dark:border-white/10, dividers
+  text: '#e2e8f0',                                // dark:text-slate-200
+  heading: '#ffffff',                             // dark:text-white
+  muted: '#94a3b8',                               // dark:text-slate-400
+  hover: 'rgba(255, 255, 255, 0.05)',             // dark:hover:bg-white/5
+  danger: '#f87171',                              // dark:text-red-400
+  dangerHover: 'rgba(239, 68, 68, 0.10)',        // dark:hover:bg-red-500/10
+  avatarBg: 'rgba(255, 255, 255, 0.10)',
+  shadow: '0 16px 36px -4px rgba(0, 0, 0, 0.6), 0 0 1px 1px rgba(255, 255, 255, 0.08)', // shadow-popover-dark
+  card: 'transparent',                            // flat header, no muddy card
+  headerBorder: 'transparent',                    // prototype has no header outline
+  cardBorder: 'rgba(255, 255, 255, 0.05)',       // dark:border-white/5
+  metric: '#252831',                              // dark:bg-[#252831]
+  metricHover: '#2C303A',                         // subtle lift on hover
+  badgeBg: 'rgba(239, 68, 68, 0.20)',            // dark:bg-red-500/20
+  badgeText: '#f87171',                           // dark:text-red-400
+  badgeBorder: 'rgba(239, 68, 68, 0.20)',        // border-red-500/20
+  online: '#34d399',                              // emerald-400 dot + label
+  onlineBg: 'rgba(16, 185, 129, 0.10)',          // bg-emerald-500/10
+  onlineBorder: 'rgba(16, 185, 129, 0.20)',      // border-emerald-500/20
+  primary: '#FF4D4F',                             // eda.brand-dark
+  primaryHover: '#FF6B6D',                        // eda.brand-dark-hover
+  ctaEnd: '#ef4444',                             // dark:to-red-500
+  ctaHoverEnd: '#f87171',                        // brightness-110 equivalent
+  ctaShadow: '0 8px 20px rgba(255, 77, 79, 0.24)',
+  track: '#334155',                               // dark:bg-slate-700
+  aiIcon: '#22d3ee',                             // dark:text-cyan-400
   genGradient: 'linear-gradient(90deg, #3b82f6, #6366f1)',
   ercGradient: 'linear-gradient(90deg, #a855f7, #ec4899)',
-  aiGradient: 'linear-gradient(90deg, #10b981, #06b6d4)',
-  online: '#10b981',
+  aiGradient: 'linear-gradient(90deg, #06b6d4, #3b82f6)', // cyan-500 → blue-500
 }
 
 const TRIGGER_BASE: CSSProperties = {
@@ -208,7 +264,16 @@ function MenuItem({
       onClick={onSelect}
     >
       <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-        {icon}
+        <span
+          style={{
+            display: 'flex',
+            flex: '0 0 auto',
+            color: danger ? palette.danger : (hovered ? palette.text : palette.muted),
+            transition: 'color 0.15s ease',
+          }}
+        >
+          {icon}
+        </span>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
       </span>
       {trailing ? (
@@ -353,7 +418,7 @@ function ChevronRightIcon(): React.JSX.Element {
 }
 
 /** AI usage metric glyph (lucide `sparkles`) — the token balance. */
-function SparklesIcon(): React.JSX.Element {
+function SparklesIcon({ color }: { color: string }): React.JSX.Element {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -361,7 +426,7 @@ function SparklesIcon(): React.JSX.Element {
       height={14}
       viewBox="0 0 24 24"
       fill="none"
-      stroke="#10b981"
+      stroke={color}
       strokeWidth={2}
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -431,7 +496,7 @@ function QuotaMetric({
         <span
           style={{
             fontWeight: 700,
-            color: reading?.ok ? palette.text : palette.danger,
+            color: reading?.ok ? palette.heading : palette.danger,
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
             fontSize: 12,
             whiteSpace: 'nowrap',
@@ -539,7 +604,7 @@ function ProfileHeaderCard({
         padding: 10,
         borderRadius: 12,
         background: palette.card,
-        border: `1px solid ${palette.cardBorder}`,
+        border: `1px solid ${palette.headerBorder}`,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -554,7 +619,7 @@ function ProfileHeaderCard({
             style={{
               fontSize: 14,
               fontWeight: 700,
-              color: palette.text,
+              color: palette.heading,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -566,12 +631,12 @@ function ProfileHeaderCard({
             <span
               style={{
                 fontSize: 10,
-                background: palette.primarySoft,
-                color: palette.primary,
+                background: palette.badgeBg,
+                color: palette.badgeText,
                 padding: '2px 6px',
                 borderRadius: 4,
                 fontWeight: 500,
-                border: `1px solid ${palette.primarySoft}`,
+                border: `1px solid ${palette.badgeBorder}`,
                 whiteSpace: 'nowrap',
                 flexShrink: 0,
               }}
@@ -599,12 +664,12 @@ function ProfileHeaderCard({
       <span
         style={{
           fontSize: 10,
-          background: 'rgba(16, 185, 129, 0.10)',
+          background: palette.onlineBg,
           color: palette.online,
           padding: '2px 8px',
           borderRadius: 999,
           fontWeight: 500,
-          border: '1px solid rgba(16, 185, 129, 0.20)',
+          border: `1px solid ${palette.onlineBorder}`,
           display: 'flex',
           alignItems: 'center',
           gap: 5,
@@ -639,11 +704,9 @@ function UpgradeButton({
         padding: '9px 12px',
         borderRadius: 12,
         border: 'none',
-        background: subscribing
-          ? `linear-gradient(90deg, ${palette.primary}, #e11d48)`
-          : hovered
-            ? `linear-gradient(90deg, ${palette.primaryHover}, #be123c)`
-            : `linear-gradient(90deg, ${palette.primary}, #e11d48)`,
+        background: hovered && !subscribing
+          ? `linear-gradient(90deg, ${palette.primaryHover}, ${palette.ctaHoverEnd})`
+          : `linear-gradient(90deg, ${palette.primary}, ${palette.ctaEnd})`,
         color: '#ffffff',
         fontSize: 12,
         fontWeight: 600,
@@ -653,7 +716,7 @@ function UpgradeButton({
         gap: 8,
         cursor: subscribing ? 'default' : 'pointer',
         opacity: subscribing ? 0.72 : 1,
-        boxShadow: '0 8px 20px rgba(230, 46, 45, 0.22)',
+        boxShadow: palette.ctaShadow,
         transition: 'background 0.15s ease, opacity 0.15s ease',
       }}
       onMouseEnter={() => setHovered(true)}
@@ -923,7 +986,7 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
               <div role="presentation" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <QuotaMetric
                   label={t('subscription.ai')}
-                  icon={<SparklesIcon />}
+                  icon={<SparklesIcon color={palette.aiIcon} />}
                   reading={aiUsageReading(quota?.ai ?? null, t)}
                   gradient={palette.aiGradient}
                   palette={palette}
