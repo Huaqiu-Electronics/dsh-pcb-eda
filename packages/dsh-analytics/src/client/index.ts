@@ -65,9 +65,27 @@ export function apply(ctx: ClientContext): () => void {
   const disposers: Array<() => void> = []
   let disposed = false
 
-  void resolveHostMode().then((hostMode) => {
+  // The bridge reports generic until the EDA handshake finishes.
+  const waitForTargetHost = (): Promise<string | null> => new Promise(resolve => {
+    let timer: number | undefined
+    const finish = (targetHost: string | null) => {
+      if (timer !== undefined) window.clearInterval(timer)
+      resolve(targetHost)
+    }
+    const read = () => {
+      if (disposed) return finish(null)
+      const targetHost = ctx.get?.<HqEdgeService>('hqEdge')?.context?.getTargetHost?.() ?? ''
+      if (targetHost === 'hq-eda' || targetHost === 'kicad') finish(targetHost)
+    }
+    timer = window.setInterval(read, 200)
+    disposers.push(() => finish(null))
+    read()
+  })
+
+  void resolveHostMode().then(async (hostMode) => {
     if (disposed) return
-    const targetHost = ctx.get?.<HqEdgeService>('hqEdge')?.context?.getTargetHost?.() ?? ''
+    const targetHost = hostMode ? await waitForTargetHost() : ''
+    if (disposed || targetHost === null) return
     const analytics = createAnalytics(sensors as unknown as SensorsClient, { hostMode, targetHost })
 
     const disposeProvide = ctx.provide?.('huaqiuAnalytics', analytics)
