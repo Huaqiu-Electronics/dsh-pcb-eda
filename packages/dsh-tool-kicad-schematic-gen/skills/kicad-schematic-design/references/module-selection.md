@@ -4,13 +4,30 @@
 
 准确型号调用 `eda_module_precise_search({keyword})`，功能描述调用 `eda_module_rag_search({query})`，已知分类调用 `eda_module_category_search({category})`。多次搜索采用实质不同的词或分类；有合适候选即可停止，避免下载所有命中。
 
-创建 sources/ 后调用 `download_eda_module_schematic({moduleId,targetDir:<design>/sources})`。保留返回的真实 schematicPath、moduleId 与可选 sourceProjectPath。来源 .source.kicad_pro 仅供参考，正式工程使用本 Skill 的 templates/project.kicad_pro。
+创建 sources/ 后调用 `download_eda_module_schematic({moduleId,targetDir:<design>/sources})`。保留返回的真实 schematicPath、moduleId 与可选 sourceProject.path。来源 .source.kicad_pro 仅供参考，正式工程使用本 Skill 的 templates/project.kicad_pro。
 
-先用下载 analysis；需要器件或关键网络时按 [模块分析](module-analysis.md) 查询，失败只重试分析。需要层次端口才调用 get_kicad_module_ports，需要布局或图纸说明才调用 render_kicad_module_preview。按返回的 rootImagePath/pages[].pngPath 读图并核对版本和页面；端口列表不覆盖连接器及普通/全局标签。
+下载不自动分析；需要器件或关键网络时按 [模块分析](module-analysis.md) 查询，失败只重试分析。需要层次端口才调用 get_kicad_module_ports，需要布局或图纸说明才调用 render_kicad_module_preview。按返回的 rootImagePath/pages[].pngPath 读图并核对版本和页面；端口列表不覆盖连接器及普通/全局标签。
 
 以真实电路判断用途、输入输出、电压、电平、极性、必需外围和负载。手册按精确型号查必要章节；缺失章节、图片 URL 和截断文本不算证据。分析工具与局部编辑的选择遵循主技能；不为完整性遍历全图、读取完整网表或重复核对已知网络。
 
 记录简短模块表：功能、来源、已确认接口、复用/修改/从零决定、修改内容、待确认条件。层次连接表记录子页端口到根网络；平铺连接表记录模块源网络到最终网络及实际接点。相同名称不自动意味着可接，input/output 类型不作为生成阻断条件。
+
+## 派发前的最小选择记录
+
+每个功能模块在 `module-plan.json` 保存一个 `reuse` 对象，不新增工具入参。同一搜索覆盖多个功能时可沿用其实际结果，不重复调用；不要求三种工具全部搜索，也不下载全部命中。至少做一次与本功能相关的实际搜索；没有合适候选时按需换实质不同的型号、功能词或分类。精确搜索异常不能证明没有合适模块；可换功能搜索，若确认同一服务不可用则记录异常后按方案继续，不反复请求失败接口。
+
+| 字段 | 要求 |
+| --- | --- |
+| decision | `reuse` 直接复用、`adapt` 修改复用、`new` 从零生成 |
+| reason | 选择依据；adapt 列实际修改项，new 说明候选不适用、无候选或服务不可用后的设计依据 |
+| searches | 非空数组，每项仅记录 tool、query、outcome；query 保存实际关键词、功能描述或分类 |
+| searches[].outcome | `found` 搜索成功且有候选、`no_match` 搜索成功但无命中、`unavailable` 请求失败/工具不可用 |
+| searches[].detail | unavailable 必填实际异常；其余按需写候选差异或返回摘要 |
+| source | 仅 reuse/adapt 必填 `{moduleId,path}`；path 是 `sources/` 下实际下载的 `.kicad_sch`，同时列入 resources 绑定内容哈希 |
+
+搜索有命中但均不适用时仍记 found，以 reason 说明为什么 new；不能改写成无命中。选择 reuse/adapt 至少需要一条 found 记录，且来源文件存在。接口只核验记录结构、来源路径和资源绑定，不读取远端日志证明搜索真实性，也不自动判断电气适用。严禁为通过检查编造记录。方案保留功能、接口、适配条件；清单保存这份简短可检查决定，二者保持一致，不逐器件复制大段说明。
+
+新模块漏填或记录不完整时派发返回 `MODULE_REUSE_REQUIRED`，不会启动任何新子任务。旧任务 status、修复和已派发任务 retry 不追补选择记录；新补入模块仍需填写。独立 preflight-modules 检查整个清单，所以旧清单运行此预检前应补实际记录，不能杜撰历史检索。仅填写记录不会自动下载或导入：主 agent 需先落实 [平铺复用](flat-reuse.md) 的实际导入路线。当前并行 draw/region 没有源图导入接口；子任务遇到此限制必须上报主 agent，不得把“复用”偷偷降为照图重画。
 
 ## 写回同一方案的模块记录
 

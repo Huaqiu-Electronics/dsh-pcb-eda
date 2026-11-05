@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { applyEdits, children, deleteForm, quote, required, value, type Form, type TextEdit } from './sexpr.ts'
 import { validatePreviewSchematic } from './preview-diagnostics.ts'
 import { alignVendorSymbolIds } from './project.ts'
-import { flatImageBounds, flatObjectBounds, flatTextSize, unionFlatBounds, type FlatBounds, type FlatImage, type FlatLayoutStyle } from './flat-layout.ts'
+import { flatImageBounds, flatObjectBounds, flatTextSize, textBounds, unionFlatBounds, type FlatBounds, type FlatImage, type FlatLayoutStyle } from './flat-layout.ts'
 
 /** Coordinates in schematic millimetres. */
 export type FlatPoint = [number, number]
@@ -111,6 +111,32 @@ function replaceAtom(source: string, form: Form, index: number, next: string): T
   const atom = atoms[index]
   if (atom === undefined || typeof form.items[index] !== 'string') throw new Error(`unsupported atom ${index} in ${form.head}`)
   return { start: form.start + atom.index, end: form.start + atom.index + atom[0].length, text: next }
+}
+
+/** Inspect visible instance fields and labels independently of whole-symbol boxes; explicit positions are included. */
+export function inspectSchematicText(source:string,style:FlatLayoutStyle){
+  const root=rootOf(alignVendorSymbolIds(source))
+  const result:Array<{uuid:string;ownerUuid:string;reference?:string;kind:string;field?:string;text:string;at:FlatPoint;bounds:FlatBounds}>=[]
+  for(const form of root.items.filter((item):item is Form=>typeof item!=='string')){
+    if(form.head==='symbol'){
+      for(const field of children(form,'property').filter(p=>['Reference','Value'].includes(value(p)))){
+        const instanceAt=children(form,'at')[0]
+        const bounds=textBounds(field,value(field,2),style,Number(instanceAt?.items[3]??0)),at=children(field,'at')[0]
+        if(bounds&&at)result.push({uuid:`${id(form)}:${value(field)}`,ownerUuid:id(form),reference:reference(form),kind:'property',field:value(field),text:value(field,2),at:point(at),bounds})
+      }
+    }else if(['label','global_label','hierarchical_label','text'].includes(form.head)){
+      const at=children(form,'at')[0]
+      let bounds=textBounds(form,value(form),style)
+      // Readability checks need directional label text, not the deliberately inflated electrical-label envelope.
+      if(at&&form.head==='label'){
+        const [x,y]=point(at),[w,h]=flatTextSize(value(form),[1.27,1.27],style),angle=Number(value(at,3))
+        bounds=angle===180?{left:x-w,right:x,top:y-h,bottom:y}:angle===90?{left:x-h,right:x,top:y-w,bottom:y}
+          :angle===270?{left:x-h,right:x,top:y,bottom:y+w}:{left:x,right:x+w,top:y-h,bottom:y}
+      }
+      if(bounds&&at)result.push({uuid:id(form),ownerUuid:id(form),kind:form.head,text:value(form),at:point(at),bounds})
+    }
+  }
+  return result
 }
 
 function pins(root: Form, instance: Form): NonNullable<FlatObject['pins']> {
@@ -224,7 +250,7 @@ function frameRange(bounds: FlatBounds, style: FlatTemplates['style'], textWidth
 }
 
 function resolveFrame(frame: FlatFrame, objects: FlatObject[], templates: FlatTemplates): ResolvedFlatFrame {
-  if (!frame.autoBounds) return frame
+  if (!frame.autoBounds) return {...frame,description:wrapFrameDescription(frame.description,frame.end[0]-frame.start[0]-templates.style.inset*2,templates.style)}
   const byId = new Map(objects.map(object => [object.uuid, object]))
   const include = frame.objectUuids === undefined ? undefined : new Set(frame.objectUuids)
   const exclude = new Set(frame.excludeUuids)
@@ -246,6 +272,21 @@ function resolveFrame(frame: FlatFrame, objects: FlatObject[], templates: FlatTe
   return { name: frame.name, description: frame.description,
     ...frameRange(bounds, templates.style, Math.max(0, ...textSizes.map(size => size[0])), frame.description.split('\n').length,
       textSizes[0]?.[1], textSizes[1]?.[1]) }
+}
+
+/** Wrap explicit-frame explanations using the same conservative metrics used by diagnostics. */
+export function wrapFrameDescription(text:string,width:number,style:FlatLayoutStyle):string {
+  if(!Number.isFinite(width)||width<=0)throw new Error('frame explanation has no usable width')
+  const lines:string[]=[]
+  for(const line of text.split('\n')){
+    let current=''
+    for(const character of line){
+      if(current&&flatTextSize(current+character,[1.27,1.27],style)[0]>width){lines.push(current);current=''}
+      current+=character
+    }
+    lines.push(current)
+  }
+  return lines.join('\n')
 }
 
 function endpoint(root: Form, end: FlatEndpoint, removed: Set<Form>): FlatPoint {

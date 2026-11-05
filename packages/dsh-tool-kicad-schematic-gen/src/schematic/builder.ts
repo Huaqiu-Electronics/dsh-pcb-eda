@@ -12,6 +12,7 @@ import {assignFootprintText} from './footprint-links.ts'
 import {loadDesignPlan,type DesignPlanReference} from './design-plan.ts'
 import {gridPoint,onGrid} from './grid.ts'
 import {assertSchematicGrid} from './grid-check.ts'
+import {arrangeDefaultFields,type DefaultFields} from './field-layout.ts'
 export type { PowerPlanningOptions, PowerPlacementPlan } from './power-layout.ts'
 
 /** Explicit instance placement in millimetres; library files must be trusted project inputs. */
@@ -91,6 +92,12 @@ export class ModuleRegion {
   wire(from: FlatEndpoint, to: FlatEndpoint, via: FlatPoint[] = []): string[] {
     return this.schematic.wire(this.endpoint(from), this.endpoint(to), via.map(p => this.at(p)))
   }
+  /** Route real local endpoints through an explicitly chosen elbow or channel; no obstacle avoidance. */
+  wireOrthogonal(from: FlatEndpoint, to: FlatEndpoint, route: { axis?: 'x' | 'y'; laneX?: number; laneY?: number } = {}): string[] {
+    const pin = (input: FlatEndpoint) => Array.isArray(input) ? input : this.pin(input.reference, input.pin)
+    const a = pin(from), b = pin(to)
+    return this.wire(a, b, orthogonalBends(a, b, route))
+  }
   /** Add a local network label.
    * @param name Network name. @param at Local point or pin. @param angle Orthogonal angle. @returns UUID.
    */
@@ -108,6 +115,20 @@ export class ModuleRegion {
   hierarchicalLabel(name: string, at: FlatEndpoint, angle: 0 | 90 | 180 | 270 = 0): string {
     return this.schematic.hierarchicalLabel(name, this.endpoint(at), angle)
   }
+}
+
+/** Explicit Manhattan bends from actual endpoints. Never changes or independently snaps pin geometry. */
+export function orthogonalBends(from: FlatPoint, to: FlatPoint, route: { axis?: 'x' | 'y'; laneX?: number; laneY?: number } = {}): FlatPoint[] {
+  const same=(a:FlatPoint,b:FlatPoint)=>Math.abs(a[0]-b[0])<1e-7&&Math.abs(a[1]-b[1])<1e-7
+  if(same(from,to))throw new Error('WIRE_ROUTE_INVALID: endpoints must differ')
+  if((route.laneX!==undefined&&route.laneY!==undefined)||(route.axis!==undefined&&!['x','y'].includes(route.axis)))throw new Error('WIRE_ROUTE_INVALID: choose axis, laneX or laneY')
+  if((route.laneX!==undefined&&!Number.isFinite(route.laneX))||(route.laneY!==undefined&&!Number.isFinite(route.laneY)))throw new Error('WIRE_ROUTE_INVALID: channel must be finite')
+  const via: FlatPoint[] = route.laneX!==undefined ? [[route.laneX,from[1]],[route.laneX,to[1]]]
+    : route.laneY!==undefined ? [[from[0],route.laneY],[to[0],route.laneY]]
+    : Math.abs(from[0]-to[0])<1e-7||Math.abs(from[1]-to[1])<1e-7 ? [] : route.axis==='y' ? [[from[0],to[1]]] : [[to[0],from[1]]]
+  const points=[from,...via,to].filter((p,i,all)=>i===0||!same(p,all[i-1]!))
+  if(points.length<2)throw new Error('WIRE_ROUTE_INVALID: endpoints must differ')
+  return points.slice(1,-1)
 }
 
 function point(at: FlatPoint): FlatPoint {
@@ -144,12 +165,16 @@ function powerDefinitions(spec: Pick<PowerLabelSpec, 'libraryPath' | 'nets'>): M
     const pin = pins[0], at = pin && children(pin, 'at')[0], length = pin && children(pin, 'length')[0]
     if (!children(form, 'power').length || !val || value(val, 2) !== net || pins.length !== 1
       || !at || Number(value(at, 1)) !== 0 || Number(value(at, 2)) !== 0 || !length || Number(value(length)) !== 0) {
-      throw new Error(`POWER_SYMBOL_MAPPING_INVALID: ${libId} must be a power symbol with Value ${net} and one zero-length pin at its origin; do not merge or rename power domains`)
+      throw Object.assign(new Error(`POWER_SYMBOL_MAPPING_INVALID: ${libId} has Value ${val ? value(val,2) : '(missing)'}; expected ${net} and one zero-length power pin at its origin; do not merge or rename power domains`),
+        {code:'POWER_SYMBOL_MAPPING_INVALID',expectedNet:net,actualValue:val ? value(val,2) : null,libId})
     }
     forms.set(net, form)
   }
   return forms
 }
+
+/** Validate the exact power-net mapping before workers or circuit scripts run. */
+export function validatePowerSymbolMapping(spec: Pick<PowerLabelSpec,'libraryPath'|'nets'>): void { powerDefinitions(spec) }
 
 /** Symbol-local points of a placed unit, split into body graphics and pin ends. */
 function unitExtent(sections: Form[], unit: number): { graphics: FlatPoint[]; pins: FlatPoint[] } {
@@ -227,6 +252,7 @@ export class Schematic {
   private readonly rootId = randomUUID()
   private readonly definitions = new Map<string, string>()
   private readonly instances: string[] = []
+  private readonly defaultFields = new Map<string,DefaultFields>()
   private readonly graphics: string[] = []
   private readonly references = new Map<string, string>()
   private placedPins: ReturnType<typeof listFlatObjects> | undefined
@@ -261,6 +287,7 @@ export class Schematic {
    * @returns Local-coordinate operations; no content fitting or automatic placement is performed.
    */
   region(spec: ModuleRegionSpec): ModuleRegion {
+    this.checkFrameRoute()
     const origin = [...point(spec.origin)] as FlatPoint, size = point(spec.size)
     if (!spec.name.trim() || size.some(n => n <= 0)) throw new Error('region requires a name and positive width/height')
     if (this.regions.some(r => r.name === spec.name)) throw new Error(`duplicate region: ${spec.name}`)
@@ -270,6 +297,10 @@ export class Schematic {
     this.regions.push({ name: spec.name, start: origin, end })
     this.frames.push({ name: spec.name, description: spec.description, start: origin, end })
     return new ModuleRegion(this, origin)
+  }
+  private checkFrameRoute(): void {
+    if(process.env.DSH_SCHEMATIC_MODULE_MODE==='default'&&this.frames.length>0)
+      throw new Error('MODULE_DELEGATION_REQUIRED: a second function frame requires module-plan.json and dispatch_kicad_schematic_modules BEFORE implementing block circuits. Stop patching the full script; prepare module contracts, dispatch workers, then assemble with --modules. Use --sequential-reason only for an actual delegation limitation or a focused existing-design fix.')
   }
   private source(): string {
     return `(kicad_sch (version 20250114) (generator "model_script") (uuid ${quote(this.rootId)})
@@ -289,6 +320,7 @@ export class Schematic {
    * @returns Reference map, translated label anchors, net names and object UUIDs for frames.
    */
   importModule(spec: FlatImportSpec & { sourcePath: string;footprintMappingPath?:string }): FlatImportResult {
+    this.checkFrameRoute()
     spec={...spec,offset:gridPoint(spec.offset)}
     if (this.importedModules.has(spec.name)) throw new Error(`duplicate imported module: ${spec.name}`)
     const used = new Set([...this.references.keys()].map(key => key.slice(0, key.lastIndexOf(':'))))
@@ -375,22 +407,41 @@ export class Schematic {
     const referenceAt = point(spec.referenceAt ?? (anchors ? anchors[0] : [at[0], at[1] - 5.08]))
     const valueAt = point(spec.valueAt ?? (anchors ? anchors[1] : [at[0], at[1] - 2.54]))
     const fieldAngle = spec.fieldAngle ?? ([90, 270].includes(angle) ? 90 : 0)
+    const extent=unitExtent(sections,unit),body=boundsOf(extent.graphics.concat(extent.pins),at,angle,spec.mirror)
+    if(body&&!children(form,'power').length)this.defaultFields.set(uuid,{at,
+      body:{left:body.minX,right:body.maxX,top:body.minY,bottom:body.maxY},
+      reference:spec.referenceAt===undefined,value:spec.valueAt===undefined})
     const property = (name: string, text: string, p: FlatPoint, hide = false) => `(property ${quote(name)} ${quote(text)} (at ${p[0]} ${p[1]} ${fieldAngle}) (effects (font (size 1.27 1.27))${hide ? ' (hide yes)' : ''}))`
+    const instanceProperties = children(form, 'property').filter(p =>
+      !['Reference', 'Value', 'Footprint', 'Datasheet'].includes(value(p)) && !value(p).startsWith('ki_'))
+      .map(p => property(value(p), value(p, 2), at, true))
+    const legacyDescription = defaultProperty('ki_description')
+    if (!defaultProperty('Description') && legacyDescription) instanceProperties.push(property('Description', value(legacyDescription, 2), at, true))
     this.definitions.set(spec.libId, cached)
     this.references.set(key, spec.libId)
     this.instances.push(`(symbol (lib_id ${quote(spec.libId)}) (at ${at[0]} ${at[1]} ${angle}) (unit ${unit}) ${spec.mirror ? `(mirror ${spec.mirror})` : ''}
       (in_bom yes) (on_board yes) (dnp no) (uuid ${quote(uuid)})
       ${property('Reference', spec.reference, referenceAt, spec.hideReference ?? hiddenProperty('Reference'))} ${property('Value', val, valueAt, spec.hideValue ?? hiddenProperty('Value'))}
       ${property('Footprint', footprint, at, true)} ${property('Datasheet', defaultProperty('Datasheet') ? value(defaultProperty('Datasheet')!, 2) : '', at, true)}
+      ${instanceProperties.join('\n')}
       (instances (project ${quote(this.options.projectName)} (path ${quote(`/${this.rootId}`)} (reference ${quote(spec.reference)}) (unit ${unit})))))`)
     return uuid
+  }
+  /** Arrange default visible property text within bounded local candidates; explicit anchors remain unchanged. */
+  arrangeSymbolFields(): {movedCount:number;unresolved:string[]} {
+    const context=this.powerLayoutContext()
+    const result=arrangeDefaultFields(this.instances,this.defaultFields,context.objects,context.areas,this.pageSize(),this.templates.style)
+    this.instances.splice(0,this.instances.length,...result.instances);this.placedPins=undefined
+    return {movedCount:result.movedCount,unresolved:result.unresolved}
   }
   /** Read every placed pin in one catalog, including rotation and mirror transforms.
    * @returns Instance identities, exact sheet pins and explicit pin errors; no connectivity is inferred.
    */
-  pinCatalog(): ReturnType<typeof listFlatObjects> {
-    this.placedPins ??= listFlatObjects(this.source()).filter(object => object.type === 'symbol')
-    return this.placedPins.map(o => ({ ...o, ...(o.at ? { at: [...o.at] as FlatPoint } : {}),
+  pinCatalog({includeBounds=false}: {includeBounds?:boolean} = {}): ReturnType<typeof listFlatObjects> {
+    // Geometry estimates are opt-in: normal pin lookup keeps its inexpensive cached path.
+    const objects=includeBounds?listFlatObjects(this.source(),this.templates.style).filter(object=>object.type==='symbol'):
+      (this.placedPins ??= listFlatObjects(this.source()).filter(object => object.type === 'symbol'))
+    return objects.map(o => ({ ...o, ...(o.at ? { at: [...o.at] as FlatPoint } : {}),
       ...(o.pins ? { pins: o.pins.map(p => ({ ...p, at: [...p.at] as FlatPoint })) } : {}) }))
   }
   /** Resolve a placed symbol's numbered pin; ambiguous multi-unit matches fail.
@@ -548,6 +599,11 @@ export class Schematic {
     const extraWires: string[] = []
     const convertedIds = new Set<string>()
     const wireGroups = new Map<string, string[]>()
+    const samePoint=(a:FlatPoint,b:FlatPoint)=>Math.abs(a[0]-b[0])<1e-6&&Math.abs(a[1]-b[1])<1e-6
+    const xy=(form:Form):FlatPoint=>[Number(value(form)),Number(value(form,2))]
+    const forms=this.graphics.map(graphic=>parse(graphic))
+    const junctions=forms.filter(f=>f.head==='junction').map(f=>xy(children(f,'at')[0]!))
+    const wires=forms.filter(f=>f.head==='wire').map(f=>children(children(f,'pts')[0]!,'xy').map(xy))
     for (const graphic of this.graphics) {
       const form = parse(graphic)
       if (!['label', 'global_label'].includes(form.head)) { retained.push(graphic); continue }
@@ -564,16 +620,28 @@ export class Schematic {
       used.add(reference)
       const placement = spec.placements?.[uuid]
       const target = placement ? point(placement.at) : at
+      // A label may name the middle of an unsplit wire. Moving its power pin
+      // creates a T branch: KiCad needs an explicit junction at the old anchor.
+      const interior=wires.filter(([a,b])=>a&&b&&!samePoint(a,at)&&!samePoint(b,at)
+        &&Math.abs((b[0]-a[0])*(at[1]-a[1])-(b[1]-a[1])*(at[0]-a[0]))<1e-6
+        &&at[0]>=Math.min(a[0],b[0])-1e-6&&at[0]<=Math.max(a[0],b[0])+1e-6
+        &&at[1]>=Math.min(a[1],b[1])-1e-6&&at[1]<=Math.max(a[1],b[1])+1e-6)
+      if(interior.length&&!junctions.some(p=>samePoint(p,at))){
+        const axes=new Set(interior.map(([a,b])=>Math.abs(a![0]-b![0])<1e-6?'y':'x'))
+        if(axes.size>1)throw new Error(`POWER_LABEL_INVALID: ${net} at ${at.join(',')} is on an unjoined wire crossing; place the label on its intended wire or add an intentional junction`)
+        const start=prepared.graphics.length,id=prepared.marker('junction',at)
+        extraWires.push(...prepared.graphics.slice(start));wireGroups.set(uuid,[id]);junctions.push(at)
+      }
       if (placement) {
         if (target[0] !== at[0] || target[1] !== at[1]) {
           const start = prepared.graphics.length
-          wireGroups.set(uuid, prepared.wire(at, target, placement.via ?? []))
+          wireGroups.set(uuid, [...(wireGroups.get(uuid)??[]),...prepared.wire(at, target, placement.via ?? [])])
           extraWires.push(...prepared.graphics.slice(start))
         } else if (placement.via?.length) throw new Error(`POWER_LABEL_INVALID: ${uuid} has bends but no moved anchor`)
       }
       prepared.addSymbol({ libraryPath: spec.libraryPath, libId, reference, value: net, at: target,
         ...(placement?.angle !== undefined ? { angle: placement.angle } : {}),
-        ...(placement?.valueAt ? { valueAt: placement.valueAt } : {}), fieldAngle: 0, hideReference: true })
+        ...(placement?.valueAt ? { valueAt: placement.valueAt } : {}), fieldAngle: (placement?.angle??0)%180, hideReference: true })
       convertedIds.add(uuid)
       const index = prepared.instances.length - 1, instance = prepared.instances[index]!
       const oldId = children(parse(instance), 'uuid')[0]!
@@ -663,6 +731,7 @@ export class Schematic {
     { start: FlatPoint; end: FlatPoint; autoBounds?: false }
     | { autoBounds: true; objectUuids?: string[]; excludeUuids?: string[] }
   )): void {
+    this.checkFrameRoute()
     this.frames.push(frame.autoBounds ? { ...frame, excludeUuids: frame.excludeUuids ?? [] } : frame)
   }
   /** Serialize the current design with existing frame and project templates.
@@ -680,6 +749,8 @@ export class Schematic {
    * @returns Written paths, resolved frames and conservative power-layout warnings from the saved design. Errors may leave a partial pair.
    */
   save(directory: string): { schematicPath: string; projectPath: string; frames: ResolvedFlatFrame[]; layoutWarnings: PowerLayoutWarning[]; powerLayout:PowerLayoutDiagnostics; designPlan:DesignPlanReference } {
+    if(process.env.DSH_SCHEMATIC_MODULE_MODE==='default'&&this.frames.length>1)
+      throw new Error('MODULE_DELEGATION_REQUIRED: multiple function blocks must use module-plan.json, dispatch_kicad_schematic_modules and run-design.mjs --modules. If delegation is unavailable or this is a focused edit of an existing design, document the actual reason with --sequential-reason; do not silently draw all blocks in one agent.')
     const result = this.render(), schematicPath = join(directory, `${this.options.projectName}.kicad_sch`), projectPath = join(directory, `${this.options.projectName}.kicad_pro`)
     if (existsSync(schematicPath) || existsSync(projectPath)) throw new Error(`output already exists: ${directory}; choose a unique candidate directory`)
     mkdirSync(directory, { recursive: true })

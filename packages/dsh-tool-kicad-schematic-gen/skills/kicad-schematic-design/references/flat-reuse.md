@@ -1,30 +1,34 @@
-# 单模块复用与多模块平铺整合
+# 平铺复用与新增电路
 
-单页候选已符合需求时，用 edit_kicad_flat_schematic 的 create 创建副本和外框，省略无用编辑项。修改副本前 list 选定对象，保留 sources/。调用方法见 [editing.md](editing.md)。新增或移动符号不由该编辑工具完成；构建库可导入修改后的单页，并添加所需符号。
+适用于导入单页电路、组合多个来源或补充新器件；默认多框仍按 [并行生成](parallel-generation.md) 分工。来源存sources/并保留原样，实际适配落实到生成脚本和工作副本。
 
-多个下载模块、修改副本和从零脚本模块共用一个 Schematic。调用 `sch.importModule({sourcePath,name,offset,nets})` 导入已准备的单页电路：name 为唯一 ASCII 标识，offset 为全局毫米平移量，nets 将源标签/电源网络名映射到明确共享网络。未映射命名网络自动加模块前缀，避免同页误连；不要把所有同名 GND 或电源默认合并，只有规划共享的网络才映射。
+## 导入和接点
 
 ```js
-const power = sch.importModule({
-  sourcePath: sourcePowerPath, name: 'power', offset: [20, 30],
-  nets: { '+3V3': 'VCC_3V3', GND: 'GND' },
-});
-const control = sch.importModule({
-  sourcePath: sourceControlPath, name: 'control', offset: [150, 30],
-  nets: { VCC: 'VCC_3V3', GND: 'GND' },
-});
-sch.frame({ name: '电源', description: '已确认的用途与供电条件',
-  autoBounds: true, objectUuids: power.objectUuids, excludeUuids: [] });
-sch.frame({ name: '控制', description: '控制接口说明',
-  autoBounds: true, objectUuids: control.objectUuids, excludeUuids: [] });
+const core=sch.importModule({sourcePath:checkedSource,name:'core',offset:[25.4,25.4],
+ nets:{VCC:'VCC_3V3',GND:'GND'},footprintMappingPath:checkedMapping});
+sch.frame({name:'核心电路',description:'已确认用途与限制',
+ autoBounds:true,objectUuids:core.objectUuids});
+// 真实脚号经方案核实；此处仅演示导入后如何取点。
+const p=sch.pin(core.references.U1,'1');
 ```
 
-返回 references（源编号到目标编号）、ports（源标签到平移后锚点数组）、netNames（源网络到最终网络）、objectUuids（导入顶层对象 UUID）。端口重复时保留所有锚点；明确使用正确接点。新增导线可用 `sch.pin(power.references.U1,'1')` 定位，真实引脚号须已核实。没有标签的连接器接口用 references 与实际引脚定位，不编造端口。
+name为唯一ASCII标识；offset是全局毫米平移，不能缩放电路。nets只映射确认共享的源网络；未映射名称自动加模块前缀，局部/全局/层次标签和隐藏电源网络均隔离，层次标签转同页局部标签。不要默认合并同名地或电源。
 
-导入统一编号、实例路径和 UUID，各模块缓存隔离。原图的符号、导线、文字属性、图形和图片整体平移；原图不变。局部/全局标签、层次标签和电源网络默认隔离，层次标签转为同页局部标签，隐藏电源引脚名称同时隔离。源网络映射拼写错误、缺失缓存、重复编号/unit、继承未展开或不支持的对象会抛出具体错误，修正副本或选择可支持来源后再试。
+返回references（源→目标位号）、ports（标签→平移后锚点数组）、netNames（最终网名）、objectUuids。明确选择正确锚点；无标签的连接器通过references和实际pin定位，重复端口不任选第一个。所有导入位号先加入共享reserved集合，再分配新增器件位号。
 
-当前导入接受单页电路，不能自动展开多层级来源；总线、组对象、嵌入附件等不支持的对象失败而不丢弃。用户要求平铺时准备各单页或从零实现缺少部分，不能静默改成层次或删除 sheet 块。导入只做平移和整合，不自动缩放、放置或布线，不决定电气连接。
+导入处理UUID、实例路径、缓存及编号，整体平移符号、导线、文字、图形和图片，不判断电气兼容或自动布线。仅支持单页；多层级来源须明确准备单页，不能删除sheet或静默改层次。错误网络映射、缓存/编号/unit冲突、未展开继承和不支持对象须修来源副本或换合适来源，不能丢弃未知电气对象。
 
-来源冗余 text/text_box、旧框和图片用明确 UUID 在副本中先删除。保留必要限制与说明，再用统一短标题和说明重建框；电气标签和器件属性不当作说明删除。布局见 [module-layout.md](module-layout.md)。自动框按保留内容估计范围，程序不会自动移动电路或避免两个模块内容重叠，最终预览必须检查。脚本和固定输出规则见 [programming.md](programming.md)。
+## 补充电路
 
-生成副本（action:create）必须传 `designPlan:{path,sha256}`，来自已保存方案的 `run-design.mjs --read-plan` 返回值。先按方案核实连接和改动；list/connections 的只读查询不要求该参数。
+只补方案中来源未覆盖的功能，先核对已有上拉、保护、复位、DNP和实际装配，避免重复添加。新增区使用region局部坐标；跨区连接用导入的netNames、明确ports或真实pin。外部原图需要复杂修改时，按 [脚本修改](editing.md) 定向适配或重建，不能依赖旧对象编辑工具或全局文本替换。
+
+需要顺序混合示例时才看 [入口](../assets/mixed-design/design.mjs) 与 [新增模块](../assets/mixed-design/modules/load.mjs)；示例使用独立layout.mjs，仅适用于明确允许的顺序构建。真实并行布局只以清单region为准。配置的source/footprintMappingPath、端口、实际器件和区域须替换，并按实际原因传--sequential-reason；不为套示例改变器件或接法。
+
+## 外框与说明
+
+新绘用region预留空间，不额外套frame；已有内容用frame({autoBounds:true,objectUuids})，excludeUuids仅在确需排除时提供。自动框只估计范围，不移动电路；长型号、文字和图片需在预览中核对，boundsError时用明确手动范围。
+
+按完整功能分区，外围靠所属芯片，不为每只LED/按键拆框。使用统一无填充框、顶部短标题和必要的底部说明，保留真实接法、额定限制及未决条件；聊天说明不能代替图纸。框线避开器件、文字和接点，不强求所有框等高。样式由 [frame-style.json](../templates/frame-style.json) 统一控制。
+
+生成脚本中的冗余介绍、旧框和无用图片在对应脚本里清理；外部来源保留副本和必要标注，不删除电气标签、器件属性或限制来凑外框。API见 [编程接口](programming.md)，完成后按 [布局交付](layout-delivery.md) 验收。来源封装映射见 [封装本地化](module-footprints.md)。

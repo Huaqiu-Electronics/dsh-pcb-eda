@@ -4,7 +4,7 @@ import type { SkillCandidate, SkillResourceBase } from '@deepseek-ai/dsh-skill'
 import { readFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { getKiCadPaths } from './runtime-paths.ts'
 
 export const name = 'kicad-schematic-design-skill'
@@ -23,13 +23,32 @@ export function skillResourcePaths() {
     referencesDir: join(directory, 'references'),
     assetsDir: join(directory, 'assets'),
     runtimePath: join(directory, 'assets', 'runtime.mjs'),
+    powerLibraryPath: join(directory, 'assets', 'libraries', 'power.kicad_sym'),
     runnerPath: join(directory, 'scripts', 'run-design.mjs'),
+    propertySyncPath: join(directory, 'scripts', 'sync-component-properties.mjs'),
+    moduleTasksPath: join(directory, 'scripts', 'module-tasks.mjs'),
+    moduleCheckerPath: join(directory, 'scripts', 'check-module.mjs'),
+    modulePreflightPath: join(directory, 'scripts', 'preflight-modules.mjs'),
+    moduleRuntimePath: join(directory, 'assets', 'module-runtime.mjs'),
+    moduleTemplatesPath: join(directory, 'assets', 'module-templates.mjs'),
+    moduleCircuitPath: join(directory, 'assets', 'module-circuit.mjs'),
+    parallelTemplateDir: join(directory, 'assets', 'parallel-design'),
     drawingPatternsPath: join(directory, 'references', 'drawing-patterns.md'),
     patternReaderPath: join(directory, 'scripts', 'read-patterns.mjs'),
     drawingPatternAssetsDir: join(directory, 'assets', 'drawing-patterns'),
     geometryPath: join(directory, 'assets', 'drawing-patterns', 'geometry.mjs'),
     templateDir: join(directory, 'templates'),
   }
+}
+
+/** Display every resource without repeating the installation prefix twenty times. */
+export function skillResourceLocations() {
+  const { pluginDir, skillDir, ...resources } = skillResourcePaths()
+  return { pluginDir, skillDir,
+    runnerPath:resources.runnerPath,runtimePath:resources.runtimePath,parallelTemplateDir:resources.parallelTemplateDir,
+    relativeToSkillDir: Object.fromEntries(
+    Object.entries(resources).map(([key, path]) => [key, relative(skillDir, path).replaceAll('\\', '/')]),
+  ) }
 }
 
 function parseSkill(raw: string): { description: string; content: string } {
@@ -71,7 +90,7 @@ export function apply(ctx: Pick<Context, 'skills' | 'effect'>, kicadCliPath?:str
         provider: providerName,
         source: candidate.source,
         resourceBase,
-        content: `${loaded.content}\n\n## 当前安装路径（运行时生成）\n\n只读资源路径清单（直接使用，不从 pluginDir 猜测技能资源路径；输出另存当前工作区）：\n\n\`\`\`json\n${JSON.stringify(skillResourcePaths(), null, 2)}\n\`\`\`\n\n项目脚本设置 DSH_SCHEMATIC_PLUGIN_DIR=${JSON.stringify(skillResourcePaths().pluginDir)}。CLI=${JSON.stringify(paths.kicadCliPath)}。${paths.symbolDir ? `KICAD_SYMBOL_DIR=${JSON.stringify(paths.symbolDir)}。` : '未找到标准符号库；使用项目符号或配置 KICAD_SYMBOL_DIR。不要扫描或猜测其他安装目录；随包参考符号不提供实际器件的本地封装。'}`,
+        content: `${loaded.content}\n\n## 当前资源位置（运行时生成）\n\nrunnerPath、runtimePath、parallelTemplateDir已是绝对路径，直接使用；其余relativeToSkillDir项用join(skillDir,相对路径)，不可基于pluginDir拼接。ESM再转file URL；不扫描目录或builder源码，安装资源只读，输出存工作区。\n\n\`\`\`json\n${JSON.stringify(skillResourceLocations(), null, 2)}\n\`\`\`\n\n项目脚本的DSH_SCHEMATIC_PLUGIN_DIR取pluginDir。CLI=${JSON.stringify(paths.kicadCliPath)}。${paths.symbolDir ? `KICAD_SYMBOL_DIR=${JSON.stringify(paths.symbolDir)}。` : '未找到标准符号库；使用项目符号，不猜安装目录；参考符号不代替实际器件和封装。'}`,
       }
     },
   })))

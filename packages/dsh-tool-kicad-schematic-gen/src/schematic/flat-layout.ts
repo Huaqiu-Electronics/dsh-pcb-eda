@@ -52,10 +52,12 @@ function hidden(form: Form): boolean {
  */
 export function flatTextSize(text: string, size: Point, style: FlatLayoutStyle): Point {
   const lines = text.split('\n')
-  return [Math.max(1, ...lines.map(line => [...line].length)) * size[0] * style.textWidthFactor,
+  // KiCad's CJK glyphs are wider than Latin strokes; the old character count under-estimated frame explanations.
+  const wide=/[\p{Script=Han}\p{Script=Hangul}\p{Script=Hiragana}\p{Script=Katakana}\uFF01-\uFF60]/u
+  return [Math.max(style.textWidthFactor,...lines.map(line=>[...line].reduce((width,character)=>width+(wide.test(character)?Math.max(1.6,style.textWidthFactor):style.textWidthFactor),0))) * size[0],
     lines.length * size[1] * style.textHeightFactor]
 }
-function textBounds(form: Form, text: string, style: FlatLayoutStyle): FlatBounds | null {
+export function textBounds(form: Form, text: string, style: FlatLayoutStyle,instanceAngle=0): FlatBounds | null {
   if (hidden(form)) return null
   const at = children(form, 'at')[0]
   if (at === undefined) return null
@@ -68,7 +70,7 @@ function textBounds(form: Form, text: string, style: FlatLayoutStyle): FlatBound
   const left = justify?.items.includes('left') ? 0 : justify?.items.includes('right') ? -dimensions[0] : -dimensions[0] / 2
   const top = justify?.items.includes('top') ? 0 : justify?.items.includes('bottom') ? -dimensions[1] : -dimensions[1] / 2
   const local = { left, top, right: left + dimensions[0], bottom: top + dimensions[1] }
-  const origin = xy(at), angle = Number(at.items[3] ?? 0)
+  const origin = xy(at), angle = Number(at.items[3] ?? 0)+instanceAngle
   if (['label', 'global_label', 'hierarchical_label'].includes(form.head)) {
     // Label anchors and shape tips differ from plain-text alignment; cover both sides.
     return box(corners({ left: -dimensions[0] - dimensions[1], top: -dimensions[1],
@@ -191,7 +193,7 @@ export function flatObjectBounds(root: Form, form: Form, style: FlatLayoutStyle)
       }
     }
     for (const field of children(form, 'property')) {
-      const bounds = textBounds(field, value(field, 2), style)
+      const bounds = textBounds(field, value(field, 2), style,angle)
       if (bounds) ranges.push(bounds)
     }
     return unionFlatBounds(ranges.length === 0 ? [box([origin])] : ranges)

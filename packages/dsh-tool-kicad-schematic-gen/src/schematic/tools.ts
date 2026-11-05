@@ -1,5 +1,6 @@
 /** Read, preview, and generate KiCad schematic copies through workspace-scoped DSH tools. */
 import { createHash } from 'node:crypto'
+import { writeFile } from 'node:fs/promises'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent'
@@ -14,12 +15,8 @@ import { resolvePreviewRegions, renderPreviewRegions } from './preview-regions.t
 import { validatePreviewSchematic } from './preview-diagnostics.ts'
 import { buildProject } from './project.ts'
 import { children, parse, value } from './sexpr.ts'
-import { buildFlatCopy, listFlatObjects, loadFlatTemplates, summarizeFlatLayout } from './flat.ts'
-import { parseFlatRequest } from './flat-input.ts'
-import {inspectPinConnections} from './connections.ts'
 import {createOverview,registerOverview} from './overview.ts'
 import {previewConfig} from './preview-config.ts'
-import {auditFootprints} from './footprint-links.ts'
 import {assertSchematicGrid} from './grid-check.ts'
 import {designPlanReference,matchDesignPlan,DESIGN_PLAN_MAX_BYTES} from './design-plan.ts'
 
@@ -138,6 +135,9 @@ export async function publishProject(
 export async function publishAssembly(
   fs: WorkspaceFileSystem, workspace: string, targetDir: string, projectName: string,
   files: AssemblyFiles, policy: WritePolicy, signal: AbortSignal,
+  record?: { designPlan: {path: string; sha256: string}; sheets: Array<{
+    sourcePath: string; connections: Array<{port: string; net: string}>; unconnectedPorts: string[]
+  }> },
 ): Promise<{ rootPath: string; projectPath: string; childPaths: string[]; symbolLibraryPath: string; symbolTablePath: string }> {
   const root = await fs.resolve(workspace, { signal })
   const directory = await fs.resolve(targetDir, { cwd: workspace, signal })
@@ -160,14 +160,29 @@ export async function publishAssembly(
     }
     return { target, content }
   }))
-  await writeOutputs(fs, targets, policy, signal)
-  return {
+  const paths = {
     childPaths: targets.slice(0, files.children.length).map(item => item.target.displayPath),
     symbolLibraryPath: targets[files.children.length]!.target.displayPath,
     symbolTablePath: targets[files.children.length + 1]!.target.displayPath,
     projectPath: targets[files.children.length + 2]!.target.displayPath,
     rootPath: targets[files.children.length + 3]!.target.displayPath,
   }
+  if (record !== undefined) {
+    const target = await fs.resolve(join(directory.displayPath, `${projectName}.assembly.json`), {signal})
+    if (!fs.contains(directory, target)) throw new Error('assembly record escapes targetDir')
+    if (await fs.stat(target, signal) !== undefined) throw new Error(`assembly output already exists: ${target.displayPath}; use a fresh empty targetDir`)
+    const detail = {version: 1, designPlan: record.designPlan, ...paths, warnings: files.warnings,
+      sheets: files.children.map((child, index) => {
+        const source = record.sheets[index]!
+        return {name: child.name, ...source, schematicPath: paths.childPaths[index]!,
+          portCount: source.connections.length + source.unconnectedPorts.length,
+          unconnectedPortCount: source.unconnectedPorts.length, directionConflicts: child.directionConflicts,
+          referenceCount: Object.keys(child.references).length, references: child.references}
+      })}
+    targets.push({target, content: JSON.stringify(detail, null, 2) + '\n'})
+  }
+  await writeOutputs(fs, targets, policy, signal)
+  return paths
 }
 
 /** Save one verified netlist in an existing workspace directory without replacing prior results. */
@@ -244,19 +259,17 @@ function positiveInteger(value: number, field: string, maximum: number): void {
   }
 }
 
-/** Register workspace-scoped module port, preview, hierarchy, and flat editing tools. */
+/** Register workspace-scoped module port, preview, and hierarchy tools. */
 export function registerSchematicTools(ctx: Context, config: Config): void {
   const overviewAvailable = registerOverview(ctx)
   if (!isAbsolute(config.flatTemplateDir)) throw new Error('flatTemplateDir must be absolute')
   positiveInteger(config.flatListLimit, 'flatListLimit', 1000)
-  const flatTemplates = loadFlatTemplates(config.flatTemplateDir)
   if (!Number.isInteger(config.maxSchematicBytes) || config.maxSchematicBytes < 1 || config.maxSchematicBytes > 50000000) {
     throw new Error('kicad-schematic-tools: maxSchematicBytes must be 1 to 50000000')
   }
   if (!isAbsolute(config.kicadCliPath) && !['kicad-cli', 'kicad-cli.exe'].includes(config.kicadCliPath)) throw new Error('kicad-schematic-tools: kicadCliPath must be absolute or the kicad-cli PATH command')
   positiveInteger(config.previewDensity, 'previewDensity', 1200)
   positiveInteger(config.previewMaxWidth, 'previewMaxWidth', 4096)
-  positiveInteger(config.previewMaxPages, 'previewMaxPages', 16)
   if (!Number.isInteger(config.previewPadding) || config.previewPadding < 0
     || config.previewPadding * 2 >= config.previewMaxWidth) {
     throw new Error('kicad-schematic-tools: previewPadding must be a non-negative integer smaller than half previewMaxWidth')
@@ -305,47 +318,40 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
   }, required: ['name', 'start', 'end'] } satisfies JsonSchemaNode
   const preview: ToolDefinition = {
     name: 'render_kicad_module_preview',
-    description: 'Render a workspace .kicad_sch into a project-local preview directory. Return the source revision, a page-to-PNG manifest, and paths for read_image; call read_image only for pages you need to inspect. Annotated root-sheet rectangles automatically produce regionImages at readable resolution. Optional regions overrides them using millimetre bounds and exact pageName; [] disables crops. Images do not establish electrical connectivity.',
+    description: 'Preview all schematic pages by default, or only exact pageNames. Read rootImagePath for layout and regionImages[].pngPath for details; only returned PNG paths exist. Annotated root-sheet rectangles produce automatic crops; regions overrides them in millimetres and [] disables crops. manifestPath preserves full source mappings and diagnostics. delivery:true snapshots the project and enables the overview card. No footprint, grid or electrical checks; images are not connectivity evidence. Inspect failures before retrying.',
     parameters: { type: 'object', additionalProperties: false,
       properties: {
         schematicPath: { type: 'string' },
         delivery: { type: 'boolean', description: 'True only for final saved project delivery: show an overview card and snapshot a downloadable project ZIP. Omit during layout review.' },
         kicadCliPath: {type:'string',description:'Optional absolute kicad-cli path already returned by get_eda_host_info. Reuse known host information; omit to use plugin configuration.'},
-        projectDir: { type: 'string', description: 'Project folder containing local libraries and library tables. On ordinary candidate previews, pass this to check footprints against the prepared project before publishing. With delivery:true defaults to the schematic folder and must also contain all sheets. Must stay inside workspace.' },
+        projectDir: { type: 'string', description: 'Archive root for delivery:true; defaults to the schematic folder and must contain all sheets. Must be an existing workspace directory. Unused during ordinary previews; no footprint validation.' },
         regions: { type: 'array', items: regionSchema, description: 'Optional module crops in schematic millimetres; defaults to annotated root-sheet rectangles. [] disables region crops.' },
-        pageNames: { type: 'array', items: { type: 'string' }, description: 'Optional exact exported page names to render; defaults to root first. Use omittedPages names to request missing pages.' },
+        pageNames: { type: 'array', items: { type: 'string' }, description: 'Optional exact exported page names; omit or use [] to render all pages, root first. A nonempty list renders only those pages. Invalid names report available pages.' },
         outputDir: { type: 'string', description: 'Optional preview folder inside the workspace; defaults to a previews folder beside the schematic.' },
       }, required: ['schematicPath'] },
     output: { schema: { type: 'object', additionalProperties: false, properties: {
-      schematicPath: { type: 'string' }, revision: { type: 'string' }, outputDir: { type: 'string' },
-      overview: { oneOf: [{type:'null'}, {type:'object', properties: {
+      revision: { type: 'string' }, manifestPath: { type: 'string' },
+      overview: {type:'object', properties: {
         title:{type:'string'},revision:{type:'string'},downloadUrl:{type:'string'},filename:{type:'string'},fileCount:{type:'integer'},size:{type:'integer'},
         projectKey:{type:'string'},createdAt:{type:'number'},
         pages:{type:'array',items:{type:'object',properties:{name:{type:'string'},imageUrl:{type:'string'}},required:['name','imageUrl']}},
-      },required:['title','revision','downloadUrl','filename','fileCount','size','pages']}] },
-      overviewError: {oneOf:[{type:'string'},{type:'null'}]},
+      },required:['title','revision','downloadUrl','filename','fileCount','size','pages']},
+      overviewError: {type:'string'},
+      status: {type:'string',enum:['ok','partial','error']},
       renderStatus: {type:'string',enum:['ok','partial','error']},
       deliveryStatus: {type:'string',enum:['not_requested','ready','blocked']},
-      footprintCheck: {oneOf:[{type:'null'},{type:'object',additionalProperties:true}]},
-      manifestPath: { type: 'string' }, cached: { type: 'boolean' },
-      regionManifestPath: { type: 'string' },
-      regionImages: { type: 'array', items: { ...regionSchema, properties: { ...regionSchema.properties,
-        pngPath: { type: 'string' }, schematicPath: { oneOf: [{ type: 'string' }, { type: 'null' }] }, revision: { type: 'string' },
-      }, required: ['name', 'pageName', 'start', 'end', 'pngPath', 'schematicPath', 'revision'] } },
-      failures: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
-        code: { type: 'string' }, page: { type: 'string' }, svgPath: { type: 'string' },
-        stage: { type: 'string' }, message: { type: 'string' }, retryUnchanged: { type: 'boolean' }, nextAction: { type: 'string' },
-      }, required: ['code', 'page', 'svgPath', 'stage', 'message', 'retryUnchanged', 'nextAction'] } },
-      status: { type: 'string' }, rootImagePath: { oneOf: [{ type: 'string' }, { type: 'null' }] },
-      omittedPages: { type: 'array', items: { type: 'string' } },
-      pageCount: { type: 'integer' }, truncated: { type: 'boolean' }, readImageInstruction: { type: 'string' },
-      pages: { type: 'array', items: { type: 'object', additionalProperties: false, properties: {
-        pageIndex: { type: 'integer' }, exportedPageName: { type: 'string' },
-        pageSchematicPath: { oneOf: [{ type: 'string' }, { type: 'null' }] },
-        svgPath: { type: 'string' }, pngPath: { type: 'string' },
-      }, required: ['pageIndex', 'exportedPageName', 'pageSchematicPath', 'svgPath', 'pngPath'] } },
-    }, required: ['schematicPath', 'revision', 'outputDir', 'manifestPath', 'cached',
-      'pageCount', 'truncated', 'pages', 'failures', 'status', 'renderStatus', 'deliveryStatus', 'footprintCheck', 'rootImagePath', 'omittedPages', 'readImageInstruction', 'regionImages', 'regionManifestPath'] },
+      rootImagePath: {type:'string'}, pageCount: {type:'integer'},
+      pages: {type:'array',items:{type:'object',additionalProperties:false,properties:{
+        exportedPageName:{type:'string'},pngPath:{type:'string'},
+      },required:['exportedPageName','pngPath']}},
+      regionImages: {type:'array',items:{type:'object',additionalProperties:false,properties:{
+        name:{type:'string'},pageName:{type:'string'},pngPath:{type:'string'},
+      },required:['name','pageName','pngPath']}},
+      failures: {type:'array',items:{type:'object',additionalProperties:false,properties:{
+        code:{type:'string'},page:{type:'string'},svgPath:{type:'string'},stage:{type:'string'},
+        message:{type:'string'},retryUnchanged:{type:'boolean'},nextAction:{type:'string'},
+      },required:['code','page','svgPath','stage','message','retryUnchanged','nextAction']}},
+    }, required: ['revision','manifestPath','status','renderStatus','deliveryStatus','pageCount','pages'] },
     render: (_args, output) => [{ type: 'text', text: JSON.stringify(output, null, 2) }] },
     async execute(args, exec) {
       const input = validateKeys(args, ['schematicPath', 'outputDir', 'pageNames', 'regions', 'delivery', 'projectDir','kicadCliPath'], 'render_kicad_module_preview')
@@ -360,65 +366,47 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
       const sources = await collectPreviewSources(ctx.fs, workspace, source, config.maxSchematicBytes, exec.signal)
       const revision = createHash('sha256').update(JSON.stringify(sources)).digest('hex')
       const pageNames = input.pageNames === undefined ? [] : parseUnconnectedPorts(input.pageNames, 'pageNames')
-      if (pageNames.length > config.previewMaxPages) throw new Error(`code=PREVIEW_PAGE_LIMIT; retryUnchanged=false; request at most ${config.previewMaxPages} pageNames per call.`)
       const regions = resolvePreviewRegions(input.regions, source.text, basename(source.path, '.kicad_sch'), config.flatListLimit)
-      // Check prepared libraries before rendering; ordinary candidate previews can
-      // point at projectDir without copying libraries into each candidate folder.
-      let footprintCheck: {status:'ready'|'blocked';sheets:Array<{schematicPath:string}&Awaited<ReturnType<typeof auditFootprints>>>;error:string|null}|null=null
-      let checkedProject: string|undefined
-      if(input.delivery === true || input.projectDir !== undefined){
-        footprintCheck={status:'ready',sheets:[],error:null}
-        try{
-          const project=input.projectDir===undefined?dirname(source.path):requiredString(input,'projectDir')
-          const [root,resolved]=await Promise.all([ctx.fs.resolve(workspace,{signal:exec.signal}),ctx.fs.resolve(project,{cwd:workspace,signal:exec.signal})])
-          if(!ctx.fs.contains(root,resolved)||(await ctx.fs.stat(resolved,exec.signal))?.type!=='directory')throw new Error('projectDir must be an existing directory inside the workspace')
-          checkedProject=resolved.displayPath
-          for(const item of sources){
-            const sheet=item.schematicPath===source.path?source:await readWorkspaceSchematic(ctx.fs,workspace,item.schematicPath,config.maxSchematicBytes,exec.signal)
-            if(input.delivery===true)assertSchematicGrid(sheet.text)
-            const audit=await auditFootprints(sheet.text,checkedProject,ctx.fs,exec.signal)
-            footprintCheck.sheets.push({schematicPath:sheet.path,...audit})
-          }
-          const missing=footprintCheck.sheets.filter(sheet=>sheet.status!=='ready')
-          if(missing.length)throw new Error(`FOOTPRINTS_UNRESOLVED: ${missing.map(sheet=>`${sheet.schematicPath}: ${sheet.unresolved.map(part=>part.reference).join(', ')}`).join('; ')}. Prepare project-local footprints and persist script mappings before publishing; do not rebuild unchanged geometry to repair missing libraries.`)
-        }catch(error){
-          exec.signal.throwIfAborted()
-          footprintCheck.status='blocked';footprintCheck.error=error instanceof Error?error.message:String(error)
-        }
-      }
       const rendered = await renderModulePreview(outputDir, source.path, revision, renderConfig, exec.signal, sources, undefined, pageNames)
       const selectedRegions = input.regions === undefined ? regions.filter(r => rendered.pages.some(p => p.exportedPageName === r.pageName)) : regions
       const crops = await renderPreviewRegions(rendered.pages, selectedRegions, revision, rendered.manifestPath, config, exec.signal)
       const failures = [...rendered.failures, ...crops.failures]
-      const omittedPages = sources.filter(item => !rendered.pages.some(page => page.exportedPageName === item.exportedPageName)).map(item => item.exportedPageName)
       let overview = null, overviewError = null
       if(input.delivery === true){
-        if(footprintCheck?.status==='blocked')overviewError=footprintCheck.error
-        else if(!overviewAvailable)overviewError='Preview card service unavailable; use returned local preview paths.'
+        if(!overviewAvailable)overviewError='Preview card service unavailable; use returned local preview paths.'
         else if(!rendered.pages.length)overviewError='No rendered pages available for the overview.'
         else try {
-          overview = await createOverview({workspace,projectDir:checkedProject!,schematicPath:source.path,revision,pages:rendered.pages,sources})
+          const project = input.projectDir === undefined ? dirname(source.path) : requiredString(input,'projectDir')
+          const resolved = await ctx.fs.resolve(project,{cwd:workspace,signal:exec.signal})
+          overview = await createOverview({workspace,projectDir:resolved.displayPath,schematicPath:source.path,revision,pages:rendered.pages,sources})
         }catch(error){exec.signal.throwIfAborted();overviewError=error instanceof Error?error.message:String(error)}
       }
-      const renderStatus=rendered.pages.length===0?'error':rendered.truncated||failures.length>0?'partial':'ok'
+      const renderStatus=rendered.pages.length===0?'error':failures.length>0?'partial':'ok'
       const deliveryStatus=input.delivery!==true?'not_requested':overview?'ready':'blocked'
+      const status = deliveryStatus==='blocked'?'error':renderStatus
+      // One public manifest entry point, with full source/page/region diagnostics.
+      // Keep it separate from the renderer cache so different region selections cannot collide.
+      const manifestKey = createHash('sha256').update(JSON.stringify({regions:selectedRegions,delivery:input.delivery===true,projectDir:input.projectDir})).digest('hex').slice(0,20)
+      const manifestPath = join(dirname(rendered.manifestPath),`preview-${manifestKey}.json`)
+      await writeFile(manifestPath,JSON.stringify({schematicPath:source.path,revision,outputDir,sources,
+        pageManifestPath:rendered.manifestPath,regionManifestPath:crops.regionManifestPath,
+        cached:rendered.cached,pageCount:rendered.pageCount,pages:rendered.pages,regionImages:crops.regionImages,
+        failures,status,renderStatus,deliveryStatus,overview,overviewError},null,2)+'\n','utf8')
+      const rootImagePath = rendered.pages.find(page => page.pageSchematicPath===source.path || page.exportedPageName===basename(source.path,'.kicad_sch'))?.pngPath
       return {
-        overview, overviewError, renderStatus, deliveryStatus, footprintCheck,
-        schematicPath: source.path, revision, outputDir,
-        manifestPath: rendered.manifestPath, cached: rendered.cached,
-        pageCount: rendered.pageCount, truncated: rendered.truncated,
-        pages: rendered.pages, failures, regionImages: crops.regionImages, regionManifestPath: crops.regionManifestPath,
-        status: deliveryStatus==='blocked'||footprintCheck?.status==='blocked'?'error':renderStatus,
-        rootImagePath: rendered.pages.find(page => page.pageSchematicPath === source.path || page.exportedPageName === basename(source.path, '.kicad_sch'))?.pngPath ?? null,
-        omittedPages,
-        readImageInstruction: 'For module detail read exact regionImages[].pngPath first; each image includes millimetre bounds, source and revision in regionManifestPath. Read rootImagePath for overall layout, or an exact pages[].pngPath. Do not write crop/zoom scripts for existing region images. Only listed PNGs exist; never replace an SVG extension or construct a PNG path. Check failures first: do not repeat failed pages unchanged or export a netlist to repair a preview. For unrendered pages not listed in failures, call render_kicad_module_preview with the same schematicPath and pageNames from omittedPages. Match the image to revision and its pageSchematicPath using manifestPath, pageIndex, and exportedPageName. A null pageSchematicPath means the page name could not be matched; do not infer its child file. A preview is not netlist evidence.',
+        status,renderStatus,deliveryStatus,revision,manifestPath,pageCount:rendered.pageCount,
+        pages:rendered.pages.map(({exportedPageName,pngPath})=>({exportedPageName,pngPath})),
+        ...(rootImagePath?{rootImagePath}:{}),
+        ...(crops.regionImages.length?{regionImages:crops.regionImages.map(({name,pageName,pngPath})=>({name,pageName,pngPath}))}:{}),
+        ...(failures.length?{failures}:{}),
+        ...(overview?{overview}:{}),...(overviewError?{overviewError}:{}),
       }
     },
     presentCall: args => ({ card: 'generic', title: 'Render KiCad module preview', kind: 'read', rawInput: args }),
   }
   const hierarchy: ToolDefinition = {
     name: 'create_kicad_hierarchy',
-    description: 'Create a KiCad 10 hierarchical schematic from 1-9 single-sheet modules with explicit hierarchy ports. Connect by port name and root net; all generated hierarchy pins and copied labels are passive. For every port, supply a connection or list it in unconnectedPorts. Preflight reports port and symbol problems across all sheets before writing. The tool does not choose electrical connections, add ports, export a netlist, or run ERC. targetDir is an existing design root, for example designs/alarm_clock (not its schematic subfolder). The schematic subfolder is created during publication; output filenames must be unused.',
+    description: 'Create a KiCad 10 hierarchical schematic from 1-9 single-sheet modules with explicit hierarchy ports. Connect by port name and root net; all generated hierarchy pins and copied labels are passive. For every port, supply a connection or list it in unconnectedPorts. Preflight reports port and symbol problems across all sheets before writing. The tool does not choose electrical connections, add ports, export a netlist, or run ERC. targetDir is an existing design root, for example designs/alarm_clock (not its schematic subfolder). The schematic subfolder is created during publication; output filenames must be unused. Returns project/root and child paths; warnings and direction conflicts appear only when nonempty. Full assembly details are saved to targetDir/<projectName>.assembly.json.',
     parameters: { type: 'object', additionalProperties: false,
       properties: {
         designPlan:designPlanSchema,
@@ -434,20 +422,15 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
       }, required: ['projectName', 'title', 'targetDir', 'sheets','designPlan'] },
     output: { schema: { type: 'object', additionalProperties: false,
       properties: {
-        designPlan:designPlanSchema,
         projectPath: { type: 'string' }, rootPath: { type: 'string' },
-        symbolLibraryPath: { type: 'string' }, symbolTablePath: { type: 'string' },
         warnings: { type: 'array', items: { type: 'string' } },
         sheets: { type: 'array', items: { type: 'object', additionalProperties: false,
-          properties: { name: { type: 'string' }, sourcePath: { type: 'string' },
-            schematicPath: { type: 'string' }, portCount: { type: 'integer' },
-            unconnectedPortCount: { type: 'integer' },
+          properties: { name: { type: 'string' }, schematicPath: { type: 'string' },
             directionConflicts: { type: 'array', items: { type: 'object', additionalProperties: false,
               properties: { name: { type: 'string' }, sourceDirections: { type: 'array', items: { type: 'string' } } },
-              required: ['name', 'sourceDirections'] } },
-            referenceCount: { type: 'integer' } },
-          required: ['name', 'sourcePath', 'schematicPath', 'portCount', 'unconnectedPortCount', 'directionConflicts', 'referenceCount'] } },
-      }, required: ['projectPath', 'rootPath', 'symbolLibraryPath', 'symbolTablePath', 'sheets'] },
+              required: ['name', 'sourceDirections'] } } },
+          required: ['name', 'schematicPath'] } },
+      }, required: ['projectPath', 'rootPath', 'sheets'] },
       render: (_args, output) => [{ type: 'text', text: JSON.stringify(output) }] },
     async execute(args, exec) {
       const input = validateKeys(args, ['projectName', 'title', 'targetDir', 'sheets','designPlan'], 'create_kicad_hierarchy')
@@ -487,114 +470,15 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
       assertSchematicGrid(files.root)
       for(const child of files.children)assertSchematicGrid(child.text)
       const paths = await publishAssembly(ctx.fs, workspace, targetDir, projectName, files,
-        undefined, exec.signal)
-      return { designPlan:{path:designPlan.path,sha256:designPlan.sha256},projectPath: paths.projectPath, rootPath: paths.rootPath,
-        symbolLibraryPath: paths.symbolLibraryPath, symbolTablePath: paths.symbolTablePath, warnings: files.warnings,
-        sheets: sheets.map((sheet, index) => ({ name: sheet.name, sourcePath: sheet.sourcePath,
-          schematicPath: paths.childPaths[index]!, portCount: sheet.connections.length + sheet.unconnectedPorts.length,
-          unconnectedPortCount: sheet.unconnectedPorts.length,
-          directionConflicts: files.children[index]!.directionConflicts,
-          referenceCount: Object.keys(files.children[index]!.references).length })) }
+        undefined, exec.signal, {designPlan: {path: designPlan.path, sha256: designPlan.sha256},
+          sheets: sheets.map(({sourcePath, connections, unconnectedPorts}) => ({sourcePath, connections, unconnectedPorts}))})
+      return {projectPath: paths.projectPath, rootPath: paths.rootPath,
+        ...(files.warnings.length > 0 ? {warnings: files.warnings} : {}),
+        sheets: sheets.map((sheet, index) => ({name: sheet.name, schematicPath: paths.childPaths[index]!,
+          ...(files.children[index]!.directionConflicts.length > 0
+            ? {directionConflicts: files.children[index]!.directionConflicts} : {})}))}
     },
     presentCall: args => ({ card: 'generic', title: 'Create KiCad hierarchy', kind: 'edit', rawInput: args }),
   }
-  const flat: ToolDefinition = {
-    name: 'edit_kicad_flat_schematic',
-    description: 'Adapt a single-sheet schematic during implementation: read geometry/UUIDs or create an edited copy. During design planning use analyze_kicad_module for components, BOM and electrical nets; do not routinely call this tool or duplicate available results. Planning reads need a specific unanswered question, such as a missing drawing note; use list with types/references. Defer geometry queries and create until implementation. List/connections are read-only. Connections requires reference and pin number, follows visible wires only, not label aliases, hidden power or hierarchy. List returns objects, pin coordinates, image placement and conservative bounds. Create supports deletions, value/label edits, explicit orthogonal wires and frames; no new/moved symbols or automatic routing. Prefer frames autoBounds:true without start/end; objectUuids selects content, excludeUuids omits retained decoration from bounds. Use manual bounds for unsupported geometry. removeTextUuids only accepts text/text_box; images use removeUuids. Preserve necessary notes; select wires around deleted symbols explicitly. targetDir must exist; new outputs go under schematic/, preserving the source. No ERC or connectivity audit.',
-    parameters: { type: 'object', additionalProperties: false, properties: {
-      designPlan:{...designPlanSchema,description:'Required for action:create. Saved and reviewed hardware plan path and exact sha256 returned by run-design.mjs --read-plan. Not used for list/connections.'},
-      action: { type: 'string', enum: ['list', 'connections', 'create'] }, sourcePath: { type: 'string' },
-      references: {type: 'array', items: {type: 'string'}, description: 'List only selected symbol references.'},
-      reference: {type: 'string', description: 'connections: exact placed reference'}, pin: {type: 'string', description: 'connections: pin number, not name'},
-      offset: { type: 'integer' }, types: { type: 'array', items: { type: 'string' } },
-      targetDir: { type: 'string' }, projectName: { type: 'string' },
-      removeReferences: { type: 'array', items: { type: 'string' } },
-      removeUuids: { type: 'array', items: { type: 'string' } },
-      removeTextUuids: { type: 'array', description: 'UUIDs of selected top-level text/text_box annotations to remove from the project copy; labels and symbol properties are rejected.', items: { type: 'string' } },
-      setValues: { type: 'array', items: { type: 'object', additionalProperties: false,
-        properties: { reference: { type: 'string' }, value: { type: 'string' } }, required: ['reference', 'value'] } },
-      setLabels: { type: 'array', items: { type: 'object', additionalProperties: false,
-        properties: { uuid: { type: 'string' }, name: { type: 'string' }, at: { type: 'array', items: { type: 'number' } }, angle: { type: 'number', enum: [0, 90, 180, 270] } }, required: ['uuid'] } },
-      addWires: { type: 'array', items: { type: 'object', additionalProperties: false,
-        properties: { from: { oneOf: [{ type: 'array', items: { type: 'number' } }, { type: 'object', additionalProperties: false, properties: { reference: { type: 'string' }, pin: { type: 'string' } }, required: ['reference', 'pin'] }] },
-          to: { oneOf: [{ type: 'array', items: { type: 'number' } }, { type: 'object', additionalProperties: false, properties: { reference: { type: 'string' }, pin: { type: 'string' } }, required: ['reference', 'pin'] }] },
-          via: { type: 'array', items: { type: 'array', items: { type: 'number' } } } }, required: ['from', 'to'] } },
-      frames: { type: 'array', items: { type: 'object', additionalProperties: false,
-        properties: { name: { type: 'string' }, description: { type: 'string' },
-          start: { type: 'array', items: { type: 'number' } }, end: { type: 'array', items: { type: 'number' } },
-          autoBounds: { type: 'boolean', description: 'Calculate bounds after edits with configured text space, padding and grid; omit start/end.' },
-          objectUuids: { type: 'array', description: 'Optional exact retained objects belonging to this module; omission selects all content except old rectangles.', items: { type: 'string' } },
-          excludeUuids: { type: 'array', description: 'Retained decoration omitted from automatic frame bounds; these objects are not deleted.', items: { type: 'string' } } },
-        required: ['name', 'description'], oneOf: [{ required: ['start', 'end'], properties: { autoBounds: { const: false } } },
-          { required: ['autoBounds'], properties: { autoBounds: { const: true } } }] } },
-    }, required: ['action', 'sourcePath'] },
-    output: { schema: { type: 'object', additionalProperties: false, properties: {
-      designPlan:designPlanSchema,
-      sha256: {type: 'string'}, connection: {type: 'object'},
-      status: { type: 'string' }, sourcePath: { type: 'string' }, totalObjects: { type: 'integer' },
-      nextOffset: { oneOf: [{ type: 'integer' }, { type: 'null' }] },
-      objects: { type: 'array', items: { type: 'object' } }, schematicPath: { type: 'string' }, projectPath: { type: 'string' },
-      changes: { type: 'object' }, layout: { type: 'object' }, frames: { type: 'array', items: { type: 'object' } }, nextAction: { type: 'string' },
-    }, required: ['status', 'sourcePath', 'nextAction'] },
-    render: (_args, output) => [{ type: 'text', text: JSON.stringify(output, null, 2) }] },
-    async execute(args, exec) {
-      let sourcePath = ''
-      try {
-        const request = parseFlatRequest(args, config.flatListLimit)
-        sourcePath = request.sourcePath
-        const workspace = workspaceRoot(exec.agent)
-        const source = await readWorkspaceSchematic(ctx.fs, workspace, request.sourcePath, config.maxSchematicBytes, exec.signal)
-        sourcePath = source.path
-        const sha256 = createHash('sha256').update(source.text).digest('hex')
-        if (request.action === 'connections') {
-          const {objects, ...connection} = inspectPinConnections(listFlatObjects(source.text), request.reference, request.pin)
-          const next = request.offset + request.limit
-          return {status: 'connected', sourcePath: source.path, sha256, connection,
-            objects: objects.slice(request.offset, next), totalObjects: objects.length,
-            nextOffset: next < objects.length ? next : null,
-            nextAction: 'Reuse this result; inspect limitations/diagnostics. Visible wires only, not complete electrical nets: use analyze_kicad_module for electrical questions. Only when implementing an edit, use target.endpoint or coordinates with explicit via points. Refresh geometry if the source changes. No ERC.'}
-        }
-        if (request.action === 'list') {
-          const allObjects = listFlatObjects(source.text, flatTemplates.style)
-          const objects = allObjects.filter(item => request.types.length === 0 || request.types.includes(item.type))
-            .filter(item => request.references.length === 0 || (item.reference !== undefined && request.references.includes(item.reference)))
-          const next = request.offset + request.limit
-          return { status: 'listed', sourcePath: source.path, sha256, totalObjects: objects.length,
-            objects: objects.slice(request.offset, next), nextOffset: next < objects.length ? next : null,
-            layout: summarizeFlatLayout(allObjects, flatTemplates.style),
-            nextAction: 'Reuse the requested information; fetch nextOffset only if needed. Planning reads do not require an edited copy. Only when implementing edits, use these UUIDs/coordinates and prefer frames autoBounds:true. Image sizes are in mm; bounds describe layout, not electrical connectivity.' }
-        }
-        const designPlan=await readWorkspaceDesignPlan(ctx.fs,workspace,request.designPlan,exec.signal)
-        const files = buildFlatCopy(source.text, request.projectName, request.plan, flatTemplates)
-        assertSchematicGrid(files.schematic)
-        const directory = await ctx.fs.resolve(request.targetDir, { cwd: workspace, signal: exec.signal })
-        const workspaceDirectory = await ctx.fs.resolve(workspace, { signal: exec.signal })
-        if (!ctx.fs.contains(workspaceDirectory, directory) || (await ctx.fs.stat(directory, exec.signal))?.type !== 'directory') throw new Error('targetDir must be an existing design directory inside the workspace')
-        const targets = await Promise.all([
-          [`${request.projectName}.kicad_sch`, files.schematic], [`${request.projectName}.kicad_pro`, files.project],
-        ].map(async ([filename, content]) => {
-          const target = await ctx.fs.resolve(join(directory.displayPath, 'schematic', filename!), { signal: exec.signal })
-          if (!ctx.fs.contains(directory, target) || target.displayPath === source.path) throw new Error('flat output must stay in targetDir and preserve the source')
-          if (await ctx.fs.stat(target, exec.signal) !== undefined) throw new Error(`flat output already exists: ${target.displayPath}; use an unused projectName or targetDir`)
-          return { target, content: content! }
-        }))
-        await writeOutputs(ctx.fs, targets, undefined, exec.signal)
-        return { designPlan:{path:designPlan.path,sha256:designPlan.sha256},status: 'created', sourcePath: source.path, schematicPath: targets[0]!.target.displayPath,
-          projectPath: targets[1]!.target.displayPath, changes: files.changes, frames: files.resolvedFrames,
-          nextAction: 'Render schematicPath and read a returned PNG. The source is unchanged. No endpoint audit, ERC, or netlist verification was run. Further copies need unused output names.' }
-      } catch (error) {
-        exec.signal.throwIfAborted()
-        throw new Error(JSON.stringify({ code: 'FLAT_EDIT_FAILED', stage: 'flat_edit', sourcePath,
-          message: error instanceof Error ? error.message : String(error), retryUnchanged: false,
-          nextAction: 'Correct the listed selector, cache, wire path, or output name before retrying. Do not use line-number deletion or write a temporary parser. A publication error may leave preceding files; inspect reported paths.' }), { cause: error })
-      }
-    },
-    presentCall: args => {
-      const action = (args as {action?: string})?.action
-      return {card: 'generic', title: action === 'list' ? '读取原理图对象'
-        : action === 'connections' ? '查询局部导线连接' : '生成原理图修改副本',
-      kind: action === 'list' || action === 'connections' ? 'read' : 'edit', rawInput: args}
-    },
-  }
-  for (const tool of [ports, preview, hierarchy, flat]) ctx.effect(() => ctx.tools.register(tool))
+  for (const tool of [ports, preview, hierarchy]) ctx.effect(() => ctx.tools.register(tool))
 }

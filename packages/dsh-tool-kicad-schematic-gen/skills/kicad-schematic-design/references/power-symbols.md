@@ -1,55 +1,42 @@
-# 电源符号交付
+# 共享电源符号
 
-用于将已确认共享电源标签转换为标准符号。只声明实际共享网络，不推断 AGND/GND 等同，不合并隔离域，不自动加 PWR_FLAG。
+主 agent或单框脚本需要手动控制转换时读取；模块运行时已代管转换，子 agent只在内部实际接点添加电源标签。只处理确认共享的网络，不合并隔离地、不自动添加PWR_FLAG。
 
-## 最小调用
-
-初始化与执行方式沿用 [编程接口](programming.md)，不另建演示工程。powerNets 使用精确网络名与符号 ID，POWER_LIB 使用实际 power.kicad_sym 路径：
+## 最小接口
 
 ```js
-const powerNets = {GND:'power:GND', '+3V3':'power:+3V3'};
-const sch = new Schematic({...projectOptions, requiredPowerSymbols:powerNets});
-// 先完成所有模块导入、器件、接线及标签。
-const spec = {libraryPath:POWER_LIB, nets:powerNets};
-const plan = sch.planPowerPlacements(spec);
-// 如有具体遮挡，在转换前按下节修正 plan.placements。
-sch.replacePowerLabels({...spec, placements:plan.placements});
+const powerNets={GND:'power:GND','+3V3':'power:+3V3'};
+const spec={libraryPath:symbolLibrary('power'),nets:powerNets};
+// 初始化Schematic时声明requiredPowerSymbols:powerNets；先完成所有器件与接线。
+const plan=sch.planPowerPlacements(spec);
+sch.replacePowerLabels({...spec,placements:plan.placements});
 sch.checkPowerSymbols();
-console.log(JSON.stringify({...sch.save(process.argv[2]), powerPlan:plan.diagnostics}));
+console.log(JSON.stringify(sch.save(process.argv[2])));
 ```
 
-## 规划与返回
+symbolLibrary从runtimePath导入；随包库含GND/+3V3/+5V，无需联网或搜本机目录。特殊符号使用核实的库，不能换网名凑符号。正式project/libraries/symbols/power.kicad_sym保留实际库字节，sym-lib-table以power和${KIPRJMOD}注册；已有不同库先核对，不覆盖其他条目。电源绘图符号不需实体封装。
 
-`planPowerPlacements({libraryPath,nets,clearanceMm?,maxMoveMm?})` 不修改图纸，返回 placements、diagnostics。默认 clearanceMm=0.6、maxMoveMm=5.08；保持符号原生角度0，冲突时有限尝试90/270/180度、水平文字位置及2.54 mm倍数的短直引线。maxMoveMm=0只规划方向和文字，不绕复杂路径；候选拒绝穿越其它导线、引脚或对象边界。
+## 规划和精确调整
 
-自动诊断 stage:automatic，包含 plannedCount/rotatedCount/movedCount/candidateCount、unresolved（UUID、网络、坐标、冲突对象）及 unmeasuredObjectUuids。拥挤时仍返回较少冲突方案，不能据此宣称无重叠。规划自动采用已注册 region/frame 的实际外框，预留顶部标题和底部说明带；未归属任何框的标签只受页面约束。符号和文字不能跨出所属内容区，新增短引线不能越出所属框。POWER_PLACEMENT_UNAVAILABLE 会一次列出无法安放的网络和区域，集中扩大区域或调整接点后重试，不逐个试坐标。外框应在规划前注册。
+planPowerPlacements({libraryPath,nets,clearanceMm?,maxMoveMm?})返回placements、diagnostics，不改图。默认间距0.6mm、最大移动5.08mm，优先原生角度0和短引线；必要时有限旋转且保持文字水平。maxMoveMm:0仍可规划方向/文字，不绕复杂路径。
 
-## 精确调整当前标签
+规划利用已注册region/frame的真实边界，预留标题/说明；新增短线和符号不得越框或穿越其它引脚/导线。POWER_PLACEMENT_UNAVAILABLE时按全部接点集中扩框或改通道，不逐个微调，不删除符号要求。
 
-`powerLabelCatalog(nets)` 返回所选局部/全局标签的 `{uuid,net,at,angle,type,module?}` 副本；at 是整页坐标，module 为导入名，新建标签没有 module。它不列层次端口。跨次构建 UUID 会变化，按模块、网络、坐标定位当前对象：
+需要定点调整时，powerLabelCatalog(nets)返回当前标签的uuid/net/at/angle/type及可选module，at为全局坐标，不含层次端口。每轮UUID会变，按模块、网络和实际坐标唯一定位：
 
 ```js
-const labels = sch.powerLabelCatalog(Object.keys(powerNets));
-const targets = labels.filter(x => x.module==='core' && x.net==='GND'
-  && Math.abs(x.at[0]-plannedAnchor[0])<0.001
-  && Math.abs(x.at[1]-plannedAnchor[1])<0.001);
-if (targets.length!==1) throw new Error('Expected one current core GND label');
-plan.placements[targets[0].uuid] = {at:targets[0].at, valueAt:plannedTextAt};
+const targets=sch.powerLabelCatalog(['GND']).filter(x=>x.module==='core'
+ && Math.abs(x.at[0]-anchor[0])<0.001 && Math.abs(x.at[1]-anchor[1])<0.001);
+if(targets.length!==1)throw new Error('Expected one current GND label');
+plan.placements[targets[0].uuid]={at:targets[0].at,valueAt:textAt};
 ```
 
-plannedAnchor/plannedTextAt 来自当前布局计划。先改 valueAt；确需移动再用 `{at:plannedSymbolAt,via:plannedBends,angle,valueAt}`，库从原接点补正交线。多个匹配不得任选第一个；确定全部位置后转换一次。转换后 catalog 不再含原标签，要调整则改脚本重建，用新 plan，不重复转换旧对象。
+anchor/textAt由当前布局确定；先调整文字valueAt，确需移动再提供at/angle/via，库从原接点补正交线。多个匹配不任选第一个，转换只执行一次；后续改脚本重建，不重复转换旧对象。
 
-## 最终诊断
+## 最终检查
 
-手工改 placements 不会更新早先 plan.diagnostics。转换后用 sch.powerLayoutDiagnostics()，或直接读 save().powerLayout（stage:final、checkedCount、issues、unmeasuredObjectUuids），以实际符号、水平文字及生成的外框重新检查。issues 包含 POWER_LAYOUT_OVERLAP、POWER_LAYOUT_OUTSIDE_FRAME、POWER_LAYOUT_OUTSIDE_PAGE；即使手工将符号移出原框也保留原归属。layoutWarnings 保留旧的重叠提示接口。自动诊断不能冒充最终结果；最终诊断仍是保守几何提示，不是电气检查。
+- checkPowerSymbols确认声明网络有精确符号、无未转换标签；不能只看#PWR编号。未声明的网络不在保证范围内。
+- plan.diagnostics是automatic阶段，手改placements不会更新它；最终读save().powerLayout或powerLayoutDiagnostics()的final结果，关注overlap、outside_frame/page和未测对象。
+- 默认字段调整保留显式位置；零未决不代表文字可读。诊断采用保守边界，须按 [布局交付](layout-delivery.md) 看实际图，误报说明位置，不追求清零。
 
-## 检查与恢复
-
-| 条件 | 处理 |
-| --- | --- |
-| checkPowerSymbols | 每个声明网络至少一个精确对应电源符号，无残留局部/全局标签；返回 symbolCount/remainingLabelUuids。核对实际缓存 power 定义、libId 和 Value，不只看 #PWR 编号。 |
-| POWER_SYMBOLS_REQUIRED | render/save 写入前同样检查；补缺失符号、漏转换或转换后新加标签。未声明网络不会被此检查覆盖，新设计必须显式声明。 |
-| POWER_LABEL_INVALID | 查本次 catalog 和 placements，勿复制旧 UUID、取消转换或改回电源标签。 |
-| 图形/文字遮挡 | 调整 valueAt 或 at/angle/via 后看受影响区域；不能撤掉 requiredPowerSymbols 绕过。无法解决则报告具体位置。 |
-
-layoutWarnings/powerLayoutWarnings() 和规划诊断采用保守边界，可误报或漏报。按 [布局交付](layout-delivery.md) 判断实际可读性，已确认无影响的警告可保留，不追求清零。检查不证明供电拓扑、连通性或全部遮挡正确，不代表 ERC 通过。
+POWER_SYMBOLS_REQUIRED先补漏标签/转换；POWER_LABEL_INVALID用本轮catalog，不复制旧UUID。具体错误查 [恢复参考](troubleshooting.md)。检查不认证供电拓扑或完整电气正确。

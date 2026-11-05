@@ -5,6 +5,7 @@ import { isAbsolute, join } from 'node:path'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import { fetchSymbolSource, inspectBuilderCompatibility, type BuilderCompatibility, type ModelFetchOptions } from './models.ts'
 import { normalizeCommonUnits } from '../schematic/symbol-units.ts'
+import { mergeSymbolProperties, assignSymbolFootprint } from './symbol-properties.ts'
 
 export type ProjectFileSystem = Pick<FileSystem, 'resolve' | 'contains' | 'stat' | 'readText' | 'writeText'>
 type WritePolicy = Parameters<FileSystem['writeText']>[4]
@@ -23,10 +24,40 @@ export interface ImportedSymbol {
   table: 'created' | 'updated' | 'existing'
 }
 
+/** Compact public response; the paired importer retains the full internal result. */
+export function summarizeImportedSymbol(result:ImportedSymbol) {
+  const compatibility=result.builderCompatibility
+  return {
+    part:result.part,libId:result.libId,libraryPath:result.libraryPath,
+    units:compatibility.availableUnits,library:result.library,table:result.table,
+    ...(result.symbolTextRepaired?{symbolTextRepaired:true}:{}),
+    ...(compatibility.normalization?{normalization:compatibility.normalization}:{}),
+    ...(compatibility.status==='unsupported_units'
+      ?{error:{code:'SYMBOL_UNITS_UNSUPPORTED',nextAction:compatibility.nextAction}}:{}),
+  }
+}
+
+/** Save provenance beside the local library, keeping verbose metadata out of tool output. */
+export async function saveSymbolImportRecord(result:ImportedSymbol,workspaceRoot:string,
+  fs:ProjectFileSystem,policy:WritePolicy,signal:AbortSignal):Promise<void> {
+  const workspace=await fs.resolve(workspaceRoot,{signal})
+  const target=await fs.resolve(`${result.libraryPath}.import.json`,{signal})
+  if(!fs.contains(workspace,target))throw new Error('Symbol import record must stay inside workspace')
+  const info=await fs.stat(target,signal)
+  if(info&&info.type!=='file')throw new Error(`Symbol import record is not a file: ${target.displayPath}`)
+  const text=JSON.stringify({version:1,...result},null,2)+'\n'
+  if(info&&await fs.readText(target,signal)===text)return
+  try {
+    await fs.writeText(target,text,info?{kind:'replaceIfVersion',version:info.version}:{kind:'createIfAbsent'},signal,policy)
+  }catch(error){
+    throw new Error(`Symbol imported at ${result.libraryPath}, but import record could not be saved at ${target.displayPath}. Inspect existing files before retrying.`,{cause:error})
+  }
+}
+
 export function libraryName(mfgId: string, mpn: string): string {
   const readable = mpn.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40) || 'part'
   const suffix = createHash('sha256').update(mpn).digest('hex').slice(0, 12)
-  return `DSH_${mfgId}_${readable}_${suffix}`
+  return `kicad_lib_${mfgId}_${readable}_${suffix}`
 }
 
 function rootClose(text: string): number {
@@ -117,7 +148,9 @@ function balancedSymbolText(text: string, part: string): string {
 
 /**
  * Write only within the active session workspace and an existing project directory.
- * Existing libraries are never replaced; a failed table write can leave a new
+ * Different existing libraries are refused. Paired import may bind the verified
+ * footprint on an otherwise identical unbound library using version checks.
+ * A failed table write can leave a new
  * unregistered library file, whose path is included in the error for recovery.
  */
 export async function importSymbol(
@@ -131,6 +164,7 @@ export async function importSymbol(
   signal: AbortSignal,
   fetcher: typeof fetch = fetch,
   preparedSource?: Awaited<ReturnType<typeof fetchSymbolSource>>,
+  defaultFootprintId?: string,
 ): Promise<ImportedSymbol> {
   const workspace = await fs.resolve(workspaceRoot, { signal })
   const project = await fs.resolve(projectDir ?? workspaceRoot, { cwd: workspaceRoot, signal })
@@ -154,10 +188,18 @@ export async function importSymbol(
 
   const rawText = source.text.endsWith('\n') ? source.text : `${source.text}\n`
   const balancedText = balancedSymbolText(rawText, `${mfgId}:${mpn}`)
-  const normalizedText = normalizeCommonUnits(balancedText)
+  const enrichedText = normalizeCommonUnits(mergeSymbolProperties(balancedText, source.part))
+  let normalizedText = defaultFootprintId ? assignSymbolFootprint(enrichedText,defaultFootprintId) : enrichedText
+  if (Buffer.byteLength(normalizedText)>options.maxModelBytes)throw new Error('Enriched symbol exceeds maxModelBytes')
   const symbolTextRepaired = balancedText !== rawText
   const libraryInfo = await fs.stat(library, signal)
-  if (libraryInfo !== undefined && (libraryInfo.type !== 'file' || await fs.readText(library, signal) !== normalizedText)) {
+  const existingText=libraryInfo?.type==='file'?await fs.readText(library,signal):undefined
+  // A later symbol-only call must retain a verified binding made by paired import.
+  if(!defaultFootprintId && existingText && !/[:\r\n]/u.test(mpn)
+    && assignSymbolFootprint(enrichedText,`kicad_api_lib:${mpn}`)===existingText)normalizedText=existingText
+  // Upgrade an otherwise identical unbound symbol (e.g. a prior symbol-only import).
+  const bindExisting=!!defaultFootprintId && existingText===enrichedText && existingText!==normalizedText
+  if (libraryInfo !== undefined && (libraryInfo.type !== 'file' || (existingText !== normalizedText && !bindExisting))) {
     throw new Error(`Symbol library already exists with different content: ${library.displayPath}`)
   }
   const tableInfo = await fs.stat(table, signal)
@@ -167,6 +209,7 @@ export async function importSymbol(
 
   signal.throwIfAborted()
   if (libraryInfo === undefined) await fs.writeText(library, normalizedText, { kind: 'createIfAbsent' }, signal, policy)
+  else if(bindExisting)await fs.writeText(library,normalizedText,{kind:'replaceIfVersion',version:libraryInfo.version},signal,policy)
   let tableOperation: ImportedSymbol['table'] = 'existing'
   if (nextTable !== null) {
     try {

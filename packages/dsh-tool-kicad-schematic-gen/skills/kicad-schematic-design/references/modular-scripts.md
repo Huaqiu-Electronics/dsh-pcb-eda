@@ -1,6 +1,10 @@
-# 按功能框拆分生成脚本
+# 顺序脚本组织示例（按需）
 
-一个模块对应一个功能框，所有模块写入主入口创建的同一个 Schematic。模块文件是模型编写电路的组织方式；实际连接、器件和布局仍由模型设计。
+仅用于已有顺序脚本的定向修改或明确允许的顺序构建。默认并行路线只读 [并行生成](parallel-generation.md)，以清单region管理布局，不采用本页layout.mjs或动态编号。
+
+一个模块对应一个功能框，所有模块写入同一个Schematic；实际电路仍由模型设计。
+
+多个独立模块可由主 agent 按 [并行生成](parallel-generation.md) 派发给独立上下文子 agent。该路线使用 module-plan.json 中固定的角色位号、端口和 region，check-module 独立验证后再统一装配；下文普通模板的动态编号仅用于顺序编写示例。模块文件自身不保存图纸；独立候选由通用检查入口创建。
 
 ```text
 scripts/
@@ -26,15 +30,15 @@ scripts/
 复制 [modular-design](../assets/modular-design/design.mjs) 所在整个目录到项目的 scripts/。范例含两个电阻功能框，展示统一引用、分两阶段生成、模块端口和主入口跨区连线。它是接口示例，实际工程须替换器件、网络和布局。范例采用本机 Device:R 与现有 builder.js，不需要新增模型工具。
 
 ```powershell
-node <runnerPath> <设计目录>/scripts/design.mjs <设计目录>/.candidate/<唯一run-id> <构建报告.json> --plan <方案绝对路径> --plan-sha256 <读回的sha256>
+node <runnerPath> <设计目录>/scripts/design.mjs <设计目录>/.candidate/<唯一run-id> <构建报告.json> --plan <方案绝对路径> --plan-sha256 <读回的sha256> --sequential-reason "顺序接口范例验证，不是实际多框项目生成"
 ```
 
 先按 [执行约定](programming.md#执行脚本与读取结果) 读回方案；runnerPath 使用技能返回路径。模块自身不保存单独的 .kicad_sch，也不拼接符号缓存或 UUID，由共用 Schematic 处理。入口一次生成整图，脚本拆分减少读取和局部修改范围，不提供增量生成或自动布线。
 
 ## 局部修改
 
-仅位置、外框、文字变动时优先改 layout.mjs；器件或接线变动时才改对应模块和方案。使用结构化 edit 或明确 UTF-8 的文件接口，不用 Shell 默认编码和全局正则改写脚本。重新运行入口并查看工具返回的对应区域预览；必要时查看跨区连接，交付前查看全图。不要每次重新阅读全部模块、重写符号解析器、生成端点审计脚本或创建 revN 工程。编辑文件查询外框时用 `types:["rectangle"]`，region/frame 是生成接口概念，不是可查询对象类型。
+仅位置、外框、文字变动时优先改 layout.mjs；移动模块改 origin，外框大小改 size，保留模块内相对坐标。器件或接线变动时才改对应模块和方案；不要把原本全局坐标的旧脚本直接当成 region 相对坐标。按 [脚本编辑与编码](programming.md#脚本编辑与编码) 局部 edit，不用 Shell 默认编码和全局正则改写脚本。重新运行入口并查看工具返回的对应区域预览；必要时查看跨区连接，交付前查看全图。不要每次重新阅读全部模块、重写符号解析器、生成端点审计脚本或创建 revN 工程。
 
 ## 功能框内的小电路
 
-LED、按键、去耦等先按 [局部画法](drawing-patterns.md#选定后直接读取) 读取选定代码、依赖和参考图，再组合到同一功能模块。通用示例只演示脚本组织，不代替局部画法读取；不为每条支路新建 region。其 reservedBounds 是 region 内的预留范围，与本页功能模块的 bounds 布局表不是同一字段；不能当作精确测量或自动打包结果。主入口分配位号，模块内调用各单元 place，统一 connect；跨单元通过真实 ports 或已确认网络连接。先留出属性和标签空间，再依据实际预览调整区域大小。
+LED、按键、去耦可自由编写；明确采用 [现成画法](drawing-patterns.md#选定后直接读取) 时只读选定代码、依赖及参考图。通用示例只演示脚本组织；不为每条支路新建 region。其 reservedBounds 是 region 内的预留范围，与本页功能模块的 bounds 布局表不是同一字段；不能当作精确测量或自动打包结果。主入口分配位号，模块内调用各单元 place，统一 connect；跨单元通过真实 ports 或已确认网络连接。先留出属性和标签空间，再依据实际预览调整区域大小。

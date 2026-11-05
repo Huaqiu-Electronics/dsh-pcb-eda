@@ -51,7 +51,6 @@ export interface PreviewConfig {
   kicadCliPath: string
   previewDensity: number
   previewMaxWidth: number
-  previewMaxPages: number
   previewPadding: number
   previewTimeoutMs: number
   previewTrimThreshold: number
@@ -89,7 +88,6 @@ export interface ModulePreview {
   manifestPath: string
   cached: boolean
   pageCount: number
-  truncated: boolean
   pages: PreviewPage[]
   failures: PreviewFailure[]
 }
@@ -108,11 +106,9 @@ interface PreviewManifest {
   sources: PreviewSource[]
   density: number
   maxWidth: number
-  maxPages: number
   padding: number
   trimThreshold: number
   pageCount: number
-  truncated: boolean
   pages: Array<{ pageIndex: number; svg: string; png: string; pageSchematicPath: string | null }>
 }
 
@@ -156,11 +152,11 @@ function manifest(value: unknown, schematicPath: string, revision: string,
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined
   const item = value as Record<string, unknown>
   if (item.sourceSchematicPath !== schematicPath || item.revision !== revision || item.density !== config.previewDensity
-    || item.maxWidth !== config.previewMaxWidth || item.maxPages !== config.previewMaxPages
+    || item.maxWidth !== config.previewMaxWidth
     || item.padding !== config.previewPadding || item.trimThreshold !== config.previewTrimThreshold
     || !Array.isArray(item.failures) || item.failures.length > 0
     || typeof item.pageCount !== 'number'
-    || typeof item.truncated !== 'boolean' || !Array.isArray(item.pages)
+    || !Array.isArray(item.pages)
     || JSON.stringify(item.sources) !== JSON.stringify(sources)) return undefined
   const pages: PreviewManifest['pages'] = []
   for (const [index, page] of item.pages.entries()) {
@@ -174,9 +170,9 @@ function manifest(value: unknown, schematicPath: string, revision: string,
   }
   return { failures: [], sourceSchematicPath: schematicPath, revision, sources,
     density: config.previewDensity, maxWidth: config.previewMaxWidth,
-    maxPages: config.previewMaxPages, padding: config.previewPadding,
+    padding: config.previewPadding,
     trimThreshold: config.previewTrimThreshold,
-    pageCount: item.pageCount, truncated: item.truncated, pages }
+    pageCount: item.pageCount, pages }
 }
 
 async function cachedPreview(directory: string, schematicPath: string, revision: string,
@@ -198,7 +194,7 @@ async function cachedPreview(directory: string, schematicPath: string, revision:
         pageSchematicPath: page.pageSchematicPath, svgPath, pngPath }
     }))
     return { manifestPath: join(directory, 'manifest.json'), cached: true,
-      pageCount: saved.pageCount, truncated: saved.truncated, pages, failures: [] }
+      pageCount: saved.pageCount, pages, failures: [] }
   } catch (error: unknown) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
     throw error
@@ -271,7 +267,7 @@ export async function renderModulePreview(
   const sourceKey = createHash('sha256').update(schematicPath).digest('hex').slice(0, 12)
   const renderKey = createHash('sha256').update(JSON.stringify({ revision, sources, pageNames,
     density: config.previewDensity, width: config.previewMaxWidth, trim: config.previewTrimThreshold,
-    padding: config.previewPadding, pages: config.previewMaxPages, format: 'bounded-v3' })).digest('hex').slice(0, 24)
+    padding: config.previewPadding, format: 'all-pages-v4' })).digest('hex').slice(0, 24)
   const directory = join(outputDir, sourceKey, renderKey)
   const exportNames = new Set([basename(schematicPath, '.kicad_sch'), ...sources.map(s => s.exportedPageName), ...pageNames])
   const longPath = [...exportNames].map(name => join(directory, `${name}.svg`)).find(path => path.length >= 260)
@@ -302,7 +298,7 @@ export async function renderModulePreview(
   if (missing.length > 0) throw new Error(`code=PREVIEW_PAGE_NOT_FOUND; retryUnchanged=false; missingPages=${JSON.stringify(missing)}; availablePages=${JSON.stringify(svgFiles.map(file => basename(file, '.svg')))}. Use an exact available page name.`)
   const ordered = pageNames.length > 0 ? requested
     : [...svgFiles.filter(file => file === rootSvg), ...svgFiles.filter(file => file !== rootSvg)]
-  const selected = ordered.slice(0, config.previewMaxPages)
+  const selected = ordered
   const pages: PreviewPage[] = []
   const failures: PreviewFailure[] = []
   for (const svg of selected) {
@@ -331,16 +327,14 @@ export async function renderModulePreview(
     failures, sourceSchematicPath: schematicPath, revision, sources,
     density: config.previewDensity,
     maxWidth: config.previewMaxWidth,
-    maxPages: config.previewMaxPages,
     padding: config.previewPadding,
     trimThreshold: config.previewTrimThreshold,
     pageCount: svgFiles.length,
-    truncated: svgFiles.length > pages.length,
     pages: pages.map(page => ({ pageIndex: page.pageIndex,
       svg: basename(page.svgPath), png: basename(page.pngPath),
       pageSchematicPath: page.pageSchematicPath })),
   }
   const manifestPath = join(directory, 'manifest.json')
   await writeFile(manifestPath, JSON.stringify(saved, null, 2) + '\n', 'utf8')
-  return { manifestPath, cached: false, pageCount: saved.pageCount, truncated: saved.truncated, pages, failures }
+  return { manifestPath, cached: false, pageCount: saved.pageCount, pages, failures }
 }

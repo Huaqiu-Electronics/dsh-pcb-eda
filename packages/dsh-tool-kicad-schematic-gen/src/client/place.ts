@@ -10,7 +10,10 @@ export function placementHost(get:(()=>PlacementHost|undefined)|undefined){
 export async function placeOverview(host:PlacementHost,downloadUrl:string,request:typeof fetch=fetch){
  if(!/^\/api\/v1\/kicad-schematic-overview\/[0-9a-f-]{36}\/project\.zip$/.test(downloadUrl))throw new Error('无效的工程快照地址。')
  const response=await request(downloadUrl.replace(/project\.zip$/,'placement.json'))
- if(!response.ok)throw new Error('该快照不支持放置，请重新生成正式概览。')
+ if(!response.ok){
+  const failure=await response.json().catch(()=>null) as {message?:string}|null
+  throw new Error(failure?.message??'该快照不支持放置，请重新生成正式概览。')
+ }
  const data=await response.json()
  if(data.type!=='schematic'||typeof data.artifactUri!=='string'||!data.artifactUri.startsWith('file:')||typeof data.filename!=='string'||typeof data.root!=='string')throw new Error('放置数据无效。')
  const result=await host.placeArtifact!({type:'schematic',artifactUri:data.artifactUri,filename:data.filename,root:data.root}) as {ok?:boolean;message?:string}|undefined

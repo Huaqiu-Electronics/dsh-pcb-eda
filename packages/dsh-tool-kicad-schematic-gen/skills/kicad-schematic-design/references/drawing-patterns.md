@@ -1,6 +1,6 @@
 # 局部电路画法
 
-新增局部电路或排列标签时，按下表选已确认拓扑。首次采用该画法，须在编写局部脚本前读完整代码、直接依赖及一张对应参考图；同项目同版本已读内容沿用，不每轮重复读取。已有清楚布局的复用模块保持原图。
+主 agent用本页选匹配画法，填入模块referencePatterns；子 agent写首版前直接读task.md所附去重说明和参考图，不必再读本索引或整套源码。仍自行编写脚本；确需复制代码才用下方读取器。同项目同版本已读项沿用，清楚的复用布局保留。
 
 ## 选定后直接读取
 
@@ -24,11 +24,10 @@ patternReaderPath 由技能运行时提供，对应 [read-patterns.mjs](../scrip
 | N-MOSFET 低侧感性负载开关 | 按对应文档核实器件、模式与接口脚序 | [说明](drawing-patterns/mosfet-low-side.md) · [代码](../assets/drawing-patterns/mosfet-low-side.mjs) |
 | 五针 SWD 调试排针 | 按对应文档核实器件、模式与接口脚序 | [说明](drawing-patterns/swd-header.md) · [代码](../assets/drawing-patterns/swd-header.mjs) |
 | 电源指示 LED | 已确定电源经限流电阻、LED 接地 | [LED](drawing-patterns/led-power-indicator.md) · [代码](../assets/drawing-patterns/led-power-indicator.mjs) |
-| 上拉按键 | 已确定上拉、按下接地的有效低输入 | [按键](drawing-patterns/pullup-button.md) · [代码](../assets/drawing-patterns/pullup-button.mjs) |
-| 复位/使能 RC 与启动支路 | 按已确认接法区分带电容复位与普通 BOOT | [布局与现有代码用法](drawing-patterns/reset-enable.md) · [RC 代码](../assets/drawing-patterns/reset-rc.mjs) |
+| 上拉按键 | 已确定上拉、按下接地的有效低输入 | [按键](drawing-patterns/reset-enable.md) · [代码](../assets/drawing-patterns/pullup-button.mjs) |
 | 去耦电容组 | 已确定同一电源域各电容并联接地 | [电容组](drawing-patterns/decoupling-bank.md) · [代码](../assets/drawing-patterns/decoupling-bank.mjs) |
 | 三脚固定输出 LDO | 适用于已核实 VIN/VOUT/GND 三种引脚角色、没有 EN 的固定输出稳压器 | [说明](drawing-patterns/ldo-three-pin.md) · [代码](../assets/drawing-patterns/ldo-three-pin.mjs) |
-| 复位/使能 RC | 仅适用于已核实的有效低信号、上拉电阻、对地按键和对地电容 | [说明](drawing-patterns/reset-rc.md) · [代码](../assets/drawing-patterns/reset-rc.mjs) |
+| 复位/使能 RC | 仅适用于已核实的有效低信号、上拉电阻、对地按键和对地电容 | [说明](drawing-patterns/reset-enable.md) · [代码](../assets/drawing-patterns/reset-rc.mjs) |
 | I²C 双线上拉 | 仅适用于已核实的同一电压域 SDA/SCL 上拉 | [说明](drawing-patterns/i2c-pullups.md) · [代码](../assets/drawing-patterns/i2c-pullups.mjs) |
 | 无源晶振与负载电容 | 仅适用于芯片确认使用外部无源晶振、且需要外部负载电容的接法 | [说明](drawing-patterns/crystal-load.md) · [代码](../assets/drawing-patterns/crystal-load.mjs) |
 | 异步 Buck 降压 | 已核实异步拓扑、使能接法及外部反馈 | [说明](drawing-patterns/dcdc-buck.md) · [代码](../assets/drawing-patterns/dcdc-buck.mjs) |
@@ -38,6 +37,8 @@ patternReaderPath 由技能运行时提供，对应 [read-patterns.mjs](../scrip
 信号标签按侧排列用 [标签对齐](drawing-patterns/label-alignment.md)，不需要读取无关拓扑。
 
 ## 调用约定
+
+共用要求：本框局部毫米、1.27mm栅格，端点取实际pin；先全部place再connect，明确分支接点及走线路径。主入口/运行时负责共享电源转换和保存；基于实际预览核对文字、引脚和连接，参考图不代替真实器件或电气验证。
 
 这些是可复制的 ESM 范例，不是新工具或 builder 公共 API。复制所选 mjs 与共用的 [geometry.mjs](../assets/drawing-patterns/geometry.mjs) 到项目同一目录，从功能模块中 import `place`。
 

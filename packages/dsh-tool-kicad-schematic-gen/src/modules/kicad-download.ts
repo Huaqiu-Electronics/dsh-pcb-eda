@@ -4,7 +4,6 @@ import type { ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { SavedSchematic } from './download-core/save.ts'
 import { realpath } from 'node:fs/promises'
 import { apply as applyDownload, Config } from './download-core/index.ts'
-import type {AnalyzeModule, AnalysisResult} from '../schematic/module-analysis.ts'
 
 export const name = 'kicad-hq-schematic-download'
 export const inject = ['tools', 'fs', 'sandboxPolicy', 'hqEdge']
@@ -50,16 +49,15 @@ async function requireCurrentProject(hqEdge: HqEdge, exec: ToolRunContext): Prom
  * @param hqEdge - installed project service.
  * @returns a compact project-scoped tool definition.
  */
-export function adaptTool(tool: ToolDefinition, hqEdge: HqEdge | (() => HqEdge | undefined), analyze?: AnalyzeModule): ToolDefinition {
+export function adaptTool(tool: ToolDefinition, hqEdge: HqEdge | (() => HqEdge | undefined)): ToolDefinition {
   return {
     ...tool,
-    description: 'Download an HQ EDA module KiCad schematic by catalog ID into the active KiCad project directory or an existing subdirectory. The current schematic and PCB are not modified. A matching source project is saved as a separate reference file when present. Automatically extracts local netlist/BOM analysis when available; inspect analysis status, then query analyze_kicad_module instead of reading entire files or guessing connections from images. Analysis failure preserves the successful download; retry analysis alone. No ERC.',
+    description: 'Download an HQ EDA module into the active KiCad project or an existing subdirectory without modifying the current schematic or PCB. Returns the schematic path and write status, sourceProject reference or null, and footprints with names and local paths or null when none were extracted. Both fields are always present. Does not analyze the circuit or require KiCad CLI; query analyze_kicad_module only when components, BOM or electrical nets are needed.',
     parameters: {
       ...tool.parameters,
       properties: {
         moduleId: { type: 'string', description: 'Exact module ID from an HQ EDA catalog search result.' },
         targetDir: { type: 'string', description: 'Optional existing subdirectory of the active KiCad project.' },
-        kicadCliPath: {type: 'string', description: 'Optional known host CLI path; otherwise plugin configuration/discovery is used.'},
       },
     },
     output: {
@@ -70,13 +68,11 @@ export function adaptTool(tool: ToolDefinition, hqEdge: HqEdge | (() => HqEdge |
           moduleId: { type: 'string' },
           moduleName: { type: 'string' },
           schematicPath: { type: 'string' },
-          sourceProjectPath: { oneOf: [{ type: 'string' }, { type: 'null' }] },
           schematicStatus: { type: 'string', enum: ['created', 'existing'] },
-          sourceProjectStatus: { type: 'string', enum: ['created', 'existing', 'absent'] },
-          analysis: {type: 'object'},
-          footprints:{type:'array',items:{type:'object',properties:{archiveEntry:{type:'string'},footprintPath:{type:'string'},footprintName:{type:'string'},sha256:{type:'string'}},required:['archiveEntry','footprintPath','footprintName','sha256']}},
+          sourceProject: {oneOf:[{type:'object',additionalProperties:false,properties:{path:{type:'string'},status:{type:'string',enum:['created','existing']}},required:['path','status']},{type:'null'}]},
+          footprints:{oneOf:[{type:'array',items:{type:'object',additionalProperties:false,properties:{footprintPath:{type:'string'},footprintName:{type:'string'}},required:['footprintPath','footprintName']}},{type:'null'}]},
         },
-        required: ['moduleId', 'moduleName', 'schematicPath', 'sourceProjectPath', 'schematicStatus', 'sourceProjectStatus'],
+        required: ['moduleId', 'moduleName', 'schematicPath', 'schematicStatus', 'sourceProject', 'footprints'],
       },
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
     },
@@ -92,29 +88,15 @@ export function adaptTool(tool: ToolDefinition, hqEdge: HqEdge | (() => HqEdge |
       })
       try {
         const combined = {...exec, signal: AbortSignal.any([exec.signal, changed.signal])}
-        const input = args as Record<string, unknown>
-        const kicadCliPath = input?.kicadCliPath
-        if (kicadCliPath !== undefined && (typeof kicadCliPath !== 'string' || !kicadCliPath.trim())) throw new Error('kicadCliPath must be a non-empty string')
-        const downloadArgs = input && typeof input === 'object' && !Array.isArray(input) ? Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'kicadCliPath')) : args
-        const result = await tool.execute(downloadArgs, combined) as SavedSchematic
-        let analysis: AnalysisResult | undefined
-        if (analyze) {
-          try {analysis = (await analyze(result.schematicPath, combined, {sourceProjectPath: result.originalProjectPath ?? undefined, kicadCliPath: kicadCliPath as string | undefined})).analysis}
-          catch (error) {
-            combined.signal.throwIfAborted()
-            analysis = {status: 'unavailable', cached: false, diagnostics: [String(error).slice(0, 1600)],
-              nextAction: 'Download succeeded. Correct diagnostics, then call analyze_kicad_module with schematicPath and view:summary; do not download again.'}
-          }
-        }
+        const result = await tool.execute(args, combined) as SavedSchematic
         return {
           moduleId: result.moduleId,
           moduleName: result.moduleName,
           schematicPath: result.schematicPath,
-          sourceProjectPath: result.originalProjectPath,
           schematicStatus: result.status,
-          sourceProjectStatus: result.originalProjectStatus,
-          footprints: result.footprints,
-          ...(analysis ? {analysis} : {}),
+          sourceProject: result.originalProjectPath && result.originalProjectStatus !== 'absent'
+            ? {path:result.originalProjectPath,status:result.originalProjectStatus} : null,
+          footprints: result.footprints.length ? result.footprints.map(({footprintName,footprintPath})=>({footprintName,footprintPath})) : null,
         }
       } finally {
         unsubscribe()

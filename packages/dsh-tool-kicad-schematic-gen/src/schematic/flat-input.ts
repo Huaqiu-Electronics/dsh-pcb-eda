@@ -39,7 +39,7 @@ function uuid(value: unknown): string {
  */
 export function parseFlatRequest(args: unknown, listLimit: number): FlatRequest {
   const input = validateKeys(args, ['action', 'sourcePath', 'offset', 'types', 'references', 'reference', 'pin', 'targetDir', 'projectName',
-    'removeReferences', 'removeUuids', 'removeTextUuids', 'setValues', 'setLabels', 'addWires', 'frames','designPlan'], 'edit_kicad_flat_schematic')
+    'removeReferences', 'removeUuids', 'removeTextUuids', 'setValues', 'setLabels', 'addWires', 'frames','designPlan'], 'flat request')
   const sourcePath = requiredString(input, 'sourcePath')
   if (input.action === 'connections') {
     validateKeys(input, ['action', 'sourcePath', 'reference', 'pin', 'offset'], 'flat connections')

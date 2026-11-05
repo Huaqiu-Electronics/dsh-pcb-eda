@@ -1,7 +1,8 @@
-/** Fetch and summarize KiCad models without storing their source files. */
+/** Inspect symbols without storing source files; shared model helpers also serve paired imports. */
 
 import { BoardParser, SchematicParser, type boardProto, type schematicProto } from 'kicad-sexpr-parser'
-import { getModelUrls, type SourceOptions } from './service.ts'
+import { componentSource, getModelUrls, modelUrls, type SourceOptions } from './service.ts'
+import type { Part } from '@huaqiu/part-search'
 import { isCommonOnlyUnit, normalizeCommonUnits } from '../schematic/symbol-units.ts'
 import {parse} from '../schematic/sexpr.ts'
 
@@ -61,23 +62,17 @@ export interface InvalidModel {
   sourceUrl: string; message: string; retryUnchanged: false; nextAction: string
 }
 
+export type FootprintSummary = {status:'missing'} | InvalidModel | {
+  status:'parsed'; name:string; padCount:number; pads:FootprintPad[]
+}
 export interface ModelSummary {
   part: string
-  symbol: { status: 'missing' } | InvalidModel | {
-    status: 'parsed'
-    name: string
-    subsymbols: string[]
-    pinCount: number
-    pins: SymbolPin[]
-    builderCompatibility: BuilderCompatibility
+  symbol: {status:'missing'} | InvalidModel | {
+    status:'parsed'; name:string; units:number[]
+    pins:Array<{unit:number|null;number:string;name:string;type:string}>
+    normalization?:'common_only_to_unit_1'
+    error?:{code:'SYMBOL_UNITS_UNSUPPORTED';nextAction:string}
   }
-  footprint: { status: 'missing' } | InvalidModel | {
-    status: 'parsed'
-    name: string
-    padCount: number
-    pads: FootprintPad[]
-  }
-  validation: { pinPadMatch: 'not_checked' }
 }
 
 export async function fetchModelText(
@@ -140,8 +135,16 @@ function summarizeSymbol(text: string): ModelSummary['symbol'] {
   const [symbol] = new SchematicParser().parseLibSymbols(text)
   if (!symbol) throw new Error('Huaqiu symbol file: no KiCad symbol found')
   const pins = collectPins(symbol)
-  return { status: 'parsed', name: symbol.name, subsymbols: (symbol.children ?? []).map(child => child.name), pinCount: pins.length, pins,
-    builderCompatibility: inspectBuilderCompatibility(symbol, text) }
+  const compatibility=inspectBuilderCompatibility(symbol,text)
+  return {status:'parsed',name:symbol.name,units:compatibility.availableUnits,
+    pins:pins.map(pin=>{
+      const suffix=/_(\d+)_(\d+)$/u.exec(pin.unit)
+      const unit=suffix?Number(suffix[1]):null
+      return {...pin,unit:compatibility.normalization && unit===0 ? 1 : unit}
+    }),
+    ...(compatibility.normalization?{normalization:compatibility.normalization}:{}),
+    ...(compatibility.status==='unsupported_units'?{error:{code:'SYMBOL_UNITS_UNSUPPORTED' as const,nextAction:compatibility.nextAction}}:{}),
+  }
 }
 
 /** Fetch one complete Symbol library file for project-local import. */
@@ -151,8 +154,12 @@ export async function fetchSymbolSource(
   options: ModelFetchOptions,
   signal: AbortSignal,
   fetcher: typeof fetch = fetch,
-): Promise<{ text: string; sourceUrl: string; symbol: schematicProto.I_LibSymbol }> {
-  const { symbol: url } = await getModelUrls(mfgId, mpn, options, signal, fetcher)
+): Promise<{ text: string; sourceUrl: string; symbol: schematicProto.I_LibSymbol; part: Part }> {
+  const part = await componentSource(options, signal, fetcher).getPart({manufacturerId:mfgId,mpn})
+  if (part.mpn !== mpn || (part.manufacturer.id && part.manufacturer.id !== mfgId)) {
+    throw new Error('Product detail identity does not match the selected manufacturer and MPN')
+  }
+  const { symbol: url } = modelUrls(part.models)
   if (url === null) throw new Error(`Huaqiu symbol is missing for ${mfgId}:${mpn}`)
   const text = await fetchModelText(url, 'symbol', options, signal, fetcher)
   if (!/^\s*\(kicad_symbol_lib(?=\s|\()/.test(text)) {
@@ -162,10 +169,10 @@ export async function fetchSymbolSource(
   if (symbols.length !== 1 || !symbols[0]) {
     throw new Error('Huaqiu symbol file must define exactly one top-level KiCad symbol')
   }
-  return { text, sourceUrl: url.href, symbol: symbols[0] }
+  return { text, sourceUrl: url.href, symbol: symbols[0], part }
 }
 
-export function summarizeFootprint(text: string): ModelSummary['footprint'] {
+export function summarizeFootprint(text: string): FootprintSummary {
   if (parse(text).head !== 'footprint') throw new Error('Unsupported footprint format: expected (footprint ...)')
   const board = new BoardParser().parse(`(kicad_pcb (version 20240108) (generator dsh-tool-kicad-library) ${text})`)
   const footprint: boardProto.I_Footprint | undefined = board.footprints[0]
@@ -174,11 +181,7 @@ export function summarizeFootprint(text: string): ModelSummary['footprint'] {
   return { status: 'parsed', name: footprint.library_link, padCount: pads.length, pads }
 }
 
-/** Summarize valid models independently; file format/parse failures preserve the other model.
- * @param mfgId Selected manufacturer identifier. @param mpn Selected exact part number.
- * @param options Network limits. @param signal Cancellation. @param fetcher HTTP implementation.
- * @returns Independent model statuses; detail, download and size failures reject the call.
- */
+/** Query only the selected symbol. Footprint fetching and validation remain in paired import. */
 export async function getComponentModels(
   mfgId: string,
   mpn: string,
@@ -186,29 +189,19 @@ export async function getComponentModels(
   signal: AbortSignal,
   fetcher: typeof fetch = fetch,
 ): Promise<ModelSummary> {
-  const { symbol: symbolUrl, footprint: footprintUrl } = await getModelUrls(mfgId, mpn, options, signal, fetcher)
-  const [symbolText, footprintText] = await Promise.all([
-    symbolUrl === null ? null : fetchModelText(symbolUrl, 'symbol', options, signal, fetcher),
-    footprintUrl === null ? null : fetchModelText(footprintUrl, 'footprint', options, signal, fetcher),
-  ])
-  return {
-    part: `${mfgId}:${mpn}`,
-    symbol: symbolText === null ? { status: 'missing' } : inspectModelText(symbolText, symbolUrl!, 'symbol'),
-    footprint: footprintText === null ? { status: 'missing' } : inspectModelText(footprintText, footprintUrl!, 'footprint'),
-    validation: { pinPadMatch: 'not_checked' },
-  }
+  const {symbol:symbolUrl}=await getModelUrls(mfgId,mpn,options,signal,fetcher)
+  const text=symbolUrl===null?null:await fetchModelText(symbolUrl,'symbol',options,signal,fetcher)
+  return {part:`${mfgId}:${mpn}`,symbol:text===null?{status:'missing'}:inspectSymbolText(text,symbolUrl!)}
 }
 
-function inspectModelText(text: string, url: URL, type: 'symbol'): ModelSummary['symbol']
-function inspectModelText(text: string, url: URL, type: 'footprint'): ModelSummary['footprint']
-function inspectModelText(text: string, url: URL, type: 'symbol' | 'footprint'): ModelSummary['symbol'] | ModelSummary['footprint'] {
-  const validHeader = type === 'symbol' ? /^\s*\(kicad_symbol_lib(?=\s|\()/u.test(text) : /^\s*\(footprint(?=\s|\()/u.test(text)
+function inspectSymbolText(text:string,url:URL):ModelSummary['symbol'] {
+  const validHeader=/^\s*\(kicad_symbol_lib(?=\s|\()/u.test(text)
   try {
-    if (!validHeader) throw new Error(`Downloaded ${type} is not a KiCad model; content begins: ${text.slice(0, 160)}`)
-    return type === 'symbol' ? summarizeSymbol(text) : summarizeFootprint(text)
-  } catch (error) {
-    return { status: 'invalid', code: validHeader ? 'MODEL_PARSE_FAILED' : 'MODEL_FORMAT_INVALID', sourceUrl: url.href,
-      message: (error instanceof Error ? error.message : String(error)).slice(0,400), retryUnchanged: false,
-      nextAction: `The downloaded ${type} is unusable. Use the other model only if its status is parsed; choose another compatible ${type} or candidate. Do not retry unchanged or rewrite the parser.` }
+    if(!validHeader)throw new Error(`Downloaded symbol is not a KiCad model; content begins: ${text.slice(0,160)}`)
+    return summarizeSymbol(text)
+  }catch(error){
+    return {status:'invalid',code:validHeader?'MODEL_PARSE_FAILED':'MODEL_FORMAT_INVALID',sourceUrl:url.href,
+      message:(error instanceof Error?error.message:String(error)).slice(0,400),retryUnchanged:false,
+      nextAction:'Choose another compatible symbol or candidate. Do not retry unchanged or rewrite the parser.'}
   }
 }

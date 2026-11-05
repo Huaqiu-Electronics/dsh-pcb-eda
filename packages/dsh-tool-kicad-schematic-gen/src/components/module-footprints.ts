@@ -8,6 +8,24 @@ import {libraryName,type ProjectFileSystem} from './import-symbol.ts'
 import {footprintModel,prepareProjectFootprint} from './project-footprint.ts'
 
 export interface FootprintAssignment {references:string[];manufacturer_id?:string;mpn?:string;footprintPath?:string;allowedExtraPads?:string[];extraPadReason?:string}
+
+type FootprintAudit=Awaited<ReturnType<typeof auditFootprints>>
+type FootprintResult={
+ nextAction?:string;mappings?:unknown;parts?:ReturnType<typeof footprintRequirements>;
+ validation?:FootprintAudit;unresolved?:FootprintAudit['unresolved'];status?:string;
+ [key:string]:unknown
+}
+/** Public projection only: retain full mappings and source details in the underlying files. */
+export function summarizeModuleFootprints(result:FootprintResult){
+ const {nextAction,mappings,parts,validation,unresolved,...summary}=result
+ const problems=(items:FootprintAudit['unresolved'])=>items.map(({reference,footprintId,reason})=>({reference,footprintId,reason}))
+ return {...summary,
+  ...(parts?{parts:parts.map(({libId,...part})=>part)}:{}),
+  ...(validation?{validation:{...validation,unresolved:problems(validation.unresolved)}}:{}),
+  ...(unresolved?{unresolved:problems(unresolved)}:{}),
+  ...((result.status==='unresolved'||validation?.status==='unresolved')&&nextAction?{nextAction}:{}),
+ }
+}
 async function scopedText(path:string,workspace:string,fs:ProjectFileSystem,signal:AbortSignal,max:number){
  const base=await fs.resolve(workspace,{signal}),target=await fs.resolve(path,{cwd:workspace,signal});
  if(!fs.contains(base,target)||(await fs.stat(target,signal))?.type!=='file')throw new Error(`Input must be a file inside workspace: ${path}`);

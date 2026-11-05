@@ -1,34 +1,28 @@
-# 复位、使能与启动按键的画法
+# 复位 RC 与启动按键
 
-仅在已确认电路采用“上拉＋按键下拉＋对地电容”时使用左侧结构。普通 BOOT 按键使用右侧结构，不自动复制电容、取值或启动配置。
+仅适用于已确认的有效低、上拉及按下接地电路；复位和BOOT按各自芯片要求选择，不自动给BOOT增加电容或推断参数。
+
+| 选用画法 | 必要输入与限制 | 代码／图片 |
+| --- | --- | --- |
+| reset-rc | activeLowRcConfirmed:true；parts及references含resistor/button/capacitor，pins.top/bottom为核实的物理脚号；nets为supply/ground/signal | [代码](../../assets/drawing-patterns/reset-rc.mjs)／[图](../../assets/drawing-patterns/reset-rc.png) |
+| pullup-button | parts及references含resistor/button，pins.top/bottom；nets为supply/ground/signal；不添加RC，消抖和输入容限由方案确认 | [代码](../../assets/drawing-patterns/pullup-button.mjs)／[图](../../assets/drawing-patterns/pullup-button.png) |
+
+均与geometry.mjs一起复制。返回signal为真实reference/pin、reservedBounds为预留估计，connect完成内部接线；位号由主入口分配。
 
 ```text
-       电源                         电源
-        │                            │
-       上拉                         上拉
-        │                            │
-        ●──────●──── EN              ●──────── BOOT信号
-        │      │                     │
-       按键   电容                   按键
-        │      │                     │
-       GND    GND                   GND
+ 电源             电源
+  │                │
+ 上拉             上拉
+  │                │
+  ●──●── EN        ●── BOOT
+  │  │             │
+ 按键 电容         按键
+  │  │             │
+ GND GND          GND
 ```
 
-## 布局规则
+- 电阻、节点、按键沿竖轴，电容在节点右下方且信号在上、地在下；EN水平引出，地符号默认向下。避免横放按键加长回绕线，或把RC外围分散成孤立标签支路。
+- RESET/EN与BOOT并排时，电源、上拉、节点、按键和地尽量成行；不为对齐改网络或型号。位号/数值水平，避开导线、触点和标签。
+- 四脚按键先核实内部触点和旋转后的真实pin；示例top/bottom不代表通用物理脚序，不能互换脚号来套布局。电容值、充放电时序、启动采样及配置来自实际芯片要求。
 
-- 电阻、节点和按键沿同一竖直轴；按键两端在图上上下排列，使用短直线连接。不要将横放按键通过向左回绕的导线接回主干。
-- 电容放在信号节点右下方，上端接节点，下端接地；地符号默认向下。保持 EN 水平引线右侧有空间，标签放在线上方。
-- 对地电容的画法统一为“信号在上、地在下”；不要为了填空白把它放在上方并将 GND 旋转朝右。
-- RESET/EN 与 BOOT 支路并排时，电源、电阻、信号节点、按键及地分别对齐。按键与电容的上下端能自然对齐时对齐，不为对齐改变连线或型号。
-- GPIO 上拉等独立支路在旁边成组排列，电阻和标签基线一致；不因绘制启动按键自动给所有配置脚增加按键或电容。
-- 位号、数值保持水平并避开导线、触点和标签。具体间距随真实符号与文字长度调整，不缩小字号来塞入固定框。
-
-## 使用现有代码
-
-[上拉按键](pullup-button.md) 的 [place 示例](../../assets/drawing-patterns/pullup-button.mjs) 已实现竖向电阻、按键和信号分支，可直接用于已确认的 BOOT 拓扑。复位 RC 已补充独立的 [说明](reset-rc.md) 与 [place 示例](../../assets/drawing-patterns/reset-rc.mjs)。仅在已核实有效低上拉/按键/电容拓扑时传 activeLowRcConfirmed:true，按真实模型填写引脚角色；它是项目可复制的范例，不是 builder 内置 reset API。
-
-1. 先核实所选按键的引脚/触点关系和旋转后的真实坐标；示例 pins.top/bottom 不是所有按键通用的物理编号。四脚按键尤其要确认同侧内部连通关系。
-2. 完成器件放置后读取实际 pin，按图建立上拉节点、按键支路和电容支路；T 形分支显式加 junction，不能根据图像位置猜连接。
-3. 电源与地沿用主入口的标准电源符号转换；局部预览检查是否仍有侧向 GND、回绕线、遮挡或孤立标签。
-
-画法只约束表达。器件型号、网络名、复位有效电平、RC 参数和启动采样条件来自实际设计；不依据截图认定电气验证通过。不对已有清楚的复用电路强制重画。
+共用栅格、两阶段调用和预览约定见 [画法索引](../drawing-patterns.md)；读取器选择任一画法只返回本说明一次，仍分别返回选中的代码和图片。

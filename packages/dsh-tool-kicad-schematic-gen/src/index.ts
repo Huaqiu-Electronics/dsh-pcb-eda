@@ -9,6 +9,7 @@ import {apply as registerSkills} from './skills.ts'
 import {registerModuleAnalysis} from './schematic/analysis-tool.ts'
 import {getKiCadPaths} from './runtime-paths.ts'
 import {registerSchematicGenSection} from './prompt.ts'
+import {registerModuleDispatch} from './module-dispatch.ts'
 
 export {Config,resolveConfig} from './config.ts'
 export const name='@huaqiu/dsh-tool-kicad-schematic-gen'
@@ -32,11 +33,12 @@ export function apply(ctx:Context, input:ConfigInput={}):void {
   log.info('applying schematic-gen node half',{kicadCliPath:config.schematic.kicadCliPath,
     symbolDir:getKiCadPaths(config.schematic.kicadCliPath).symbolDir??null})
   try {
-    const analyze = registerModuleAnalysis(ctx, config.schematic)
+    registerModuleAnalysis(ctx, config.schematic)
     registerComponents(ctx,config.components)
-    registerModules(ctx,config.modules,analyze)
+    registerModules(ctx,config.modules)
     registerSchematic(ctx,config.schematic)
     registerSkills(ctx,config.schematic.kicadCliPath)
+    registerModuleDispatch(ctx,config.schematic.kicadCliPath)
     // The `@schematic-gen` chip serializes to its bare token; this section is
     // what gives that token meaning (see prompt.ts for why it is static).
     const disposeSection = registerSchematicGenSection((ctx as {systemPrompt?:unknown}).systemPrompt)

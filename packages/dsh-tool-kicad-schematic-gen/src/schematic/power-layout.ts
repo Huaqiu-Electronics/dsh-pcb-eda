@@ -143,7 +143,7 @@ export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[]
           if (moved && overlap(text, leadBox, clearance)) conflicts.push('own-power-lead')
           const unique = [...new Set(conflicts)]
           const score = unique.length * 10000 + (moved ? 100 + Math.abs(at[0] - label.at[0]) + Math.abs(at[1] - label.at[1]) : 0)
-            + (angle === 0 ? 0 : angle === 180 ? 20 : 10) + textIndex
+            + (angle === 0 ? 0 : angle === 180 ? 320 : 300) + textIndex
           if (!best || score < best.score) best = { at, angle, valueAt, body, text, score, conflicts: unique }
         }
       }

@@ -69,20 +69,14 @@ export const SCHEMATIC_GEN_TOKEN = '@schematic-gen'
  */
 export function schematicGenSectionText(): string {
   return [
-    `Schematic Gen: the ${SCHEMATIC_GEN_TOKEN} token in a user message is the ` +
-      'Schematic Gen chip — the user explicitly chose it for that request. ' +
-      'Produce the design with the `kicad-schematic-design` skill, which ' +
-      'starts from the hardware design brief when none exists yet.',
-    'For every new schematic project, first show the requirements summary, scope, key unknowns and recommended choices. Ask with ask_user_question and wait for an actual user reply BEFORE writing formal design documents or generation scripts. If the tool is unavailable, ask in chat and end the turn to wait. Silence, timeout, cancellation or a preselected option is not confirmation. Reuse an already confirmed requirements baseline for the same project; do not ask again unless core requirements change.',
-    'Before writing or running a schematic generation script, save the hardware design document and read it back with run-design.mjs --read-plan. Implement that document; pass its path and sha256 to generation. Never postpone the plan until after drawing. ',
-    'Never hand-write .kicad_sch files or KiCad project files yourself; go ' +
-      'through the skill and its tools.',
-    "Use the user's own words as the design description — if they have not " +
-      'described the circuit yet, ask for the requirements instead of ' +
-      'assuming them.',
-    'Follow-up messages in the same conversation continue that work without ' +
-      'repeating the token.',
-    'For a simple schematic, plan layout before the first build, collect concrete readability defects and fix them together once, then verify and deliver. Stop layout edits when connections, grid, readability, page fit and project files meet the delivery criteria. Further iterations require an identified blocking defect; do not rebuild for cosmetic preferences or to drive conservative layout warnings to zero. Real errors must still be fixed, regardless of iteration count.',
+    `Schematic Gen: ${SCHEMATIC_GEN_TOKEN} is the Schematic Gen chip; the user explicitly chose it. ` +
+      'Use the kicad-schematic-design skill. Its entry routes parent, module child and focused edits; read only the relevant references.',
+    "Use the user's own words as the design description; ask for the requirements when missing. " +
+      'For a new project without a confirmed hardware design brief, show scope, unknowns and recommended choices, ask with ask_user_question and wait for a real reply before formal documents or scripts. If unavailable, ask in chat and end the turn. Silence, timeout, cancellation or preselection is not confirmation. Reuse the same project baseline.',
+    'Save the hardware design brief and read it back with run-design.mjs --read-plan before generation; pass its path and sha256. Update and reread changed circuit decisions. Never hand-write .kicad_sch files or KiCad project files; use the skill APIs. Follow-up messages continue the same work without repeating the chip.',
+    'Before implementing multiple independent functions, prepare libraries, parts.json and module-plan.json, then call dispatch_kicad_schematic_modules. One page or outer frame does not make power, MCU and expansion one function. MODULE_DELEGATION_REQUIRED persists for this design: stop full-script patches and dispatch, do not merge frames or rename scripts to bypass it. Use actual DSH children, at most three in flight; dispatch includes preflight. Refresh/fill slots on completion without shell polling. Declare expectedConnections including repeated supply, ground and shield pins. The parent owns shared inputs and --modules assembly.',
+    'A module child reads task.md, its assigned reference notes and reference images with read_image before writing its own script; the task also contains the contract, draw API, example and checker. Use actual parts/pins, not example identities. Consult geometry as needed; do not reload all references, sibling scripts or builder source. Reuse confirmed requirements; do not ask again, delegate or publish. Check connections, inspect current images, batch fixes and submit once, identifying references actually read and remaining defects. Parent repair starts after child inactivity; retry is only for explicit major redesign or interruption. Focused repair or unavailable delegation uses --sequential-reason.',
+    'Keep functional groups compact, local branches directly wired and aligned, text readable, and frames sized to content. Scattered label islands and broken reading order are layout defects. The parent closes concrete defects on current images; structural pass, readyForAssembly and zero text warnings are not visual acceptance. Stop when connectivity intent, grid, readability, page fit and project files meet delivery criteria. Real errors must be fixed; conservative warnings do not need to reach zero. Detailed execution and delivery rules live in the role-specific skill references.',
   ].join('\n')
 }
 

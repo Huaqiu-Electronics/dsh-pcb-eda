@@ -6,7 +6,6 @@ export interface Config {
   kicadCliPath: string
   previewDensity: number
   previewMaxWidth: number
-  previewMaxPages: number
   previewPadding: number
   previewTimeoutMs: number
   previewTrimThreshold: number
@@ -18,7 +17,6 @@ export const Config: Schema<Config> = Schema.object({
   kicadCliPath: Schema.string().required(),
   previewDensity: Schema.number().required(),
   previewMaxWidth: Schema.number().required(),
-  previewMaxPages: Schema.number().required(),
   previewPadding: Schema.number().required(),
   previewTimeoutMs: Schema.number().required(),
   previewTrimThreshold: Schema.number().required(),

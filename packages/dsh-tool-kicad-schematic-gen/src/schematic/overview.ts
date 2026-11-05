@@ -4,7 +4,8 @@ import {mkdir,readFile,writeFile,readdir,realpath,rename,rm} from 'node:fs/promi
 import {basename,dirname,join,relative,isAbsolute,extname} from 'node:path'
 import {pathToFileURL} from 'node:url'
 import type {IncomingMessage,ServerResponse} from 'node:http'
-import {zipSync} from 'fflate'
+import {zipSync,unzipSync} from 'fflate'
+import {deliveryFiles,assertPlacementNames} from './delivery-files.ts'
 import type {Context} from '@deepseek-ai/cordis'
 import {homedir} from 'node:os'
 
@@ -44,7 +45,7 @@ export async function createOverview(input:{workspace:string;projectDir:string;s
    if(entry.isSymbolicLink())throw new Error('Overview archive does not follow symbolic links')
    const path=join(dir,entry.name)
    if(entry.isDirectory()){
-    if(!entry.name.startsWith('.')&&!['previews','scripts','history','node_modules'].includes(entry.name))await collect(path)
+    if(!entry.name.startsWith('.')&&!['work','previews','scripts','history','node_modules'].includes(entry.name))await collect(path)
    }else if(entry.isFile()&&(['.kicad_sch','.kicad_pro','.kicad_sym','.kicad_mod','.step','.stp','.wrl'].includes(extname(entry.name).toLowerCase())||['sym-lib-table','fp-lib-table'].includes(entry.name)||(extname(entry.name)==='.json'&&relative(project,path).replaceAll('\\','/').startsWith('libraries/mappings/')))){
     if(Object.keys(files).length>=2000)throw new Error('Overview archive exceeds 2000 files')
     files[relative(project,path).replaceAll('\\','/')]=await bounded(path)
@@ -58,7 +59,8 @@ export async function createOverview(input:{workspace:string;projectDir:string;s
  }
  const images=await Promise.all(input.pages.map(async page=>({name:page.exportedPageName,bytes:await bounded(page.pngPath)})))
  const id=randomUUID(),directory=join(store,id),pending=join(store,`.pending-${id}`);
- const zip=zipSync(files,{level:6});await mkdir(pending,{recursive:true});
+ const delivered=deliveryFiles(files,relative(project,schematicPath).replaceAll('\\','/'))
+ const zip=zipSync(delivered,{level:6});await mkdir(pending,{recursive:true});
  try{
   await writeFile(join(pending,'project.zip'),zip,{flag:'wx'})
   await writeFile(join(pending,'placement.json'),JSON.stringify({type:'schematic',artifactUri:pathToFileURL(join(directory,'project.zip')).href,filename:`${basename(schematicPath,'.kicad_sch')}.zip`,root:relative(project,schematicPath).replaceAll('\\','/')}),{flag:'wx'})
@@ -67,7 +69,7 @@ export async function createOverview(input:{workspace:string;projectDir:string;s
  }catch(error){await rm(pending,{recursive:true,force:true});throw error}
  return {projectKey:createHash('sha256').update(join(project,relative(project,schematicPath))).digest('hex'),createdAt:Date.now(),title:basename(schematicPath,'.kicad_sch'),revision:input.revision,
   pages:images.map((page,i)=>({name:page.name,imageUrl:`${OVERVIEW_ROUTE}/${id}/page-${i}.png`})),
-  downloadUrl:`${OVERVIEW_ROUTE}/${id}/project.zip`,filename:`${basename(schematicPath,'.kicad_sch')}.zip`,fileCount:Object.keys(files).length,size:zip.length}
+  downloadUrl:`${OVERVIEW_ROUTE}/${id}/project.zip`,filename:`${basename(schematicPath,'.kicad_sch')}.zip`,fileCount:Object.keys(delivered).length,size:zip.length}
 }
 
 export function overviewHandler(store=overviewCacheDirectory()){return async(req:IncomingMessage,res:ServerResponse)=>{
@@ -76,7 +78,26 @@ export function overviewHandler(store=overviewCacheDirectory()){return async(req
  const match=path.slice(OVERVIEW_ROUTE.length).match(/^\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/(project\.zip|placement\.json|page-\d+\.png)$/)
  if(!path.startsWith(OVERVIEW_ROUTE)||!match){res.writeHead(404);res.end();return}
  try{
-  const bytes=await readFile(join(store,match[1]!,match[2]!))
+  let bytes=await readFile(join(store,match[1]!,match[2]!))
+  if(match[2]==='placement.json'){
+   // Prepare a separate placement archive from the immutable download snapshot.
+   // This also repairs existing cards whose ZIP contains intermediate candidates.
+   const directory=join(store,match[1]!),placement=JSON.parse(bytes.toString('utf8'))
+   try{
+    const files=deliveryFiles(unzipSync(await readFile(join(directory,'project.zip'))),placement.root)
+    assertPlacementNames(files)
+    const archive=zipSync(files,{level:6}),digest=createHash('sha256').update(archive).digest('hex')
+    const target=join(directory,`placement-${digest}.zip`)
+    // Concurrent requests publish complete archives atomically.
+    const temporary=join(directory,`.pending-${randomUUID()}`)
+    try{await writeFile(temporary,archive,{flag:'wx'});await rename(temporary,target)}
+    finally{await rm(temporary,{force:true})}
+    bytes=Buffer.from(JSON.stringify({...placement,artifactUri:pathToFileURL(target).href}))
+   }catch(error){
+    const message=error instanceof Error?error.message:String(error)
+    res.writeHead(422,{'content-type':'application/json'});res.end(JSON.stringify({message}));return
+   }
+  }
   res.writeHead(200,{'content-type':match[2]==='project.zip'?'application/zip':match[2]==='placement.json'?'application/json':'image/png','content-length':bytes.length,'cache-control':'private, max-age=31536000, immutable','x-content-type-options':'nosniff',...(match[2]==='project.zip'?{'content-disposition':'attachment; filename="project.zip"'}:{})})
   res.end(req.method==='HEAD'?undefined:bytes)
  }catch{res.writeHead(404);res.end()}

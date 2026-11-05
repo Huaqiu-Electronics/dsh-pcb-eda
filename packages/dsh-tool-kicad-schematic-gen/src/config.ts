@@ -24,7 +24,7 @@ const defaults: Config = {
       maxZipBytes:20000000,maxSchematicBytes:10000000,maxProjectBytes:10000000,maxArchiveEntries:512},
   },
   schematic:{maxSchematicBytes:10000000,kicadCliPath:'kicad-cli',
-    previewDensity:288,previewMaxWidth:2400,previewMaxPages:4,previewPadding:32,previewTimeoutMs:30000,
+    previewDensity:288,previewMaxWidth:2400,previewPadding:32,previewTimeoutMs:30000,
     previewTrimThreshold:10,flatListLimit:120,
     flatTemplateDir:fileURLToPath(new URL('../skills/kicad-schematic-design/templates/',import.meta.url))},
 }

@@ -18,6 +18,11 @@ export async function getModelUrls(mfgId: string, mpn: string, options: SourceOp
   signal: AbortSignal, fetcher: typeof fetch = fetch): Promise<{symbol: URL | null; footprint: URL | null}> {
   const models: EdaModels = await componentSource(options, signal, fetcher)
     .getEdaModels({ manufacturerId: mfgId, mpn })
+  return modelUrls(models)
+}
+
+/** Share URL validation when the caller also needs the full product detail. */
+export function modelUrls(models: EdaModels): {symbol: URL | null; footprint: URL | null} {
   const read = (kind: 'symbol' | 'footprint'): URL | null => {
     const model = models[kind]
     if (!model) return null

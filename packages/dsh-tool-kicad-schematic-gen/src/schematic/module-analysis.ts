@@ -11,7 +11,7 @@ import {runProcess} from './preview.ts'
 import {parseNetlist} from './verify.ts'
 import {applyEdits, children, parse, quote, required, value} from './sexpr.ts'
 
-const version = 2
+const version = 3
 const maxBytes = 20 * 1024 * 1024
 const digest = (text: string) => createHash('sha256').update(text).digest('hex')
 type Runner = typeof runProcess
@@ -28,16 +28,21 @@ export interface AnalysisData {
   bomAvailable: boolean
   inventoryScope: 'netlist' | 'bom_only' | 'unavailable'
 }
+export type AnalysisView = 'summary' | 'components' | 'nets' | 'bom'
+type AnalysisStage = 'netlist' | 'bom'
+type StageResults = Partial<Record<AnalysisStage, {status: 'ready' | 'failed'; diagnostic?: string}>>
 export interface AnalysisResult {
   status: 'ready' | 'partial' | 'unavailable'; cached: boolean; revision?: string
+  executable?: string
   files?: {components: string; connectivity: string}
   counts?: {components?: number; nets?: number; dnp?: number; bom?: number}
   inventoryScope?: AnalysisData['inventoryScope']
   failure?: {code: 'CLI_START_FAILED' | 'CLI_PROBE_TIMEOUT' | 'CLI_CAPABILITY_UNSUPPORTED' | 'CLI_PROBE_FAILED'; executable: string}
+  stages?: StageResults
   diagnostics: string[]; nextAction: string
 }
-export const cliRecoveryHint = 'Reuse get_eda_host_info installation.executables entry named kicad-cli (query host info only if absent). Call analyze_kicad_module with schematicPath, view:summary and kicadCliPath set to that absolute path. Do not download again or scan configuration directories.'
-export type AnalyzeModule = (path: string, exec: ToolRunContext, options?: {sourceProjectPath?: string; kicadCliPath?: string; reusePartial?: boolean}) => Promise<{analysis: AnalysisResult; data?: AnalysisData}>
+export const cliRecoveryHint = 'Reuse get_eda_host_info installation.executables entry named kicad-cli (query host info only if absent). Call analyze_kicad_module with schematicPath, the original view, refresh:true and kicadCliPath set to that absolute path. Do not download again or scan configuration directories.'
+export type AnalyzeModule = (path: string, exec: ToolRunContext, options?: {sourceProjectPath?: string; kicadCliPath?: string; view?: AnalysisView; refresh?: boolean}) => Promise<{analysis: AnalysisResult; data?: AnalysisData}>
 
 /** RFC-style quoted CSV cells, including escaped quotes, embedded commas and line breaks. */
 export function parseBomCsv(text: string): Array<Record<string, string>> {
@@ -125,7 +130,7 @@ async function boundedFile(path: string): Promise<string> {
 export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>, config: AnalysisConfig, runner: Runner = runProcess): AnalyzeModule {
   const capabilities = new Map<string, {until: number; netlist: boolean; bom: boolean; signature: string}>()
   const locks = new Map<string, Promise<unknown>>()
-  // Download callers supply environment details once; queries use the same canonical source.
+  // Queries reuse successful environment details for the same canonical source.
   const environments = new Map<string, {sourceProjectPath?: string; kicadCliPath?: string}>()
   const run = async (cli: string, args: string[], signal: AbortSignal) => {
     signal.throwIfAborted()
@@ -173,7 +178,7 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
     if (environments.size >= 512 && !environments.has(environmentKey)) environments.delete(environments.keys().next().value!)
     environments.set(environmentKey, environment)
     const cli = getKiCadPaths(environment.kicadCliPath ?? config.kicadCliPath).kicadCliPath
-    let cap = capabilities.get(cli)
+    let cap = options.refresh ? undefined : capabilities.get(cli)
     let failureCode: NonNullable<AnalysisResult['failure']>['code'] = 'CLI_PROBE_FAILED'
     try {
       if (!isAbsolute(cli) && !['kicad-cli', 'kicad-cli.exe'].includes(cli)) {
@@ -207,7 +212,7 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
       return {analysis: {status: 'unavailable', cached: false, failure: {code: failureCode, executable: cli},
         diagnostics: [String(error).slice(0, 1600)], nextAction: failureCode === 'CLI_START_FAILED' ? cliRecoveryHint
           : failureCode === 'CLI_CAPABILITY_UNSUPPORTED' ? 'CLI started but export capabilities are unsupported. Check KiCad version/options; do not download again.'
-          : 'CLI probe failed or timed out. Inspect diagnostics, then retry analyze_kicad_module with view:summary; do not download again.'}}
+          : 'CLI probe failed or timed out. Inspect diagnostics, then retry the original analyze_kicad_module query with refresh:true; do not download again.'}}
     }
     let binaryIdentity = ''
     if (isAbsolute(cli)) {try {const info = await stat(cli); binaryIdentity = `${info.size}:${info.mtimeMs}`} catch { /* command reports the actual error */ }}
@@ -215,16 +220,18 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
       project: project ? digest(project.text) : null, variant: 'default'}))
     const directory = await resolvePreviewOutputDir(ctx.fs, cwd, join(dirname(source.path), 'analysis', basename(source.path, '.kicad_sch'), revision), signal)
     const files = {components: join(directory, 'components.json'), connectivity: join(directory, 'connectivity.json')}
-    const summarize = (data: AnalysisData, diagnostics: string[], cached: boolean): AnalysisResult => {
+    const summarize = (data: AnalysisData, stages: StageResults, cached: boolean): AnalysisResult => {
       const status = data.components !== null && data.nets !== null && data.bomAvailable ? 'ready'
         : data.components !== null || data.nets !== null ? 'partial' : 'unavailable'
-      return {status, cached, revision, files, inventoryScope: data.inventoryScope, counts: {
+      return {status, cached, revision, files, stages, executable:cli, inventoryScope: data.inventoryScope, counts: {
         ...(data.components === null ? {} : {components: data.components.length, dnp: data.components.filter(c => c.dnp).length}),
         ...(data.nets === null ? {} : {nets: data.nets.length}),
         ...(data.bomAvailable ? {bom: data.components!.filter(c => c.bomIncluded).length} : {}),
-      }, diagnostics, nextAction: status === 'ready' ? 'Query only needed components, nets or bom; no summary call needed.'
-        : 'Query available data; after fixing diagnostics, use view:summary to retry analysis.'}
+      }, diagnostics: Object.values(stages).flatMap(stage => stage.diagnostic ? [stage.diagnostic] : []),
+      nextAction: 'Reuse available data. After fixing a failed export, repeat the original query with refresh:true.'}
     }
+    // BOM needs netlist properties to preserve full procurement identity when grouping.
+    const requested: AnalysisStage[] = options.view === 'nets' || options.view === 'components' ? ['netlist'] : ['netlist','bom']
     const previous = locks.get(directory)
     const task = (async () => {
       await previous?.catch(() => {})
@@ -233,25 +240,34 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
         const target = await ctx.fs.resolve(path, {signal})
         return JSON.parse(new TextDecoder('utf-8', {fatal: true}).decode(await ctx.fs.readBytes(target, signal, maxBytes)))
       }
+      let components: AnalysisComponent[] | null = null
+      let nets: AnalysisData['nets'] = null
+      let bomRows: Array<Record<string,string>> | null = null
+      let stages: StageResults = {}
+      const assemble = (): AnalysisData => {
+        const data: AnalysisData = {components: components?.map(c=>({...c,bomIncluded:null})) ?? null,
+          nets,bomAvailable:false,inventoryScope:components===null?'unavailable':'netlist'}
+        if(bomRows!==null)mergeAnalysisBom(data,bomRows)
+        return data
+      }
       try {
         const componentFile = await read(files.components), netFile = await read(files.connectivity)
         const metadata = componentFile.metadata
         if (metadata.version === version && metadata.revision === revision
-          && (metadata.status === 'ready' || options.reusePartial && ['partial', 'unavailable'].includes(metadata.status))
+          && metadata.stages && typeof metadata.stages === 'object'
           && (Array.isArray(componentFile.data.components) || componentFile.data.components === null)
-          && typeof componentFile.data.bomAvailable === 'boolean'
-          && (!componentFile.data.bomAvailable || Array.isArray(componentFile.data.components))
+          && (Array.isArray(componentFile.data.bomRows) || componentFile.data.bomRows === null)
           && (Array.isArray(netFile.data.nets) || netFile.data.nets === null)
           && JSON.stringify(metadata) === JSON.stringify(netFile.metadata)
           && digest(JSON.stringify(componentFile.data)) === metadata.hashes.components
           && digest(JSON.stringify(netFile.data)) === metadata.hashes.connectivity) {
-          const data: AnalysisData = {...componentFile.data, nets: netFile.data.nets}
-          return {analysis: summarize(data, metadata.diagnostics, true), data}
+          components=componentFile.data.components; nets=netFile.data.nets; bomRows=componentFile.data.bomRows; stages=metadata.stages
         }
       } catch {signal.throwIfAborted() /* absent, old or damaged caches are rebuilt */}
+      // Each stage remembers success or failure independently. Reading summary is not a retry.
+      const pending = requested.filter(stage=>options.refresh || !stages[stage])
+      if(!pending.length){const data=assemble();return {analysis:summarize(data,stages,true),data}}
       const temporary = await mkdtemp(join(tmpdir(), 'dsh-module-analysis-'))
-      const diagnostics: string[] = []
-      const data: AnalysisData = {components: null, nets: null, bomAvailable: false, inventoryScope: 'unavailable'}
       try {
         const names = new Map<string, string>([[source.path, basename(source.path)]])
         for (const name of texts.keys()) {
@@ -275,28 +291,35 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
         }
         const input = join(temporary, basename(source.path))
         if (project) await writeFile(join(temporary, basename(source.path, '.kicad_sch') + '.kicad_pro'), project.text, 'utf8')
-        if (cap.netlist) {
+        for(const stage of pending){
+          // A refreshed failure must not leave stale successful data for that stage.
+          if(stage==='netlist'){components=null;nets=null}else bomRows=null
           try {
-            await run(cli, ['sch', 'export', 'netlist', '--format', 'kicadsexpr', '--output', join(temporary, 'netlist.net'), input], signal)
-            Object.assign(data, parseAnalysisNetlist(await boundedFile(join(temporary, 'netlist.net'))))
-            data.inventoryScope = 'netlist'
-          } catch (error) {signal.throwIfAborted(); diagnostics.push(String(error).slice(0, 1600))}
-        } else diagnostics.push('CLI does not support kicadsexpr netlist export')
-        if (cap.bom) {
-          try {
-            const fields = 'Reference,Value,Footprint,QUANTITY,DNP,EXCLUDE_FROM_BOM,EXCLUDE_FROM_BOARD'
-            await run(cli, ['sch', 'export', 'bom', '--fields', fields, '--labels', 'Reference,Value,Footprint,Quantity,DNP,ExcludeFromBom,ExcludeFromBoard',
-              '--group-by', '', '--filter', '', '--output', join(temporary, 'bom.csv'), input], signal)
-            const bom = parseBomCsv(await boundedFile(join(temporary, 'bom.csv')))
-            mergeAnalysisBom(data, bom)
-          } catch (error) {signal.throwIfAborted(); diagnostics.push(String(error).slice(0, 1600))}
-        } else diagnostics.push('CLI does not support the required BOM export options')
-        if (!data.bomAvailable) for (const comp of data.components ?? []) comp.bomIncluded = null
-        const analysis = summarize(data, diagnostics, false)
-        const componentData = {components: data.components, bomAvailable: data.bomAvailable, inventoryScope: data.inventoryScope}
-        const netData = {nets: data.nets}
-        const metadata = {version, revision, status: analysis.status, sources, variant: 'default', diagnostics,
-          hashes: {components: digest(JSON.stringify(componentData)), connectivity: digest(JSON.stringify(netData))}}
+            if(stage==='netlist'){
+              if(!cap.netlist)throw new Error('CLI does not support kicadsexpr netlist export')
+              await run(cli, ['sch', 'export', 'netlist', '--format', 'kicadsexpr', '--output', join(temporary, 'netlist.net'), input], signal)
+              const parsed = parseAnalysisNetlist(await boundedFile(join(temporary, 'netlist.net')))
+              components=parsed.components;nets=parsed.nets
+            }else{
+              if(!cap.bom)throw new Error('CLI does not support the required BOM export options')
+              const fields = 'Reference,Value,Footprint,QUANTITY,DNP,EXCLUDE_FROM_BOM,EXCLUDE_FROM_BOARD'
+              await run(cli, ['sch', 'export', 'bom', '--fields', fields, '--labels', 'Reference,Value,Footprint,Quantity,DNP,ExcludeFromBom,ExcludeFromBoard',
+                '--group-by', '', '--filter', '', '--output', join(temporary, 'bom.csv'), input], signal)
+              const rows=parseBomCsv(await boundedFile(join(temporary,'bom.csv')))
+              // Validate before marking the stage successful; never cache malformed rows.
+              mergeAnalysisBom({components,nets,bomAvailable:false,inventoryScope:components===null?'unavailable':'netlist'},rows)
+              bomRows=rows
+            }
+            stages[stage]={status:'ready'}
+          }catch(error){signal.throwIfAborted();stages[stage]={status:'failed',diagnostic:String(error).slice(0,1600)}}
+        }
+        const data=assemble(), analysis=summarize(data,stages,false)
+        // Raw BOM membership is cached separately from raw netlist components so either export
+        // can be refreshed without repeating or losing the other stage's data and properties.
+        const componentData = {components,bomRows}
+        const netData = {nets}
+        const metadata = {version,revision,status:analysis.status,sources,variant:'default',stages,
+          hashes:{components:digest(JSON.stringify(componentData)),connectivity:digest(JSON.stringify(netData))}}
         const artifacts = {components: JSON.stringify({metadata, data: componentData}),
           connectivity: JSON.stringify({metadata, data: netData})}
         const policy = ctx.sandboxPolicy.resolve({session: exec.agent!.session})

@@ -1,0 +1,8 @@
+{
+  "resistor": {
+    "libraryPath": "project/libraries/symbols/Device.kicad_sym",
+    "libId": "Device:R",
+    "value": "10k",
+    "pins": {"top": "1", "bottom": "2"}
+  }
+}

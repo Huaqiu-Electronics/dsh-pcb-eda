@@ -1,10 +1,11 @@
 /** Import a verified symbol/footprint pair into project-local KiCad libraries. */
 import { createHash } from 'node:crypto'
-import { isAbsolute, join } from 'node:path'
-import { parse, children, value, quote } from '../schematic/sexpr.ts'
-import { importSymbol, libraryName, type ProjectFileSystem } from './import-symbol.ts'
+import { isAbsolute } from 'node:path'
+import { parse, value } from '../schematic/sexpr.ts'
+import { importSymbol, type ProjectFileSystem } from './import-symbol.ts'
 import { collectPins, fetchModelText, fetchSymbolSource, inspectBuilderCompatibility, summarizeFootprint, type ModelFetchOptions } from './models.ts'
 import { getModelUrls } from './service.ts'
+import {prepareCloudFootprint} from './cloud-footprint.ts'
 
 type Policy = Parameters<ProjectFileSystem['writeText']>[4]
 
@@ -54,49 +55,25 @@ export async function importComponent(mfgId: string, mpn: string, projectDir: st
   }
   const compatibility = inspectBuilderCompatibility(source.symbol, source.text)
   if (compatibility.status !== 'ready') throw new Error(`SYMBOL_UNITS_UNSUPPORTED: ${mfgId}:${mpn}; symbol ${source.symbol.name}; sections [${(source.symbol.children ?? []).map(child => child.name).join(', ')}]; source ${source.sourceUrl}; ${compatibility.nextAction}`)
-  const nickname = libraryName(mfgId, mpn)
   const footprintText = rawFootprint.endsWith('\n') ? rawFootprint : `${rawFootprint}\n`
-  const footprint = await fs.resolve(join(project.displayPath, 'libraries', 'footprints', `${nickname}.pretty`, `${footprintName}.kicad_mod`), { signal })
-  const table = await fs.resolve(join(project.displayPath, 'fp-lib-table'), { signal })
-  if (!fs.contains(project, footprint) || !fs.contains(project, table)) throw new Error('Footprint targets must stay inside projectDir')
-  const info = await fs.stat(footprint, signal)
-  if (info && (info.type !== 'file' || await fs.readText(footprint, signal) !== footprintText)) throw new Error('Footprint already exists with different content')
-  const tableInfo = await fs.stat(table, signal)
-  if (tableInfo && tableInfo.type !== 'file') throw new Error('fp-lib-table must be a regular file')
-  const oldTable = tableInfo ? await fs.readText(table, signal) : null
-  const uri = `\${KIPRJMOD}/libraries/footprints/${nickname}.pretty`
-  const entry = `  (lib (name ${quote(nickname)})(type "KiCad")(uri ${quote(uri)})(options "")(descr ""))`
-  let nextTable: string | null
-  if (oldTable === null) nextTable = `(fp_lib_table\n  (version 7)\n${entry}\n)\n`
-  else {
-    const root = parse(oldTable)
-    if (root.head !== 'fp_lib_table') throw new Error('fp-lib-table has no fp_lib_table root')
-    const existing = children(root, 'lib').filter(lib => children(lib, 'name').some(name => value(name) === nickname))
-    if (existing.length > 1 || existing.some(lib =>
-      children(lib, 'uri').length !== 1 || value(children(lib, 'uri')[0]!) !== uri
-      || children(lib, 'type').length !== 1 || value(children(lib, 'type')[0]!) !== 'KiCad'
-      || children(lib, 'options').length !== 1 || value(children(lib, 'options')[0]!) !== '')) throw new Error('fp-lib-table has a conflicting registration')
-    nextTable = existing.length ? null : `${oldTable.slice(0, root.end - 1)}\n${entry}\n${oldTable.slice(root.end - 1)}`
-  }
+  const prepared = await prepareCloudFootprint(project,mpn,footprintText,fs,signal)
   // All model and footprint-target checks precede mutation. Writes are guarded individually,
   // not a filesystem transaction; report partial paths for recovery on any later failure.
   let symbol: Awaited<ReturnType<typeof importSymbol>>
   try {
-    symbol = await importSymbol(mfgId, mpn, projectDir, workspaceRoot, options, fs, policy, signal, cachedFetch, source)
+    symbol = await importSymbol(mfgId, mpn, projectDir, workspaceRoot, options, fs, policy, signal, cachedFetch, source, prepared.footprintId)
     signal.throwIfAborted()
-    if (!info) await fs.writeText(footprint, footprintText, { kind: 'createIfAbsent' }, signal, policy)
-    if (nextTable !== null) await fs.writeText(table, nextTable, tableInfo
-      ? { kind: 'replaceIfVersion', version: tableInfo.version } : { kind: 'createIfAbsent' }, signal, policy)
+    await prepared.write(policy)
   } catch (error) {
-    throw new Error(`Component import failed; inspect project libraries and tables in ${project.displayPath}, footprint ${footprint.displayPath}. Some files may already have been written.`, { cause: error })
+    throw new Error(`Component import failed; inspect project libraries and tables in ${project.displayPath}, footprint ${prepared.file.displayPath}. Some files may already have been written.`, { cause: error })
   }
   return {
     ...symbol, hasSymbol: true, hasFootprint: true,
-    footprintId: `${nickname}:${footprintName}`, footprintPath: footprint.displayPath,
-    footprintTablePath: table.displayPath, footprintSourceUrl: urls.footprint.href,
+    footprintId: prepared.footprintId, footprintPath: prepared.file.displayPath,
+    footprintTablePath: prepared.table.displayPath, footprintSourceUrl: urls.footprint.href,
     footprintSha256: createHash('sha256').update(footprintText).digest('hex'),
-    footprintLibrary: info ? 'existing' : 'created',
-    footprintTable: nextTable === null ? 'existing' : tableInfo ? 'updated' : 'created',
+    footprintLibrary: prepared.info ? 'existing' : 'created',
+    footprintTable: prepared.next === null ? 'existing' : prepared.tableInfo ? 'updated' : 'created',
     padCount: summary.padCount,
     validation: { pinPadMatch: 'number_sets_match', pinNumbers: pins, padNumbers: pads,
       electricalCompatibility: 'not_checked', packageDimensions: 'not_checked' },
