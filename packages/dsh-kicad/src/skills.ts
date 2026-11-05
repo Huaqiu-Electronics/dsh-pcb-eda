@@ -76,6 +76,11 @@ export const KICAD_SKILLS: Readonly<Record<string, KicadBundledSkill>> = {
       'a new board project.',
     ownsScripts: false,
   },
+  'pcb-copper-pour': {
+    id: 'pcb-copper-pour',
+    summary: 'Create or refill PCB copper zones through KiCad IPC with explicit nets, layers and scope.',
+    ownsScripts: false,
+  },
   'pcb-initial-placement': {
     id: 'pcb-initial-placement',
     summary:

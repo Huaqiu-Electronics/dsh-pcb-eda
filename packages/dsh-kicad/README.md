@@ -54,6 +54,15 @@ retry), `UNAVAILABLE` (KiCad unreachable — retry once after checking the envir
 
 ### Skills
 
+**`skills/pcb-copper-pour/`** — create or refill copper zones using the existing
+KiCad IPC tools. It distinguishes existing-zone refills from new pours, checks
+explicit nets, enabled layers and actual board boundaries, and handles duplicate
+requests and partial outcomes. It does not invent settings the tools cannot
+express, guess double-sided GND, or substitute a bounding rectangle for an
+irregular board. Load `references/common-cases.md` for the relevant cases.
+For routing followed by pouring, wait for routing and safe cleanup before any
+further board mutation. No automatic save.
+
 Every directory under `skills/` is registered as a DSH skill, so one installation
 delivers the operating guidance along with the tools. Each is progressive-disclosure:
 the agent reads `SKILL.md` first and opens `references/` only when the task needs it.
