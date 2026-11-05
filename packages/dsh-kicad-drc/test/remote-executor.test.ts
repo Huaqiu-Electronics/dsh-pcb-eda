@@ -151,10 +151,11 @@ test('RemoteExecutor 走 pcblint 两步握手，并把报告落盘到 PCB 同目
 
     assert.deepEqual(calls.map((c) => c.url), [
       'http://unit-test/api/s/upload',
+      'http://unit-test/api/s/drc-rules',
       'http://unit-test/api/s/lint-drc',
     ])
-    // 第二步必须带会话令牌：服务端靠它找回刚上传的板
-    assert.equal(calls[1]?.headers['X-Session-Token'], 'session-1')
+    // lint 必须带会话令牌：服务端靠它找回刚上传的板
+    assert.equal(calls[2]?.headers['X-Session-Token'], 'session-1')
 
     assert.equal(result.exitCode, 0)
     assert.equal(result.reportFormat, 'pcblint')
@@ -255,16 +256,24 @@ test('probe 真发健康检查：200 判可用，连不上判不可用', async (
 })
 
 test('probe 把 kicad-cli 状态拼进 reason；不可用不影响服务可用性判定', async () => {
-  const okCli = mockFetch({ drcStatus: () => jsonResponse({ available: true, cliRunnerUrl: 'local://x' }) })
+  // available=true 只代表"配了 runner"，不能说成"可用"——实测路径失效时服务端
+  // 照样回 true。所以 reason 只展示配置内容，由调用方自己判断。
+  const okCli = mockFetch({
+    drcStatus: () => jsonResponse({
+      available: true,
+      cliRunnerUrl: 'local://ProcessBuilder (kicad-cli at D:/kicad/bin/kicad-cli.exe)',
+    }),
+  })
   const ok = await new RemoteExecutor({ baseUrl: 'http://unit-test', fetchImpl: okCli.fetchImpl }).probe()
   assert.equal(ok.available, true)
-  assert.match(String(ok.reason), /kicad-cli 可用/)
+  assert.doesNotMatch(String(ok.reason), /可用/)
+  assert.match(String(ok.reason), /kicad-cli 配置: D:\/kicad\/bin\/kicad-cli\.exe/)
 
   const badCli = mockFetch({ drcStatus: () => jsonResponse({ available: false, cliRunnerUrl: 'local://x' }) })
   const health = await new RemoteExecutor({ baseUrl: 'http://unit-test', fetchImpl: badCli.fetchImpl }).probe()
   // kicad-cli 不可用只降级结果的完整性，服务本身仍可用（还能跑规则引擎）
   assert.equal(health.available, true)
-  assert.match(String(health.reason), /kicad-cli 不可用/)
+  assert.match(String(health.reason), /未配置 kicad-cli/)
 
   // 旧版服务没有 drc-status（404）：探测仍然成功，只是 reason 少一段
   const legacyBase = mockFetch({})
@@ -328,14 +337,33 @@ test('旧版服务没有校验开关接口（404）：降级为 unsupported，DR
   }
 })
 
-test('不传 drcRuleOverrides 时不碰开关接口（保持服务端当前开关集）', async () => {
+test('不传 drcRuleOverrides 时只读开关状态（GET），不写入', async () => {
+  // 必须读：complete 判定要知道内置规则有没有参与，而 lint 的 drcRulesCount
+  // 实测与开关无关、不能当判据。
   const { pcb, cleanup } = makeFixture()
   try {
     const { fetchImpl, calls } = mockFetch({})
     const executor = new RemoteExecutor({ baseUrl: 'http://unit-test', fetchImpl })
     const result = await executor.run({ pcbPath: pcb })
-    assert.equal(calls.some((c) => c.url.endsWith('/api/s/drc-rules')), false)
-    assert.equal(result.drcRules, undefined)
+    const touched = calls.filter((c) => c.url.endsWith('/api/s/drc-rules'))
+    assert.equal(touched.length, 1)
+    assert.equal(touched[0]?.method, 'GET')
+    assert.equal(result.drcRules?.status, 'observed')
+    assert.deepEqual(result.drcRules?.enabledKeys, ['clearance', 'silk_edge_clearance'])
+  } finally {
+    cleanup()
+  }
+})
+
+test('没给开关且服务端没有该接口时，DRC 照常跑完', async () => {
+  const { pcb, cleanup } = makeFixture()
+  try {
+    const { fetchImpl } = mockFetch({
+      drcRulesGet: () => jsonResponse({ error: 'Not Found' }, 404),
+    })
+    const result = await new RemoteExecutor({ baseUrl: 'http://unit-test', fetchImpl }).run({ pcbPath: pcb })
+    assert.equal(result.drcRules?.status, 'unsupported')
+    assert.equal(result.exitCode, 0)
   } finally {
     cleanup()
   }
@@ -366,7 +394,7 @@ test('lint-drc 返回 500 后重试一次成功', async () => {
     })
     const result = await new RemoteExecutor({ baseUrl: 'http://unit-test', fetchImpl }).run({ pcbPath: pcb })
     assert.equal(lintCalls, 2, '第一次 500，第二次成功')
-    assert.equal(calls.length, 3, 'upload + lint + lint 重试')
+    assert.equal(calls.length, 4, 'upload + 读开关状态 + lint + lint 重试')
     assert.equal(result.exitCode, 0)
     assert.ok(result.drcJson)
   } finally {
@@ -384,6 +412,7 @@ test('同目录有 .kicad_pro 时，先注入工程规则再 lint', async () => 
       'POST http://unit-test/api/s/upload',
       'GET http://unit-test/api/s/dru',
       'PUT http://unit-test/api/s/dru',
+      'GET http://unit-test/api/s/drc-rules',
       'POST http://unit-test/api/s/lint-drc',
     ])
     // 注入必须在 DRC 之前完成，且都带同一个会话令牌
@@ -424,6 +453,7 @@ test('.kicad_pro 里没有可注入约束时不调用规则接口', async () => 
     const result = await new RemoteExecutor({ baseUrl: 'http://unit-test', fetchImpl }).run({ pcbPath: pcb })
     assert.deepEqual(calls.map((c) => c.url), [
       'http://unit-test/api/s/upload',
+      'http://unit-test/api/s/drc-rules',
       'http://unit-test/api/s/lint-drc',
     ])
     assert.match(result.stderr, /没有可注入的板级约束/)
@@ -455,6 +485,7 @@ test('调用方传 .kicad_dru 时注入工程自定义规则，且不产生第�
       'POST http://unit-test/api/s/upload',
       'GET http://unit-test/api/s/dru',
       'PUT http://unit-test/api/s/dru',
+      'GET http://unit-test/api/s/drc-rules',
       'POST http://unit-test/api/s/lint-drc',
     ])
     assert.match(putContent, /project_wide/)

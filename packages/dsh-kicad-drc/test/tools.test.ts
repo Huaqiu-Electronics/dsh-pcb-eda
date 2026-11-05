@@ -210,14 +210,39 @@ test('execute：drcRules 参数解析成稀疏映射传给执行器，非法项�
   })
 })
 
-test('execute：内置规则开关全关（drcRulesCount=0）时同样标 reportComplete=false', async () => {
+test('execute：内置规则只剩锁定项参与时同样标 reportComplete=false', async () => {
   const tool = createDrcTool(fakeExecutor({
     reportFormat: 'pcblint',
-    metrics: { suppressedCount: 0, kicadDrcUsed: true, rulesExecuted: 11, drcRulesCount: 0 },
+    metrics: { suppressedCount: 0, kicadDrcUsed: true, rulesExecuted: 11, drcRulesCount: 6 },
+    drcRules: {
+      status: 'observed',
+      keys: [],
+      enabledCount: 1,
+      enabledKeys: ['clearance'],
+      lockedKeys: ['clearance'],
+    },
   }), 600)
   const out = await run(tool, { pcbPath: 'D:/proj/board.kicad_pcb' })
   assert.equal(out.reportComplete, false)
-  // kicadDrcUsed=true 时也要能区分出"开关全关"这第二种不完整
+  // kicadDrcUsed=true 时也要能区分出"内置规则没参与"这第二种不完整
   const reasons = (out.verifiedBy as { reasons: string[] }).reasons
-  assert.match(reasons.join('\n'), /drcRulesCount=0/)
+  assert.match(reasons.join('\n'), /只有被锁定的项参与判定/)
+})
+
+test('execute：drcRulesCount 为 0 但规则状态显示内置规则已参与时不误判', async () => {
+  // drcRulesCount 与开关无关（实测恒为固定值），不能当判据：
+  // 只要 enabledKeys 里有非锁定项，就不该标不完整。
+  const tool = createDrcTool(fakeExecutor({
+    reportFormat: 'pcblint',
+    metrics: { suppressedCount: 0, kicadDrcUsed: true, rulesExecuted: 11, drcRulesCount: 0 },
+    drcRules: {
+      status: 'applied',
+      keys: ['silk_edge_clearance'],
+      enabledCount: 2,
+      enabledKeys: ['clearance', 'silk_edge_clearance'],
+      lockedKeys: ['clearance'],
+    },
+  }), 600)
+  const out = await run(tool, { pcbPath: 'D:/proj/board.kicad_pcb' })
+  assert.equal(out.reportComplete, undefined)
 })

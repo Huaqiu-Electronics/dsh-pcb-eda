@@ -21,6 +21,7 @@
 
 import {
   ExecutorError,
+  onlyLockedRulesEnabled,
   type DrcBackendName,
   type DrcMode,
   type DrcProjectRules,
@@ -73,10 +74,11 @@ export interface DrcCheckRequest {
   /**
    * KiCad 内置规则开关（`key → error/warning/ignore`），只对 remote 生效。
    *
-   * 局部 DRC 的规则维度：pcblint 新版**默认不返回任何内置规则的违规**（首次
-   * 上传的开关全是关的），只回自研规则。要按 `silk_edge_clearance`、
+   * 局部 DRC 的规则维度：服务端在解析阶段只放行「DRU 自研规则 + 显式打开的内置规则」，
+   * 未打开的内置规则即使产生了违规也会被丢弃。实测默认只启用被锁定的 `clearance`
+   * （`.kicad_dru` 依赖它），其余 58 条全是 `ignore`——要按 `silk_edge_clearance`、
    * `lib_footprint_issues` 这类内置项评分，必须在这里显式打开。
-   * 未出现的 key 保持服务端当前值。
+   * 未出现的 key 保持服务端当前值；锁定项（`locked: true`）设置会被忽略。
    */
   drcRuleOverrides?: Record<string, DrcRuleSeverity>
   /** 只看这个矩形内的违规（整板仍会完整检查，这里只过滤结果）。 */
@@ -124,9 +126,10 @@ export interface DrcCheckResult {
    *
    * `false` 有两个来源，都有明确证据：
    *   - `kicadDrcUsed === false`：服务端没跑 kicad-cli，结果只剩规则引擎那半边；
-   *   - `drcRulesCount === 0`：kicad-cli 跑了，但一条内置规则都没启用
-   *     （pcblint 新版的默认状态），结果同样只有自研规则。
-   * 后端没给口径（null）按完整处理——不完整是判定出来的，不能靠猜。
+   *   - 内置规则里只有被锁定的项在参与（见 `onlyLockedRulesEnabled`）：
+   *     kicad-cli 跑了，但用户没打开任何内置规则，结果同样缺了那部分。
+   * 后端没给口径（`kicadDrcUsed: null`，或拿不到规则开关状态）按完整处理——
+   * 不完整是判定出来的，不能靠猜。
    * 此时 `counts.total` 不能当作完整 DRC 结论，更不能和 local 后端的条数横比。
    * 调用方（自动布局评分）应先看这个字段。
    */
@@ -142,10 +145,12 @@ export interface DrcCheckResult {
    */
   projectRules: DrcProjectRules
   /**
-   * 本次内置规则开关的落地结果（只有传了 `drcRuleOverrides` 才出现）。
+   * 本次内置规则开关的状态（remote 后端才有）。
    *
-   * `status: 'unsupported'` 说明服务端太旧没有该接口，此时 `violations` 是
-   * 按服务端当前开关集跑出来的——内置规则的缺失不是因为"没有违规"。
+   * 没传 `drcRuleOverrides` 时也会出现，`status: 'observed'` 表示只读取了服务端
+   * 当前开关集——`enabledKeys` 就是判断"内置规则有没有参与判定"的依据。
+   * `status: 'unsupported'` 说明服务端太旧没有该接口，此时 `violations` 是按
+   * 服务端自己的开关集跑出来的——内置规则的缺失不是因为"没有违规"。
    */
   drcRules?: DrcRuleOverridesResult
   elapsedMs: number
@@ -367,11 +372,19 @@ export function createDrcService(adaptive: AdaptiveExecutor): DrcService {
         drcRulesCount: numberOf(summary?.drcRulesCount),
       }
 
+      // 内置规则覆盖度只认 drc-rules 里的 enabled/locked 集合。
+      // lint-drc 的 drcRulesCount 实测恒为固定值（开关 1→59→1 都不变），拿它判完整性
+      // 会给出虚假的安全感，已弃用。
+      const narrowedRules = onlyLockedRulesEnabled(result.drcRules)
+      const enabledKeys = result.drcRules?.enabledKeys
+
       // 口径提示统一往 notes 追加：调用方只读结构化字段时至少还有一处能看见
       let notes = result.stderr
-      if (metrics.drcRulesCount === 0) {
-        notes = appendLine(notes, '警告: 服务端当前一条 KiCad 内置规则都没启用，结果只含 pcblint 自研规则；'
-          + '需要内置规则（clearance/silk/footprint 等）时，用 drcRuleOverrides 显式打开')
+      if (narrowedRules) {
+        notes = appendLine(notes,
+          '警告: 服务端内置规则里只有被锁定的项参与判定'
+          + `（${enabledKeys?.join(', ') || '无'}），其余全部关闭，结果不含这些内置规则的违规；`
+          + '需要它们参与时，用 drcRuleOverrides 显式打开')
       }
       if (impliedRemote) {
         notes = appendLine(notes, '提示: 本次提供了 remote 专属参数（ruleSources/drcRuleOverrides），'
@@ -389,9 +402,8 @@ export function createDrcService(adaptive: AdaptiveExecutor): DrcService {
         suppressedCount: metrics.suppressedCount,
         kicadDrcUsed: metrics.kicadDrcUsed,
         // null（后端没给口径）按完整处理：不完整是有明确证据的判定，不能靠猜。
-        // drcRulesCount=0 是新口径下的第二类"不完整"：pcblint 默认一条内置规则
-        // 都不开，此时结果只有自研规则，kicadDrcUsed=true 也救不了它。
-        complete: metrics.kicadDrcUsed !== false && metrics.drcRulesCount !== 0,
+        // 两类证据：kicad-cli 没跑；或内置规则只剩被锁定的那些在参与。
+        complete: metrics.kicadDrcUsed !== false && !narrowedRules,
         rulesExecuted: metrics.rulesExecuted,
         elapsedMs: result.elapsedMs,
         reportPath: result.drcJsonPath,

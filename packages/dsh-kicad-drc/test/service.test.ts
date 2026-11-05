@@ -248,15 +248,50 @@ test('drcRuleOverrides 透传给执行器，落地结果原样回传', async () 
   assert.deepEqual(result.drcRules, drcRules)
 })
 
-test('drcRulesCount=0：kicadDrcUsed=true 也判不完整，notes 给出打开开关的指引', async () => {
+test('内置规则只剩锁定项参与时判不完整，notes 指出覆盖度', async () => {
+  // 实测：drcRulesCount 恒为固定值（开关 1→59→1 都不变），不能当判据；
+  // 唯一可信的是 drc-rules 里的 enabled/locked 集合。
   const { adaptive } = fakeAdaptive({
     drcJson: PCB_LINT_REPORT,
-    metrics: { suppressedCount: 0, kicadDrcUsed: true, rulesExecuted: 4, drcRulesCount: 0 },
+    metrics: { suppressedCount: 0, kicadDrcUsed: true, rulesExecuted: 4, drcRulesCount: 6 },
+    drcRules: {
+      status: 'observed',
+      keys: [],
+      enabledCount: 1,
+      enabledKeys: ['clearance'],
+      lockedKeys: ['clearance'],
+    },
   })
   const result = await createDrcService(adaptive).check({ pcbPath: 'board.kicad_pcb' })
-  // pcblint 新版默认一条内置规则都不开：结果只有自研规则，kicadDrcUsed=true 也救不了
+  // kicadDrcUsed=true 也救不了：内置规则没参与，结果仍然缺 kicad-cli 那部分
   assert.equal(result.complete, false)
-  assert.match(result.notes, /一条 KiCad 内置规则都没启用/)
+  assert.match(result.notes, /只有被锁定的项参与判定/)
+})
+
+test('额外打开了内置规则时判为完整', async () => {
+  const { adaptive } = fakeAdaptive({
+    drcJson: PCB_LINT_REPORT,
+    metrics: { suppressedCount: 0, kicadDrcUsed: true, rulesExecuted: 4, drcRulesCount: 6 },
+    drcRules: {
+      status: 'applied',
+      keys: ['silk_edge_clearance'],
+      enabledCount: 2,
+      enabledKeys: ['clearance', 'silk_edge_clearance'],
+      lockedKeys: ['clearance'],
+    },
+  })
+  const result = await createDrcService(adaptive).check({ pcbPath: 'board.kicad_pcb' })
+  assert.equal(result.complete, true)
+})
+
+test('拿不到规则开关状态时不臆断不完整', async () => {
+  // 旧版服务没有 drc-rules 接口：没有证据就不判"不完整"
+  const { adaptive } = fakeAdaptive({
+    drcJson: PCB_LINT_REPORT,
+    metrics: { suppressedCount: 0, kicadDrcUsed: true, rulesExecuted: 4, drcRulesCount: 6 },
+  })
+  const result = await createDrcService(adaptive).check({ pcbPath: 'board.kicad_pcb' })
+  assert.equal(result.complete, true)
 })
 
 test('给了 remote 专属参数却没指定 mode 时按 remote 执行，不静默落到 local', async () => {

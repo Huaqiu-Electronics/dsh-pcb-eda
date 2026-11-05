@@ -11,7 +11,7 @@ DeepSeek Harness (DSH) 插件：为 AI agent 注册 `kicad_drc_run` 工具，对
   - `drcJson` — 原始 JSON，**默认不回传**（可能数百 KB），传 `includeFullJson=true` 才包含
 - 三个后端 + 运行时自适应（`mode` 参数可覆盖，默认 `auto`）：
   - **local** — 本地 subprocess 直接调 kicad-cli；可执行文件多级自动探测（插件配置 → `KICAD_CLI_PATH`/`KICAD_PATH` 环境变量 → PATH → Windows 注册表 → 常见安装目录扫描 → PowerShell 全盘浅层搜索）
-  - **remote** — PCB 文件 multipart 上传到 **pcblint DRC 服务**（本地单机版见 `E://pcblint-local`，生产版同源）：`POST /api/s/upload` → `POST /api/s/lint-drc`。服务端跑「语义规则引擎（`backend=NATIVE`）+ 本地 kicad-cli 原生检查（`backend=EDA_DRC`）」后合并返回；本机无需安装 KiCad，每条违规带 `confidence`（HIGH/MEDIUM/LOW）与 `ruleId`。上传后若 PCB 同目录存在 `.kicad_pro`，插件会先把其中的**板级约束**注入服务端会话的 `.kicad_dru`（`GET/PUT /api/s/dru`），避免服务端用 KiCad 默认阈值误判。传 `drcRules` 参数时还会把 **KiCad 内置规则开关**写进会话（`PUT /api/s/drc-rules`，pcblint 新版接口）：**该版本默认一条内置规则都不启用**，要检查 `clearance`、`silk_edge_clearance` 等内置项必须显式打开；旧版服务没有此接口（404），插件降级为不设开关并在结果里标注 `drcRules.status = 'unsupported'`
+  - **remote** — PCB 文件 multipart 上传到 **pcblint DRC 服务**（本地单机版见 `E://pcblint-local`，生产版同源）：`POST /api/s/upload` → `POST /api/s/lint-drc`。服务端跑「语义规则引擎（`backend=NATIVE`）+ 本地 kicad-cli 原生检查（`backend=EDA_DRC`）」后合并返回；本机无需安装 KiCad，每条违规带 `confidence`（HIGH/MEDIUM/LOW）与 `ruleId`。上传后若 PCB 同目录存在 `.kicad_pro`，插件会先把其中的**板级约束**注入服务端会话的 `.kicad_dru`（`GET/PUT /api/s/dru`），避免服务端用 KiCad 默认阈值误判。传 `drcRules` 参数时还会把 **KiCad 内置规则开关**写进会话（`PUT /api/s/drc-rules`，pcblint 新版接口）：**该版本默认只启用被锁定的 `clearance`**（59 条里其余 58 条 `ignore`），要检查 `silk_edge_clearance`、`lib_footprint_issues` 等内置项必须显式打开；内置规则走 kicad-cli 通道，`kicadDrcUsed=false` 时打开开关不产生任何条目。旧版服务没有此接口（404），插件降级为不设开关并在结果里标注 `drcRules.status = 'unsupported'`
   - **ipc** — 通过 IPC 让**正在运行的 KiCad** 执行 DRC 并取回结构化结果（作用于内存中的板，含未保存修改；不产生 marker、不写盘）；结果接口 `RunDrc` 由华秋定制版 KiCad 提供，官方版没有这条命令时该后端会自动判为不可用
 - auto 模式先按 `backendPriority` 分层（默认 `remote → local → ipc`），前一层不可用或执行失败才降级；同一层内才按历史耗时排序，失败自动回退，实际后端写进 `verifiedBy`
 - 本地默认使用隔离的 `KICAD_CONFIG_HOME`，规避 KiCad 默认配置发现路径的开销（实测 6.1s → 1.2s）
@@ -94,15 +94,19 @@ const result = await drc.check({
 | `pcbPath` | 候选板绝对路径 |
 | `ruleSources.projectFile` | 调用方冻结的 `.kicad_pro` 内容。候选板是投影出来的临时文件，目录里没有 `.kicad_pro`，不给就会按服务端默认工程判定，线宽/过孔/间距全线误报 |
 | `ruleSources.drcFile` | 工程自带的 `.kicad_dru`，追加在生成规则之后（KiCad 里后出现的规则优先，工程自定义规则据此覆盖板级默认值） |
-| `drcRuleOverrides` | KiCad 内置规则开关（`key → error/warning/ignore`），对应 pcblint 新版 `/api/s/drc-rules`。**该版本默认一条内置规则都不开**——要按 `clearance`/`silk_edge_clearance` 等内置项评分必须显式打开；未提到的 key 保持服务端当前值。落地状态回传在 `drcRules`（applied / unsupported=服务端太旧 / failed），失败不中断 DRC |
+| `drcRuleOverrides` | KiCad 内置规则开关（`key → error/warning/ignore`），对应 pcblint 新版 `/api/s/drc-rules`。**该版本默认只启用被锁定的 `clearance`**（依赖 `.kicad_dru` 的 constraint，不可关闭），其余 58 条 `ignore`——要按 `silk_edge_clearance`/`lib_footprint_issues` 等内置项评分必须显式打开；未提到的 key 保持服务端当前值。状态回传在 `drcRules`（applied / observed=仅读取未写入 / unsupported=服务端太旧 / failed），失败不中断 DRC。注意开关**按板持久化**，不传是"沿用上次"而非"回到默认" |
 | `region` | 矩形区域（mm，含边界）。**服务端没有区域参数**，这里只是整板跑完再过滤，结果用 `scope: 'region'` 与 `outsideRegion` 如实标注 |
 | `mode` | 默认 `auto`；但**给了 `ruleSources` 或 `drcRuleOverrides` 却没给 `mode` 时默认 `remote`**——这两个参数只有 remote 认，落到 local/ipc 会被静默丢弃。`auto` 还可能选到需要打开 KiCad 的 ipc 后端 |
 | `signal` | 取消信号。取消后远程中断 HTTP、本地/ipc 杀掉子进程，并抛出 `DrcAbortedError`；**取消不会触发后端回退**（用户已经不要结果了，换后端重跑没有意义） |
 
 返回：`backend`、`reportFormat`、`violations[]`、`counts`、`scope`、`outsideRegion`、
 `unknownRegion`、`suppressedCount`、`kicadDrcUsed`、`rulesExecuted`、`projectRules`、
-`drcRules`（传了 `drcRuleOverrides` 才出现）、`complete`、`elapsedMs`、`reportPath`、
-`notes`（口径提示，原样透传执行器 stderr）。
+`drcRules`（remote 后端总是出现，`status: 'observed'` 表示只读取未写入）、`complete`、
+`elapsedMs`、`reportPath`、`notes`（口径提示，原样透传执行器 stderr）。
+
+`complete` 为 `false` 只有两类证据：`kicadDrcUsed === false`（kicad-cli 没跑），或
+`drcRules.enabledKeys` 全部落在 `lockedKeys` 里（内置规则只有锁定项参与）。
+**不要用 `drcRulesCount` 判**：实测开关从 1 条改到 59 条再改回 1 条，它始终是 6。
 
 `projectRules` 是结果可信度的判据（别只看 `notes` 里那句话）：
 
@@ -196,7 +200,7 @@ DRC 成功生成报告后，工具输出会附带一个 `viewUrl`（形如 `/drc
 ```bash
 pnpm install        # 安装依赖
 pnpm run typecheck  # 类型检查（tsc --noEmit，含 src/client React 代码）
-pnpm test           # 单元测试（node:test，零额外依赖；125 用例）
+pnpm test           # 单元测试（node:test，零额外依赖；129 用例）
 pnpm run build      # tsdown 双入口编译 → lib/index.js（host ESM）+ lib/client.js（浏览器 CJS factory）
 pnpm pack           # 打包 tgz（prepack 自动触发 build）
 ```
@@ -208,7 +212,7 @@ client bundle 是 `window.__ModuleLoader__.load({id, factory})` 包装的 CJS（
 - 隔离配置会失去用户的全局封装库表，依赖库比对的 DRC 检查可能退化为默认结果（`isolatedConfig: false` 可关）
 - 三个后端的结果**不可直接比较**：remote 会把同目录 `.kicad_pro` 的板级约束与网络类间距注入会话规则文件，但其余规则（`min_silk_clearance`、`min_text_*` 等）仍按服务端默认；比较两次 DRC 前先看 `verifiedBy` 与 `reportFormat`
 - remote 的报告是 **pcblint 格式**（`reportFormat: 'pcblint'`）：顶层 `violations`、`severity` 大写、带 `confidence`/`ruleId`/`backend`；local/ipc 是 kicad-cli 原生格式（`reportFormat: 'kicad-cli'`）。摘要与卡片对两种格式都能解析，但两边的违规数不能互相加减
-- remote 依赖外部 pcblint 服务，两类情况都会让结果只剩规则引擎条目：① 服务没起或没配 `KICAD_CLI`（`kicadDrcUsed=false`）；② pcblint 新版默认一条 KiCad 内置规则都不启用（`drcRulesCount=0`）。此时工具输出会置 `reportComplete=false`、摘要第一行给出警示、`verifiedBy.reasons` 留一条说明（服务层对应 `complete: false`），别当成完整 DRC 结论；要内置项用 `drcRules` 参数显式打开
+- remote 依赖外部 pcblint 服务，两类情况都会让结果缺掉 kicad-cli 那半边：① 服务没起或没配 `KICAD_CLI`（`kicadDrcUsed=false`）；② 内置规则只剩被锁定的 `clearance` 在参与（默认状态，其余 58 条 `ignore`）。此时工具输出会置 `reportComplete=false`、摘要第一行给出警示、`verifiedBy.reasons` 留一条说明（服务层对应 `complete: false`），别当成完整 DRC 结论；要内置项用 `drcRules` 参数显式打开。**`kicadDrcUsed=false` 时打开开关也不会有新条目**——开关走 kicad-cli 通道
 - `--refill-zones` 已在 KiCad 10.0 实测**不会写回原 .kicad_pcb 文件**（仅内存重绘用于检查），但其他版本行为未逐一验证；remote 后端由服务端决定是否重绘，该参数不生效
 - 工程规则注入覆盖 `design_settings.rules` 里的 8 类板级约束：`clearance`、`track_width`、`via_diameter`、`annular_width`、`hole_size`、`hole_clearance`、`hole_to_hole`、`edge_clearance`，以及**网络类的 clearance**（见下条）。`min_silk_clearance` / `min_text_*` / `min_microvia_*` **故意不注入**：实测注入 `silk_clearance` 会让 silk 违规从 13 涨到 199（本地引擎读同一工程只有 126），属于语义不一致导致的凭空放大；注入结果会写进 `stderr`（`工程规则已注入…`）与 `stdout.projectRules`
 - 网络类只注入 `clearance`，且条件按**网络名**写：远端 pcblint 用它自己那份默认工程跑检查，那里没有本工程的网络类，`A.NetClass == 'Power'` 永远不成立（实测注入后仍是 126 条，本地原生是 720）。改为按 `netclass_patterns` / `netclass_assignments` 把类成员解析成具体网络、再用 `A.NetName == '…' || B.NetName == '…'` 表达，实测与原生 netclass 逐项一致（720 条 / clearance 499）。网络类的 `track_width` / `via_diameter` **不注入**：KiCad 原生不把它们当 DRC 约束，注入后会凭空多出 31 / 87 条

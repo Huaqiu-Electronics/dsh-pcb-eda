@@ -150,13 +150,30 @@ export class RemoteExecutor implements DrcExecutor {
       // 探测成功即清冷却：否则一次瞬时失败会让之后 60s 内一直报"不可用"，
       // 哪怕服务其实早就恢复了，自适应选择会被这条过期状态带去走 local。
       this.lastFailureAt = 0
-      // 顺手问一次 kicad-cli 状态，写进 reason：服务在线但 kicad-cli 不可用时，
+      // 顺手问一次 kicad-cli 状态，写进 reason：服务在线但 kicad-cli 跑不起来时，
       // remote 的结果只有规则引擎那半边，AI/调用方看 reason 就能预判口径。
-      // 旧版服务只报"配置了 runner"不验证路径，所以这里只展示、不当可用性判据。
+      //
+      // 注意不能把 available 翻译成"可用"：它只代表服务端配了 runner。实测
+      // `start.bat` 里 KICAD_CLI 指向不存在的路径时，服务端照样回 available=true。
+      // 所以这里只展示配置内容；服务在本机时再顺手验一下路径是否存在。
       let suffix = ''
       try {
         const status = await this.client.drcStatus(ctrl.signal)
-        suffix = status.available ? ' · kicad-cli 可用' : ' · ⚠️ kicad-cli 不可用'
+        if (!status.available) {
+          suffix = ' · ⚠️ 服务端未配置 kicad-cli'
+        } else {
+          const configured = /kicad-cli at ([^)]+)/u.exec(status.cliRunnerUrl ?? '')?.[1]?.trim()
+          if (!configured) {
+            suffix = ' · kicad-cli 已配置'
+          } else {
+            // 只有本机部署才能验路径：远端服务上的路径在本地当然不存在
+            const isLocal = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::|$)/u.test(this.baseUrl)
+            const missing = isLocal && !existsSync(configured)
+            suffix = missing
+              ? ` · ⚠️ kicad-cli 路径本机不存在（${configured}），结果将只有规则引擎`
+              : ` · kicad-cli 配置: ${configured}`
+          }
+        }
       } catch { /* 旧版没有该接口或响应异常：不影响可用性判定 */ }
       return {
         backend: 'remote',
@@ -196,7 +213,7 @@ export class RemoteExecutor implements DrcExecutor {
     let lint
     let upload
     let injection: ProjectRuleInjection = { status: 'absent' }
-    let drcRuleOverrides: DrcRuleOverridesResult | undefined
+    let drcRuleState: DrcRuleOverridesResult | undefined
     try {
       // 不能再用 client.run：必须在 upload 与 lint 之间把工程规则写进会话
       upload = await this.client.upload(fileName, bytes, signal)
@@ -206,7 +223,7 @@ export class RemoteExecutor implements DrcExecutor {
         signal,
         options.ruleSources,
       )
-      drcRuleOverrides = await this.applyDrcRuleOverrides(
+      drcRuleState = await this.syncDrcRules(
         upload.sessionToken,
         options.drcRuleOverrides,
         signal,
@@ -292,20 +309,33 @@ export class RemoteExecutor implements DrcExecutor {
     } else if (injection.status === 'skipped') {
       notes.push(`提示: ${injection.message}，本次按服务端默认工程判定`)
     }
-    if (drcRuleOverrides) {
-      if (drcRuleOverrides.status === 'applied') {
+    if (drcRuleState) {
+      if (drcRuleState.status === 'applied') {
         notes.push(
-          `提示: 已保存 KiCad 内置规则开关（${drcRuleOverrides.keys.join(', ')}），`
-          + '结果只含这些内置规则的违规 + pcblint 自研规则',
+          `提示: 已保存 KiCad 内置规则开关（${drcRuleState.keys.join(', ')}），`
+          + `服务端当前启用 ${drcRuleState.enabledCount ?? '?'} 条内置规则，`
+          + '结果只含已启用内置规则的违规 + pcblint 自研规则',
         )
-      } else if (drcRuleOverrides.status === 'unsupported') {
+      } else if (drcRuleState.status === 'observed') {
+        // 没给开关时也如实说明覆盖度：默认只启用被锁定的那几条，
+        // 不点出来的话调用方会以为内置规则都参与了判定。
+        const enabled = drcRuleState.enabledKeys ?? []
+        const locked = new Set(drcRuleState.lockedKeys ?? [])
+        const userEnabled = enabled.filter((key) => !locked.has(key))
+        if (userEnabled.length === 0) {
+          notes.push(
+            `提示: 服务端当前只启用了被锁定的内置规则（${enabled.join(', ') || '无'}），`
+            + '其余内置规则全部关闭；要它们参与判定，用 drcRuleOverrides 显式打开',
+          )
+        }
+      } else if (drcRuleState.status === 'unsupported') {
         notes.push(
-          `警告: 服务端没有校验开关接口（${drcRuleOverrides.message ?? ''}），`
+          `警告: 服务端没有校验开关接口（${drcRuleState.message ?? ''}），`
           + '内置规则开关未生效，结果按服务端当前开关集返回',
         )
       } else {
         notes.push(
-          `警告: 内置规则开关写入失败（${drcRuleOverrides.message ?? ''}），`
+          `警告: 内置规则开关写入失败（${drcRuleState.message ?? ''}），`
           + '结果按服务端当前开关集返回',
         )
       }
@@ -320,8 +350,12 @@ export class RemoteExecutor implements DrcExecutor {
       suppressedCount: lint.suppressedCount ?? null,
       violations: violations.length,
       projectRules: injection.status,
-      ...(drcRuleOverrides
-        ? { drcRuleOverrides: drcRuleOverrides.status, drcRulesEnabled: drcRuleOverrides.enabledCount }
+      ...(drcRuleState
+        ? {
+            drcRulesStatus: drcRuleState.status,
+            drcRulesEnabled: drcRuleState.enabledCount,
+            drcRulesEnabledKeys: drcRuleState.enabledKeys ?? null,
+          }
         : {}),
       drcRulesCount: lint.drcRulesCount ?? null,
       ...(injection.status === 'injected'
@@ -354,7 +388,7 @@ export class RemoteExecutor implements DrcExecutor {
       drcJsonPath,
       reportFormat: REPORT_FORMAT,
       projectRules: toPublicRules(injection),
-      ...(drcRuleOverrides ? { drcRules: drcRuleOverrides } : {}),
+      ...(drcRuleState ? { drcRules: drcRuleState } : {}),
       metrics,
     }
   }
@@ -416,40 +450,57 @@ export class RemoteExecutor implements DrcExecutor {
       await this.client.putDru(sessionToken, injectProjectDru(withRules, ruleSources?.drcFile), signal)
       return { status: 'injected', set, ...(ruleSources?.drcFile?.trim() ? { dru: true } : {}) }
     } catch (e) {
+      // 取消不是"注入失败"：吞掉会带着已中止的信号继续跑 lint。
+      // 用 signal.aborted 判断，因为 AbortError 已被 PcblintClient 包装过。
+      if (signal?.aborted) throw e
       return { status: 'failed', message: e instanceof Error ? e.message : String(e) }
     }
   }
 
   /**
-   * 把 KiCad 内置规则开关写进会话（`PUT /api/s/drc-rules`）。
+   * 读取（必要时写入）服务端的 KiCad 内置规则开关状态。
    *
-   * 这是局部 DRC 的规则维度：布局评分只关心几类规则时，用稀疏映射打开它们，
-   * 服务端 lint 时就只跑这些内置规则（没开的不会出现在结果里）。
+   * 两种情况：
+   *   - 调用方给了 `overrides` → PUT 写入，响应即写入后的最新状态；
+   *   - 没给 → GET 纯读取。
    *
-   * 三种失败都不是致命的：
+   * 为什么没给也要读：`complete` 判定需要知道"内置规则到底有没有参与本次判定"。
+   * lint-drc 返回的 `drcRulesCount` 实测恒为固定值（59 条规则的开关从 1 → 59 → 1
+   * 依次改过，它一直是 6），不能当判据；只有这里的 enabled/locked 集合可信。
+   *
+   * 失败都不致命，只标注不中断：
    *   - 旧版服务没有该接口（404）→ `unsupported`，结果按服务端当前开关集返回；
-   *   - 写入失败 → `failed`，同上；
-   *   - 两者都只在结果里标注，DRC 本身照常跑完——开关是"收窄口径"，不是前提。
+   *   - 读取/写入失败 → `failed`，同上。
+   *   开关是"收窄口径"，不是 DRC 的前提。
    *
    * 注意 404 的识别方式：`PcblintClient.request` 把 HTTP 状态码拼进错误 message，
    * 这里靠正则取回。够用（状态码有独立空格边界），不值得为此改 request 的返回结构。
    */
-  private async applyDrcRuleOverrides(
+  private async syncDrcRules(
     sessionToken: string,
     overrides: Record<string, DrcRuleSeverity> | undefined,
     signal?: AbortSignal,
   ): Promise<DrcRuleOverridesResult | undefined> {
-    if (!overrides) return undefined
-    const keys = Object.keys(overrides)
-    if (keys.length === 0) return undefined
+    const keys = overrides ? Object.keys(overrides) : []
+    const write = keys.length > 0
     try {
-      const saved = await this.client.putDrcRules(sessionToken, overrides, signal)
+      const state = write
+        ? await this.client.putDrcRules(sessionToken, overrides as Record<string, DrcRuleSeverity>, signal)
+        : await this.client.getDrcRules(sessionToken, signal)
+      const rules = Array.isArray(state.rules) ? state.rules : []
+      const enabledRules = rules.filter((rule) => rule.enabled)
       return {
-        status: 'applied',
+        status: write ? 'applied' : 'observed',
         keys,
-        enabledCount: saved.rules.filter((rule) => rule.enabled).length,
+        enabledCount: enabledRules.length,
+        enabledKeys: enabledRules.map((rule) => rule.key),
+        lockedKeys: rules.filter((rule) => rule.locked).map((rule) => rule.key),
       }
     } catch (e) {
+      // 取消必须往上抛：吞掉会带着已中止的信号继续往下跑 lint。
+      // 判据用 signal.aborted 而不是 e.name——PcblintClient 会把 AbortError
+      // 包装成 PcblintError，靠错误类型/名字判断会漏。
+      if (signal?.aborted) throw e
       const message = e instanceof Error ? e.message : String(e)
       const status: DrcRuleOverridesResult['status'] = /\b404\b/u.test(message)
         ? 'unsupported'

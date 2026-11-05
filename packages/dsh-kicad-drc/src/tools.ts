@@ -9,7 +9,14 @@ import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { parseDrcSummary, formatSummaryText, type DrcSummary, type JsonValue } from './drc-summary.ts'
-import type { BackendHealth, DrcExecutor, DrcMode, DrcRuleSeverity, VerifiedBy } from './executor.ts'
+import {
+  onlyLockedRulesEnabled,
+  type BackendHealth,
+  type DrcExecutor,
+  type DrcMode,
+  type DrcRuleSeverity,
+  type VerifiedBy,
+} from './executor.ts'
 
 /** 工具名（唯一来源；注册/卸载日志与 dispose 均使用它）。 */
 export const TOOL_NAME = 'kicad_drc_run'
@@ -34,12 +41,12 @@ interface KicadDrcOutput {
   /**
    * 报告是否完整。false 的两种情况：
    *   - 服务端没跑 kicad-cli（`kicadDrcUsed=false`）；
-   *   - 一条 KiCad 内置规则都没启用（`drcRulesCount=0`，pcblint 新版默认状态）——
-   *     两种情况下结果都只有 pcblint 规则引擎那半边。
+   *   - 内置规则里只有被锁定的项在参与（用户没主动打开任何内置规则）——
+   *     两种情况结果都缺了 kicad-cli 原生检查那部分。
    * 字段缺失表示结果完整、或后端没给出可判定的口径。
    */
   reportComplete?: boolean
-  /** 内置规则开关的落地结果（传了 drcRules 参数才出现）。 */
+  /** 内置规则开关状态（remote 后端总是出现；status=observed 表示只读取未写入）。 */
   drcRules?: Record<string, JsonValue>
   /** drc.json 持久化保存的绝对路径（PCB 文件同目录，可直接打开）。 */
   drcJsonPath?: string
@@ -83,8 +90,10 @@ export function createDrcTool(
       + '  - remote: 上传到 pcblint 服务执行（本机无需 KiCad）。约 3~10 秒；'
       + '除 kicad-cli 原生检查外还会跑服务端规则引擎，每条违规带 confidence（HIGH/MEDIUM/LOW）与 ruleId；'
       + '只上传单个 .kicad_pcb，工程级规则（.kicad_pro）带不过去，因此违规数通常与 local 不同。'
-      + '⚠️ pcblint 新版默认一条 KiCad 内置规则都不启用——结果里只有服务端自研规则；'
-      + '要检查内置项（clearance、silk_edge_clearance 等）必须用 drcRules 参数显式打开\n'
+      + '⚠️ pcblint 新版默认只启用被锁定的 clearance（59 条内置规则里其余 58 条关闭）——'
+      + '结果里主要是服务端自研规则；'
+      + '要检查其他内置项（silk_edge_clearance、lib_footprint_issues 等）必须用 drcRules 参数显式打开；'
+      + '内置规则走 kicad-cli 通道，服务端 kicad-cli 跑不起来时打开也不会有新条目\n'
       + '  - ipc:   让正在运行的 KiCad 直接执行（需要华秋定制版 KiCad 提供 RunDrc）\n\n'
       + 'auto 模式先按固定优先序列分层（默认 remote → local → ipc），前一层不可用或执行失败才降级；'
       + '同一层内才按历史耗时排序，所以 local 更快也不会插队抢在 remote 前面。'
@@ -131,8 +140,9 @@ export function createDrcTool(
         description:
           'KiCad 内置规则开关，格式 "key=severity,key=severity"（severity ∈ error/warning/ignore），'
           + '如 "silk_edge_clearance=error,unconnected_items=ignore"。仅 remote 后端生效：'
-          + 'pcblint 新版默认不返回任何内置规则违规（开关全关），需要内置检查项时必须在这里显式打开；'
-          + '未提到的 key 保持服务端当前值，锁定的 key（DRU 依赖的约束类型）由服务端忽略。'
+          + 'pcblint 新版默认只启用被锁定的 clearance，其余内置规则关闭，需要它们的违规时必须在这里显式打开；'
+          + '未提到的 key 保持服务端当前值（开关按板持久化，不传是沿用上次而非回到默认），'
+          + '锁定的 key（DRU 依赖的约束类型）由服务端忽略。'
           + '只想看某几类问题时用它收窄口径，不要与 local 的全量结果直接比数字。',
       },
       includeFullJson: {
@@ -176,9 +186,9 @@ export function createDrcTool(
           reportComplete: {
             type: 'boolean',
             description:
-              '报告是否完整。值为 false 表示结果只有 pcblint 规则引擎条目——'
-              + '要么服务端没执行 kicad-cli（kicadDrcUsed=false），'
-              + '要么一条内置规则都没启用（drcRulesCount=0，pcblint 新版默认状态）。'
+              '报告是否完整。值为 false 表示结果缺少 kicad-cli 原生检查那部分——'
+              + '要么服务端根本没执行 kicad-cli（kicadDrcUsed=false），'
+              + '要么内置规则里只有被锁定的项在参与（用户没主动打开任何内置规则）。'
               + '这类报告的违规数不能当作完整 DRC 结论，也不能与 local 的条数比较。'
               + '字段缺失表示结果完整或该后端未给出可判定的口径。',
           },
@@ -186,8 +196,10 @@ export function createDrcTool(
             type: 'object',
             additionalProperties: true,
             description:
-              '内置规则开关的落地结果（传了 drcRules 参数才出现）：'
-              + 'status=applied/unsupported/failed、keys、enabledCount。'
+              '内置规则开关状态（remote 后端总是出现）：'
+              + 'status=applied/observed/unsupported/failed，observed 表示没传 drcRules、只读取了当前状态；'
+              + 'enabledKeys 是当前启用的全部内置规则，lockedKeys 是其中被服务端强制锁定的。'
+              + '判断内置规则有没有参与判定看这两个集合，别看 drcRulesCount（它与开关无关）。'
               + 'unsupported 表示服务端太旧没有 /api/s/drc-rules 接口，开关未生效。',
           },
           drcJsonPath: {
@@ -258,11 +270,11 @@ export function createDrcTool(
           ? `\n\n⚠️ 规则口径: 未注入工程板级约束（${rules.status}${rules.message ? `：${rules.message}` : ''}），`
             + '本次按服务端默认工程判定，线宽/间距类结论不可直接采信'
           : ''
-        // 结果只有规则引擎那半边时（kicad-cli 没跑，或内置规则开关全关），
+        // 结果缺 kicad-cli 那半边时（kicad-cli 没跑，或内置规则只剩锁定项在参与），
         // drcSummary 的数字不是完整 DRC。模型基本只读摘要正文，所以这句必须
         // 放在最前面——只写进 stderr 是看不见的。
         const incompleteLine = value.reportComplete === false
-          ? '⚠️ 报告不完整：本次只有 pcblint 规则引擎结果（kicad-cli 未执行，或 KiCad 内置规则开关全关），'
+          ? '⚠️ 报告不完整：本次只有 pcblint 规则引擎结果（kicad-cli 未执行，或内置规则只剩锁定项在参与），'
             + '不能当作完整 DRC 结论，也不要与 local 后端的违规数比较\n\n'
           : ''
         const blocks: Array<{ type: 'text'; text: string }> = [
@@ -347,9 +359,11 @@ export function createDrcTool(
       if (result.drcJsonPath) output.drcJsonPath = result.drcJsonPath
       if (result.reportFormat) output.reportFormat = result.reportFormat
       // 两类"不完整"都要显式标出来：kicad-cli 没跑（kicadDrcUsed=false），
-      // 或一条内置规则都没启用（drcRulesCount=0，pcblint 新版默认状态）。
-      // 后者更隐蔽——kicadDrcUsed=true 看着一切正常，结果却只有自研规则。
-      if (result.metrics?.kicadDrcUsed === false || result.metrics?.drcRulesCount === 0) {
+      // 或内置规则里只有被锁定项在参与（用户没主动打开任何内置规则）。
+      // 后者更隐蔽——kicadDrcUsed=true 看着一切正常，结果却缺了 kicad-cli 那部分。
+      // 判据不能用 lint-drc 的 drcRulesCount：实测它恒为固定值、与开关无关。
+      const narrowedRules = onlyLockedRulesEnabled(result.drcRules)
+      if (result.metrics?.kicadDrcUsed === false || narrowedRules) {
         output.reportComplete = false
       }
       if (result.drcRules) {
@@ -378,7 +392,7 @@ export function createDrcTool(
         verifiedBy.reasons.push(
           result.metrics?.kicadDrcUsed === false
             ? '服务端未执行 kicad-cli 原生检查，报告仅含规则引擎结果（不完整）'
-            : '服务端未启用任何 KiCad 内置规则（drcRulesCount=0），报告仅含规则引擎结果（不完整）',
+            : '内置规则里只有被锁定的项参与判定，其余内置规则全部关闭，报告缺这部分结果（不完整）',
         )
       }
       output.verifiedBy = verifiedBy as unknown as Record<string, JsonValue>

@@ -90,12 +90,24 @@ export type DrcRuleSeverity = 'error' | 'warning' | 'ignore'
  * "结果里缺内置规则违规，是因为我没开、还是开关没写进去、还是服务端太旧"。
  */
 export interface DrcRuleOverridesResult {
-  /** applied=已写入；unsupported=服务端没有该接口（旧版 404）；failed=写入失败 */
-  status: 'applied' | 'unsupported' | 'failed'
-  /** 尝试设置的规则 key（无论成败都回传，便于比对哪些生效了）。 */
+  /**
+   * applied=本次写入了开关；observed=没给开关、只读了服务端当前状态；
+   * unsupported=服务端没有该接口（旧版 404）；failed=读取/写入失败。
+   */
+  status: 'applied' | 'observed' | 'unsupported' | 'failed'
+  /** 尝试设置的规则 key（observed 时为空数组）。 */
   keys: string[]
-  /** 写入后服务端启用的内置规则总数（保存响应里数出来的；拿不到为 null）。 */
+  /** 服务端启用的内置规则总数（拿不到为 null）。 */
   enabledCount: number | null
+  /**
+   * 服务端当前启用的内置规则 key（含 locked 项）。
+   *
+   * 这是判断"内置规则到底有没有参与本次判定"的唯一可靠依据：
+   * lint-drc 返回的 `drcRulesCount` 实测恒为固定值、与开关无关，不能拿来判完整性。
+   */
+  enabledKeys?: string[]
+  /** 其中被服务端强制锁定、不允许关闭的 key（如 `.kicad_dru` 依赖的 clearance）。 */
+  lockedKeys?: string[]
   /** 跳过/失败的原因。 */
   message?: string
 }
@@ -228,4 +240,24 @@ export class DrcAbortedError extends ExecutorError {
 export function isAbortError(error: unknown): boolean {
   if (error instanceof DrcAbortedError) return true
   return error instanceof Error && error.name === 'AbortError'
+}
+
+/**
+ * 内置规则里是否只有被锁定的项在参与判定。
+ *
+ * 用来判断"内置规则到底有没有真的参与这次检查"：`locked` 项（如 `.kicad_dru`
+ * 依赖的 `clearance`）由服务端强制启用，用户没主动打开任何规则时也只剩它们。
+ *
+ * 不能拿 lint-drc 的 `drcRulesCount` 判这件事——实测把 59 条规则的开关从
+ * 1 条改到 59 条再改回 1 条，它始终是 6，与开关无关。
+ *
+ * `enabledKeys` 缺失（旧版服务、读取失败、非 remote 后端）时返回 false：
+ * 无从判断就不臆断"不完整"。
+ */
+export function onlyLockedRulesEnabled(rules: DrcRuleOverridesResult | undefined): boolean {
+  const enabled = rules?.enabledKeys
+  if (enabled === undefined) return false
+  const locked = new Set(rules?.lockedKeys ?? [])
+  // 空数组也返回 true：一条都没启用，当然不算"内置规则参与了判定"
+  return enabled.every((key) => locked.has(key))
 }
