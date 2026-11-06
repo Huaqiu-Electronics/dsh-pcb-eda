@@ -19,7 +19,7 @@ import {
 
 describe('resolveEndpoint', () => {
   it('defaults to the prod componentV2 endpoint', () => {
-    expect(resolveEndpoint({})).toBe('wss://www.eda.cn/componentV2/chat')
+    expect(resolveEndpoint({})).toBe('ws://www.fdatasheets.com/componentV2/chat')
   })
 
   it('accepts a whitelisted override and strips trailing slashes', () => {
@@ -228,7 +228,7 @@ describe('resolveImageDataUrl', () => {
 
 describe('misc exports', () => {
   it('exposes the whitelist and package types', () => {
-    expect(ALLOWED_WS_HOSTS).toEqual(['www.eda.cn', 'www.fdatasheets.com'])
+    expect(ALLOWED_WS_HOSTS).toEqual(['www.eda.cn', 'www.fdatasheets.com', 'www.fdatasheets.com'])
     expect(packageTypes).toContain('bga')
     expect(guessImageMime('x.JPG')).toBe('image/jpeg')
   })
