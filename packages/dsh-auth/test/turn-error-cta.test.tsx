@@ -175,6 +175,18 @@ describe('HuaqiuTurnErrorSubscribeAction', () => {
     expect(auth.openSubscriptionDialog).not.toHaveBeenCalled()
   })
 
+  it('shows no failure copy when the host acknowledges the dialog launch', async () => {
+    const auth = stubAuth({ open: async () => ({ status: 'opened' }) })
+    registerAuth(auth as never)
+    const container = await render(quotaNode)
+    click(button(container)!)
+    await flush()
+    // Regression: the host ack used to arrive as a 502 (the RPC only returned
+    // after the modal closed, past the proxy budget), which surfaced
+    // `turnError.aiQuotaOpenFailed` over a dialog that had actually opened.
+    expect(container.textContent).not.toContain('无法打开订阅页面')
+  })
+
   it('shows the host-dialog fallback copy when the host has no dialog service', async () => {
     const auth = stubAuth({ open: async () => ({ status: 'host-unavailable' }) })
     registerAuth(auth as never)

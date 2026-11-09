@@ -40,7 +40,9 @@ const realAuthEdaCnEnvelope = {
   },
 }
 
-function makeClient() {
+function makeClient(deps: {
+  openHostDialog?: (url: string, options: Record<string, unknown>) => Promise<void>
+} = {}) {
   const pushes: unknown[] = []
   const transport = {
     pushSession: vi.fn(async (info: AuthTokenPayload) => { pushes.push(['session', info]) }),
@@ -69,6 +71,7 @@ function makeClient() {
     transport,
     windowLike: windowLike as never,
     documentLike: document,
+    ...(deps.openHostDialog === undefined ? {} : { openHostDialog: deps.openHostDialog as never }),
   })
   return { client, transport, storage, windowLike, listeners }
 }
@@ -770,6 +773,31 @@ describe('subscription (quota + dialog)', () => {
     await expect(client.auth.openSubscriptionDialog()).resolves.toEqual({ status: 'host-unavailable' })
     // The standalone iframe is never opened behind the host UI.
     expect(document.querySelector('[data-hq-sub-dialog]')).toBeNull()
+  })
+
+  it('reports opened when the host accepts the dialog launch', async () => {
+    const openHostDialog = vi.fn(async (_url: string, _options: Record<string, unknown>) => undefined)
+    const { client, transport } = makeClient({ openHostDialog })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
+    transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
+    await client.refreshHost()
+
+    // Regression: a host that acknowledged the OpenUrl RPC must resolve as
+    // `opened` — the CTA renders its failure copy only on a rejection.
+    await expect(client.auth.openSubscriptionDialog()).resolves.toEqual({ status: 'opened' })
+    expect(openHostDialog).toHaveBeenCalledTimes(1)
+    expect(openHostDialog.mock.calls[0]![0]).toContain('token=h1-tok')
+  })
+
+  it('propagates a host dialog failure instead of reporting opened', async () => {
+    const { client, transport } = makeClient({
+      openHostDialog: async () => { throw new Error('OpenUrl failed') },
+    })
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
+    transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
+    await client.refreshHost()
+
+    await expect(client.auth.openSubscriptionDialog()).rejects.toThrow('OpenUrl failed')
   })
 
   it('reports already-open for a second standalone request', async () => {
