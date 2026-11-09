@@ -33,8 +33,8 @@ export interface AuthClientDeps {
    * `hqEdge` service). In host mode the subscription dialog must be opened by
    * the EDA host through DialogService.OpenUrl (hqEdge.openUrl) — a browser
    * iframe cannot be shown over the host UI. Absent/undefined = the host has
-   * no dialog service; `openSubscriptionDialog()` then no-ops and the caller
-   * degrades gracefully.
+   * no dialog service; `openSubscriptionDialog()` then resolves
+   * `host-unavailable` and the caller degrades gracefully.
    */
   openHostDialog?: (url: string, options: {
     title?: string
@@ -42,6 +42,15 @@ export interface AuthClientDeps {
     key?: string
   }) => Promise<void>
 }
+
+/** Explicit result of {@link AuthClient['auth']['openSubscriptionDialog']}. */
+export type SubscriptionDialogOutcome =
+  | { readonly status: 'opened' }
+  | { readonly status: 'already-open' }
+  /** No usable credential; the caller should offer login. */
+  | { readonly status: 'signed-out' }
+  /** Host mode with no dialog service wired (or nothing to open). */
+  | { readonly status: 'host-unavailable' }
 
 export interface AuthClient {
   auth: {
@@ -85,11 +94,14 @@ export interface AuthClient {
      * Open the subscription landing page (`gen.eda.cn/subscription` with the
      * token). Host mode: ask the EDA host to open its NATIVE dialog through
      * DialogService.OpenUrl (preferred size 1400×740). Standalone DSH: open
-     * the in-app iframe dialog at the same preferred size. No-op when the
-     * credential is missing; host mode without a dialog service no-ops too
-     * (the UI falls back to its own subscribe button + error copy).
+     * the in-app iframe dialog at the same preferred size.
+     *
+     * Returns an explicit outcome instead of silently no-op'ing: without a
+     * credential the caller may open login; without a host dialog service it
+     * shows its own fallback copy; when a standalone dialog is already open
+     * it is left untouched. Transport/dialog failures reject.
      */
-    openSubscriptionDialog(): Promise<void>
+    openSubscriptionDialog(): Promise<SubscriptionDialogOutcome>
     onAuthStateChanged(listener: (info: AuthTokenPayload | null) => void): () => void
   }
   /** Route window 'message' events here. Exposed for direct testing. */
@@ -123,6 +135,12 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
   let hostMode = false
   let hostSession: AuthTokenPayload | null = null
   let hostSessionLoaded = false
+  /**
+   * Why the last host-session resolution failed, if it did. Transport errors
+   * must NOT masquerade as a healthy `signed-out`: the dialog opener surfaces
+   * them as a rejection so callers can show retry copy instead of "sign in".
+   */
+  let hostResolveError: unknown
   /**
    * Subscription origin resolved by HQ Edge from `HQ_AI_ENV` and served on the
    * node `/config` route. Null in standalone → lib's PROD fallback.
@@ -176,6 +194,7 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
    */
   const resolveHost = async (): Promise<void> => {
     hostSessionLoaded = true
+    hostResolveError = undefined
     if (!hostMode) {
       hostSession = null
       return
@@ -183,9 +202,12 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
     try {
       const session = await transport.fetchSession()
       hostSession = session.authenticated ? normalizeHostUserPayload(session.user) : null
-    } catch {
+    } catch (error) {
       // Host unreachable: stay logged out rather than inventing a session.
+      // The error is retained for the dialog opener, which must not report it
+      // as a genuine signed-out state.
       hostSession = null
+      hostResolveError = error
     }
   }
 
@@ -270,27 +292,32 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       if (!(await auth.getAccessToken())) return null
       return transport.fetchAiUsage()
     },
-    openSubscriptionDialog: async (): Promise<void> => {
+    openSubscriptionDialog: async (): Promise<SubscriptionDialogOutcome> => {
       if (hostMode && !hostSessionLoaded) await resolveHost()
       const token = await auth.getAccessToken()
-      if (!token) return
+      if (!token) {
+        // A failed host resolution is a transport failure, not "signed out".
+        if (hostMode && hostResolveError !== undefined) throw hostResolveError
+        return { status: 'signed-out' }
+      }
       const url = buildSubscriptionUrl({
         token,
         ...(subscriptionOrigin ? { origin: subscriptionOrigin } : {}),
       })
       if (hostMode) {
-        // The EDA host owns the UI — open its native dialog (fire-and-forget).
-        // No dialog service → no-op; the caller keeps its subscribe button.
-        if (!deps.openHostDialog) return
+        // The EDA host owns the UI — open its native dialog. No dialog service
+        // means the caller keeps its own affordance and shows fallback copy.
+        if (!deps.openHostDialog) return { status: 'host-unavailable' }
         await deps.openHostDialog(url, {
           title: 'Huaqiu EDA subscription',
           size: { width: SUBSCRIPTION_PREFERRED_SIZE.width, height: SUBSCRIPTION_PREFERRED_SIZE.height },
           key: 'hq-subscription-dialog',
         })
-        return
+        return { status: 'opened' }
       }
-      if (isSubscriptionDialogOpen()) return
+      if (isSubscriptionDialogOpen()) return { status: 'already-open' }
       openSubscriptionDialog(url, { size: SUBSCRIPTION_PREFERRED_SIZE })
+      return { status: 'opened' }
     },
     onAuthStateChanged: (listener: (info: AuthTokenPayload | null) => void): (() => void) => {
       listeners.add(listener)

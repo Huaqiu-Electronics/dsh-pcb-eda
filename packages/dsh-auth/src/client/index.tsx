@@ -21,6 +21,7 @@ import { createAuthClient, type AuthClient } from './client.js'
 import { disposeAuth, registerAuth, registerAuthSync, registerHqEdgeGetter } from './auth-state.js'
 import { HuaqiuToolView } from './ui/needs-auth-toolview.jsx'
 import { HuaqiuAuthSidebarAction } from './ui/sidebar-action.jsx'
+import { HuaqiuTurnErrorSubscribeAction } from './ui/turn-error-cta.jsx'
 import { disposeUiEnv } from './ui-env.js'
 
 /**
@@ -170,6 +171,13 @@ export function apply(ctx: ClientContext): () => void {
         disposers.push(slots.inject('tool.call.toolview', () => slots.register({ name: 'tool.call.toolview', key: toolName }, HuaqiuToolView) as () => void))
       }
       disposers.push(slots.inject('sidebar.footer.action', () => slots.register({ name: 'sidebar.footer.action', id: 'huaqiu-auth' }, HuaqiuAuthSidebarAction) as () => void))
+      // The turn-error action slot only exists on harness versions that ship
+      // the seam; `inject` waits for its declaration, so an older harness
+      // simply never calls this and the shipped error card stays unchanged.
+      disposers.push(slots.inject('conversation.chat.turn-error.action', () => slots.register({
+        name: 'conversation.chat.turn-error.action',
+        id: 'huaqiu-turn-error-cta',
+      }, HuaqiuTurnErrorSubscribeAction) as () => void))
     }
   })
 

@@ -12,6 +12,7 @@ import {
   closeLoginDialog,
   isLoginDialogOpen,
 } from '../src/client/ui/login-dialog.js'
+import { closeSubscriptionDialog } from '../src/client/ui/subscription-dialog.js'
 
 const validEnvelope = {
   category: 1,
@@ -620,8 +621,9 @@ describe('subscription (quota + dialog)', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     closeLoginDialog()
-    // Close any leftover subscription dialog DOM.
-    document.querySelectorAll('[data-hq-sub-dialog]').forEach((el) => el.remove())
+    // Close the module-level dialog state too, not only its DOM: the opener's
+    // `already-open` outcome reads the module state between tests.
+    closeSubscriptionDialog()
   })
 
   it('builds the subscription landing URL with an encoded token', async () => {
@@ -751,5 +753,37 @@ describe('subscription (quota + dialog)', () => {
     expect(openHostDialog.mock.calls[0]![0]).toBe(
       'http://gen.fdatasheets.com/subscription?token=h1-tok',
     )
+  })
+
+  it('reports signed-out instead of silently no-op-ing without a credential', async () => {
+    const { client, storage } = makeClient()
+    storage.clear()
+    await expect(client.auth.openSubscriptionDialog()).resolves.toEqual({ status: 'signed-out' })
+    expect(document.querySelector('[data-hq-sub-dialog]')).toBeNull()
+  })
+
+  it('reports host-unavailable when host mode has no dialog service', async () => {
+    const { client, transport } = makeClient()
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
+    transport.fetchSession.mockResolvedValue({ authenticated: true, user: { id: 'h1', token: 'h1-tok' } })
+    await client.refreshHost()
+    await expect(client.auth.openSubscriptionDialog()).resolves.toEqual({ status: 'host-unavailable' })
+    // The standalone iframe is never opened behind the host UI.
+    expect(document.querySelector('[data-hq-sub-dialog]')).toBeNull()
+  })
+
+  it('reports already-open for a second standalone request', async () => {
+    const c = makeClient()
+    c.client.handleMessageEvent({ origin: AUTH_ORIGIN, data: JSON.stringify(validEnvelope) })
+    await expect(c.client.auth.openSubscriptionDialog()).resolves.toEqual({ status: 'opened' })
+    await expect(c.client.auth.openSubscriptionDialog()).resolves.toEqual({ status: 'already-open' })
+  })
+
+  it('rejects a failed host resolution instead of reporting signed-out', async () => {
+    const { client, transport } = makeClient()
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null })
+    transport.fetchSession.mockRejectedValue(new Error('host unreachable'))
+    await client.refreshHost()
+    await expect(client.auth.openSubscriptionDialog()).rejects.toThrow('host unreachable')
   })
 })
