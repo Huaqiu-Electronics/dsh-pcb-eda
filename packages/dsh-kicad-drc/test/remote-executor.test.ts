@@ -1,10 +1,11 @@
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { RemoteExecutor } from '../src/remote-executor.ts'
 import { DrcAbortedError } from '../src/executor.ts'
+import type { PcblintLauncher } from '../src/pcblint-launcher.ts'
 
 /** 构造 JSON Response。 */
 function jsonResponse(body: unknown, status = 200): Response {
@@ -286,6 +287,60 @@ test('probe 把 kicad-cli 状态拼进 reason；不可用不影响服务可用�
   const legacyHealth = await new RemoteExecutor({ baseUrl: 'http://unit-test', fetchImpl: legacyFetch }).probe()
   assert.equal(legacyHealth.available, true)
   assert.doesNotMatch(String(legacyHealth.reason), /kicad-cli/)
+})
+
+test('托管模式 probe：组件版本与服务端不一致时告警并写进 reason', async () => {
+  const warn = mock.method(console, 'warn', () => {})
+  try {
+    const launcher = {
+      describe: () => ({
+        running: true,
+        available: true,
+        home: 'C:\\KiCad\\bin\\pcblint-local',
+        version: '1.4.2',
+        baseUrl: 'http://127.0.0.1:18096',
+        reason: '运行中',
+      }),
+      ensureUp: async () => 'http://127.0.0.1:18096',
+      release: () => undefined,
+    } as unknown as PcblintLauncher
+    const { fetchImpl } = mockFetch({
+      health: () => jsonResponse({ status: 'ok', version: '1.5.0' }),
+    })
+    const health = await new RemoteExecutor({ launcher, fetchImpl }).probe()
+    assert.equal(health.available, true)
+    assert.match(String(health.reason), /组件版本 1\.4\.2 与服务端 1\.5\.0 不一致/)
+    assert.equal(warn.mock.calls.length, 1)
+  } finally {
+    warn.mock.restore()
+  }
+})
+
+test('托管模式 probe：版本一致时不告警', async () => {
+  const warn = mock.method(console, 'warn', () => {})
+  try {
+    const launcher = {
+      describe: () => ({
+        running: true,
+        available: true,
+        home: 'C:\\KiCad\\bin\\pcblint-local',
+        version: '1.5.0',
+        baseUrl: 'http://127.0.0.1:18096',
+        reason: '运行中',
+      }),
+      ensureUp: async () => 'http://127.0.0.1:18096',
+      release: () => undefined,
+    } as unknown as PcblintLauncher
+    const { fetchImpl } = mockFetch({
+      health: () => jsonResponse({ status: 'ok', version: '1.5.0' }),
+    })
+    const health = await new RemoteExecutor({ launcher, fetchImpl }).probe()
+    assert.equal(health.available, true)
+    assert.doesNotMatch(String(health.reason), /不一致/)
+    assert.equal(warn.mock.calls.length, 0)
+  } finally {
+    warn.mock.restore()
+  }
 })
 
 test('传 drcRuleOverrides：在 lint 前保存校验开关，落地结果随结果返回', async () => {

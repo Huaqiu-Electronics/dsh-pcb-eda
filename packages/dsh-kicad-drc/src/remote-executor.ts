@@ -18,6 +18,7 @@ import { basename, dirname, join, resolve } from 'node:path'
 import {
   DrcAbortedError,
   ExecutorError,
+  isAbortError,
   type BackendHealth,
   type DrcExecutor,
   type DrcProjectRules,
@@ -29,6 +30,7 @@ import {
   type DrcRunResult,
 } from './executor.ts'
 import { PcblintClient, PcblintError } from './pcblint-client.ts'
+import type { PcblintLauncher } from './pcblint-launcher.ts'
 import {
   buildProjectRuleSet,
   describeProjectRules,
@@ -99,8 +101,15 @@ function toPublicRules(injection: ProjectRuleInjection): DrcProjectRules {
 }
 
 export interface RemoteExecutorOptions {
-  /** pcblint 服务根地址。 */
+  /** pcblint 服务根地址。留空且提供 launcher 时走本地托管（默认）。 */
   baseUrl?: string
+  /**
+   * 本地托管器：由它按需启动服务。
+   *
+   * 提供后 `run()` 会用本次实际端口重建客户端，并在结束时 `release()`；
+   * `probe()` 只读托管状态，绝不拉起 JVM。
+   */
+  launcher?: PcblintLauncher
   /** `x-token`；本地免鉴权部署可留空。 */
   token?: string
   /** 注入 fetch，便于单测。 */
@@ -110,66 +119,118 @@ export interface RemoteExecutorOptions {
 export class RemoteExecutor implements DrcExecutor {
   readonly name = 'remote' as const
   private readonly baseUrl: string
-  private readonly client: PcblintClient
+  private readonly token: string
+  private readonly fetchImpl?: typeof fetch
+  private readonly launcher?: PcblintLauncher
   /** 最近一次失败的时间戳（用于冷却期内降级，避免每次都等 HTTP 超时）。 */
   private lastFailureAt = 0
 
   constructor(opts: RemoteExecutorOptions = {}) {
-    this.baseUrl = (opts.baseUrl ?? 'http://127.0.0.1:8096').replace(/\/+$/, '')
-    this.client = new PcblintClient({
-      baseUrl: this.baseUrl,
-      ...(opts.token ? { token: opts.token } : {}),
-      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    this.baseUrl = (opts.baseUrl ?? '').replace(/\/+$/, '')
+    this.token = opts.token?.trim() ?? ''
+    if (opts.fetchImpl) this.fetchImpl = opts.fetchImpl
+    if (opts.launcher) this.launcher = opts.launcher
+  }
+
+  /** 按本次实际地址新建客户端：托管模式的端口每次启动都可能不同。 */
+  private createClient(baseUrl: string): PcblintClient {
+    return new PcblintClient({
+      baseUrl,
+      ...(this.token ? { token: this.token } : {}),
+      ...(this.fetchImpl ? { fetchImpl: this.fetchImpl } : {}),
     })
   }
 
   /**
-   * 探测 pcblint 服务可用性：真发一次 `/api/s/health`。
+   * 探测 pcblint 服务可用性。
    *
-   * 之所以不再用"失败冷却 + 乐观可用"，是因为换成 HTTP 服务后探活成本很低
-   * （本机 <5ms），而反过来误判可用的代价是一次完整上传 + DRC（数秒）。
-   * 探测失败同样进入冷却期，避免连不上时每次都等满健康检查超时。
+   * 托管模式（有 launcher）只读状态：组件就绪即返回可用，写明"按需启动"，
+   * **绝不在这里拉起 JVM**——插件加载 1.5s 后会调 `describe()`，若探活启动服务，
+   * 每开一次 DSH 就多一个常驻进程，正好违背按需目标。
+   *
+   * 外部固定服务模式保持原有行为：真发一次 `/api/s/health`。探活成本很低，
+   * 而误判可用的代价是一次完整上传 + DRC（数秒）。
    */
   async probe(): Promise<BackendHealth> {
     if (Date.now() - this.lastFailureAt < FAILURE_COOLDOWN_MS) {
       return {
         backend: 'remote',
         available: false,
-        endpoint: this.baseUrl,
+        endpoint: this.launcher?.baseUrl || this.baseUrl,
         reason: '最近一次远程调用失败，冷却期内降级',
       }
     }
+    if (this.launcher) {
+      const state = this.launcher.describe()
+      if (!state.available) {
+        return {
+          backend: 'remote',
+          available: false,
+          endpoint: state.baseUrl ?? state.home,
+          reason: state.reason,
+        }
+      }
+      // 未运行但具备启动条件：表示"可以启动"，不是"已经在线"
+      if (!state.running || !state.baseUrl) {
+        return { backend: 'remote', available: true, endpoint: state.home, reason: state.reason }
+      }
+      return this.checkHealth(state.baseUrl, state.version)
+    }
+    if (!this.baseUrl) {
+      return {
+        backend: 'remote',
+        available: false,
+        endpoint: '',
+        reason: '未配置 pcblintBaseUrl，也未启用本地托管',
+      }
+    }
+    return this.checkHealth(this.baseUrl)
+  }
+
+  /**
+   * 对指定地址真发健康检查，并顺手带上 kicad-cli 配置口径。
+   *
+   * `expectedVersion` 来自托管组件的 `version.txt`：安装包升级了 jar 但
+   * `version.txt` 没同步（或反过来）时，参数/接口可能已经不匹配，必须提前告警。
+   */
+  private async checkHealth(baseUrl: string, expectedVersion?: string): Promise<BackendHealth> {
+    const client = this.createClient(baseUrl)
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), HEALTH_TIMEOUT_MS)
     try {
-      const health = await this.client.health(ctrl.signal)
+      const health = await client.health(ctrl.signal)
       if (!health.ok) {
         this.lastFailureAt = Date.now()
-        return { backend: 'remote', available: false, endpoint: this.baseUrl, reason: 'pcblint 健康检查未通过' }
+        return { backend: 'remote', available: false, endpoint: baseUrl, reason: 'pcblint 健康检查未通过' }
       }
       // 探测成功即清冷却：否则一次瞬时失败会让之后 60s 内一直报"不可用"，
       // 哪怕服务其实早就恢复了，自适应选择会被这条过期状态带去走 local。
       this.lastFailureAt = 0
+      let suffix = ''
+      if (expectedVersion && health.version && expectedVersion !== health.version) {
+        const mismatch = `组件版本 ${expectedVersion} 与服务端 ${health.version} 不一致`
+        console.warn(`[@huaqiu/dsh-kicad-drc] PCBLint ${mismatch}，可能存在参数/接口不匹配`)
+        suffix = ` · ⚠️ ${mismatch}`
+      }
       // 顺手问一次 kicad-cli 状态，写进 reason：服务在线但 kicad-cli 跑不起来时，
       // remote 的结果只有规则引擎那半边，AI/调用方看 reason 就能预判口径。
       //
       // 注意不能把 available 翻译成"可用"：它只代表服务端配了 runner。实测
       // `start.bat` 里 KICAD_CLI 指向不存在的路径时，服务端照样回 available=true。
       // 所以这里只展示配置内容；服务在本机时再顺手验一下路径是否存在。
-      let suffix = ''
       try {
-        const status = await this.client.drcStatus(ctrl.signal)
+        const status = await client.drcStatus(ctrl.signal)
         if (!status.available) {
-          suffix = ' · ⚠️ 服务端未配置 kicad-cli'
+          suffix += ' · ⚠️ 服务端未配置 kicad-cli'
         } else {
           const configured = /kicad-cli at ([^)]+)/u.exec(status.cliRunnerUrl ?? '')?.[1]?.trim()
           if (!configured) {
-            suffix = ' · kicad-cli 已配置'
+            suffix += ' · kicad-cli 已配置'
           } else {
             // 只有本机部署才能验路径：远端服务上的路径在本地当然不存在
-            const isLocal = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::|$)/u.test(this.baseUrl)
+            const isLocal = /^https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\])(?::|$)/u.test(baseUrl)
             const missing = isLocal && !existsSync(configured)
-            suffix = missing
+            suffix += missing
               ? ` · ⚠️ kicad-cli 路径本机不存在（${configured}），结果将只有规则引擎`
               : ` · kicad-cli 配置: ${configured}`
           }
@@ -178,13 +239,13 @@ export class RemoteExecutor implements DrcExecutor {
       return {
         backend: 'remote',
         available: true,
-        endpoint: this.baseUrl,
+        endpoint: baseUrl,
         reason: `pcblint ${health.version ?? ''} 在线${suffix}`.trim(),
       }
     } catch (e) {
       this.lastFailureAt = Date.now()
       const message = e instanceof Error ? e.message : String(e)
-      return { backend: 'remote', available: false, endpoint: this.baseUrl, reason: message }
+      return { backend: 'remote', available: false, endpoint: baseUrl, reason: message }
     } finally {
       clearTimeout(timer)
     }
@@ -196,7 +257,41 @@ export class RemoteExecutor implements DrcExecutor {
     if (!existsSync(pcbPath)) {
       throw new ExecutorError(`PCB 文件不存在: ${pcbPath}`)
     }
+    // 先校验板文件，再按需启动服务：为一个不存在的文件白起 JVM 没有意义
+    const baseUrl = await this.openService(options.signal)
+    try {
+      return await this.runOnService(baseUrl, pcbPath, options, start)
+    } finally {
+      // 引用计数归零后由托管器决定何时停止；外部服务不归这里管
+      this.launcher?.release()
+    }
+  }
 
+  /** 本次实际服务地址：托管模式按需启动，外部模式直接用配置。 */
+  private async openService(signal?: AbortSignal): Promise<string> {
+    if (!this.launcher) {
+      if (!this.baseUrl) {
+        throw new ExecutorError('未配置 pcblintBaseUrl，也未启用本地托管，remote 后端不可用')
+      }
+      return this.baseUrl
+    }
+    try {
+      return await this.launcher.ensureUp(signal)
+    } catch (error) {
+      if (signal?.aborted || isAbortError(error)) throw new DrcAbortedError()
+      if (error instanceof ExecutorError) throw error
+      throw new ExecutorError(`PCBLint 本地服务启动失败: ${(error as Error).message}`)
+    }
+  }
+
+  /** 在指定服务地址上完成一次「上传 → 注入规则 → DRC → 落盘」。 */
+  private async runOnService(
+    baseUrl: string,
+    pcbPath: string,
+    options: DrcRunOptions,
+    start: number,
+  ): Promise<DrcRunResult> {
+    const client = this.createClient(baseUrl)
     const fileName = basename(pcbPath)
     const bytes = readFileSync(pcbPath)
     const timeoutSeconds = options.timeoutSeconds ?? 600
@@ -216,25 +311,27 @@ export class RemoteExecutor implements DrcExecutor {
     let drcRuleState: DrcRuleOverridesResult | undefined
     try {
       // 不能再用 client.run：必须在 upload 与 lint 之间把工程规则写进会话
-      upload = await this.client.upload(fileName, bytes, signal)
+      upload = await client.upload(fileName, bytes, signal)
       injection = await this.injectProjectRules(
+        client,
         pcbPath,
         upload.sessionToken,
         signal,
         options.ruleSources,
       )
       drcRuleState = await this.syncDrcRules(
+        client,
         upload.sessionToken,
         options.drcRuleOverrides,
         signal,
       )
-      lint = await this.client.lintDrc(upload.sessionToken, signal)
+      lint = await client.lintDrc(upload.sessionToken, signal)
     } catch (e) {
       // 取消不是失败：不进冷却期（否则取消一次就把 remote 下线一分钟），也不重试
       if (options.signal?.aborted) throw new DrcAbortedError()
       this.lastFailureAt = Date.now()
       if (timeoutCtrl.signal.aborted) {
-        throw new ExecutorError(`pcblint 调用超时（${timeoutSeconds}s）: ${this.baseUrl}`)
+        throw new ExecutorError(`pcblint 调用超时（${timeoutSeconds}s）: ${baseUrl}`)
       }
       if (e instanceof PcblintError) throw new ExecutorError(e.message)
       throw new ExecutorError(`pcblint 调用失败: ${(e as Error).message}`)
@@ -257,7 +354,7 @@ export class RemoteExecutor implements DrcExecutor {
       format: REPORT_FORMAT,
       source: fileName,
       date: new Date().toISOString(),
-      endpoint: this.baseUrl,
+      endpoint: baseUrl,
       ...lint,
     }
     const drcJson = JSON.stringify(report, null, 2)
@@ -343,7 +440,7 @@ export class RemoteExecutor implements DrcExecutor {
 
     const stdout = JSON.stringify({
       service: 'pcblint',
-      endpoint: this.baseUrl,
+      endpoint: baseUrl,
       sessionReused: upload.reused === true,
       kicadDrcUsed: lint.kicadDrcUsed ?? null,
       rulesExecuted: lint.rulesExecuted ?? null,
@@ -383,8 +480,8 @@ export class RemoteExecutor implements DrcExecutor {
       drcJson,
       elapsedMs: Math.round(performance.now() - start),
       timedOut: false,
-      kicadCliPath: `remote:${this.baseUrl}`,
-      command: `POST ${this.baseUrl}/api/s/upload → POST ${this.baseUrl}/api/s/lint-drc (${fileName})`,
+      kicadCliPath: `remote:${baseUrl}`,
+      command: `POST ${baseUrl}/api/s/upload → POST ${baseUrl}/api/s/lint-drc (${fileName})`,
       drcJsonPath,
       reportFormat: REPORT_FORMAT,
       projectRules: toPublicRules(injection),
@@ -408,6 +505,7 @@ export class RemoteExecutor implements DrcExecutor {
    * 只在结果里标注口径——DRC 本身照常跑完，不会因为规则注入失败而没有结论。
    */
   private async injectProjectRules(
+    client: PcblintClient,
     pcbPath: string,
     sessionToken: string,
     signal?: AbortSignal,
@@ -444,10 +542,10 @@ export class RemoteExecutor implements DrcExecutor {
 
     try {
       // 先读再写：服务端按板分类生成的语义规则（ic_keepout 等）必须保留
-      const current = await this.client.getDru(sessionToken, signal)
+      const current = await client.getDru(sessionToken, signal)
       // 顺序不能反：KiCad 后出现的规则覆盖先出现的，工程自定义规则必须最后写入
       const withRules = injectProjectRules(current.content, set)
-      await this.client.putDru(sessionToken, injectProjectDru(withRules, ruleSources?.drcFile), signal)
+      await client.putDru(sessionToken, injectProjectDru(withRules, ruleSources?.drcFile), signal)
       return { status: 'injected', set, ...(ruleSources?.drcFile?.trim() ? { dru: true } : {}) }
     } catch (e) {
       // 取消不是"注入失败"：吞掉会带着已中止的信号继续跑 lint。
@@ -477,6 +575,7 @@ export class RemoteExecutor implements DrcExecutor {
    * 这里靠正则取回。够用（状态码有独立空格边界），不值得为此改 request 的返回结构。
    */
   private async syncDrcRules(
+    client: PcblintClient,
     sessionToken: string,
     overrides: Record<string, DrcRuleSeverity> | undefined,
     signal?: AbortSignal,
@@ -485,8 +584,8 @@ export class RemoteExecutor implements DrcExecutor {
     const write = keys.length > 0
     try {
       const state = write
-        ? await this.client.putDrcRules(sessionToken, overrides as Record<string, DrcRuleSeverity>, signal)
-        : await this.client.getDrcRules(sessionToken, signal)
+        ? await client.putDrcRules(sessionToken, overrides as Record<string, DrcRuleSeverity>, signal)
+        : await client.getDrcRules(sessionToken, signal)
       const rules = Array.isArray(state.rules) ? state.rules : []
       const enabledRules = rules.filter((rule) => rule.enabled)
       return {

@@ -13,3 +13,14 @@ coverage/
 # FreeRouting runtime dependencies are prepared from locks, not committed.
 packages/dsh-tool-freerouting/python/**/__pycache__/
 packages/dsh-tool-freerouting/python/**/*.pyc
+# KiCad per-user local state: lock files (~<board>.lck) and view/layer settings
+# (*.prl). Opening a board in KiCad creates these next to it; they are never
+# shared and, inside test/fixtures, they get picked up by the readdirSync loop in
+# adapter.test.ts and fed to the S-expression parser, which fails on them.
+*.prl
+*.kicad_prl
+~*.lck
+# Edge/Electron webview cache written next to the boards the pcb-viewer opens.
+packages/dsh-tool-pcb-viewer/test/fixtures/.hq/
+# Agent session memory/logs; project notes live outside the repo.
+.workbuddy/

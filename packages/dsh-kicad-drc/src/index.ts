@@ -19,11 +19,13 @@
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
 import pkg from '../package.json'
-import { LocalExecutor, resolveConfigHome } from './local-executor.ts'
+import { LocalExecutor, resolveConfigHome, resolveKicadCli } from './local-executor.ts'
 import { RemoteExecutor } from './remote-executor.ts'
 import { AdaptiveExecutor } from './adaptive-executor.ts'
 import { KicadIpcExecutor } from './kicad-ipc-executor.ts'
-import { resolveIpcPython, IPC_PYTHON_ENV } from './config.ts'
+import { PcblintLauncher } from './pcblint-launcher.ts'
+import { resolvePcblintInstallation, PCBLINT_HOME_ENV } from './pcblint-installation.ts'
+import { resolveIpcPython, resolvePcblintDataRoot, IPC_PYTHON_ENV } from './config.ts'
 import { createDrcTool, createBackendsTool, TOOL_NAME, BACKENDS_TOOL_NAME } from './tools.ts'
 import { createReportRegistry, createDrcReportHandler } from './web-routes.ts'
 import { createDrcService, DRC_SERVICE_NAME } from './service.ts'
@@ -37,7 +39,15 @@ export { LocalExecutor, resolveKicadCli, buildChildEnv, resolveConfigHome } from
 export { RemoteExecutor } from './remote-executor.ts'
 export { KicadIpcExecutor } from './kicad-ipc-executor.ts'
 export { AdaptiveExecutor, rankBackends } from './adaptive-executor.ts'
-export { resolveIpcPython, IPC_PYTHON_ENV } from './config.ts'
+export { PcblintLauncher, buildPcblintJavaArgs, findFreePort } from './pcblint-launcher.ts'
+export type { PcblintLauncherOptions, PcblintLauncherState } from './pcblint-launcher.ts'
+export {
+  resolvePcblintInstallation,
+  inspectPcblintHome,
+  PCBLINT_HOME_ENV,
+} from './pcblint-installation.ts'
+export type { PcblintInstallation } from './pcblint-installation.ts'
+export { resolveIpcPython, resolvePcblintDataRoot, IPC_PYTHON_ENV, HQ_EDGE_HOME_ENV } from './config.ts'
 export type { RankedCandidate, RankInput, VerifiedBy } from './adaptive-executor.ts'
 export { parseDrcSummary, formatSummaryText } from './drc-summary.ts'
 export {
@@ -90,8 +100,18 @@ export interface Config {
    */
   ipcPythonPath: string
   /** 远程模式：pcblint DRC 服务地址（`/api/s/upload` + `/api/s/lint-drc`）。
-   *  本地单机部署一般为 `http://127.0.0.1:8096`（见 E:\pcblint-local\start.bat 打印的端口）。 */
+   *  留空 = 托管随 KiCad 分发的 `pcblint-local`（随机回环端口、按需启停）；
+   *  非空 = 外部固定服务（只连接，绝不结束该进程）。 */
   pcblintBaseUrl: string
+  /** 托管模式：组件安装目录覆盖（`...\bin\pcblint-local`）。
+   *  留空则读 `DSH_PCBLINT_HOME`，再回退到 kicad-cli 同级的 `pcblint-local`。 */
+  pcblintHome: string
+  /** 托管模式：冷启动等待上限（毫秒）。Spring Boot + H2 首次建库可能 20–40s。 */
+  pcblintStartupTimeoutMs: number
+  /** 托管模式：空闲关闭时间（毫秒）；0 = 每次用完立即关闭。 */
+  pcblintIdleTimeoutMs: number
+  /** 托管模式：追加 JVM 参数（空白分隔），如 `-Xmx1536m`。 */
+  pcblintJavaOptions: string
   /** 远程模式：`x-token` 鉴权令牌。生产环境必填；本地部署开了
    *  `pcblint.auth.local-bypass` 时留空即可。 */
   pcblintToken: string
@@ -118,7 +138,11 @@ export const Config: Schema<Config> = Schema.object({
   kicadCliPath: Schema.string().default(''),
   isolatedConfig: Schema.boolean().default(true),
   ipcPythonPath: Schema.string().default(''),
-  pcblintBaseUrl: Schema.string().default('http://127.0.0.1:8096'),
+  pcblintBaseUrl: Schema.string().default(''),
+  pcblintHome: Schema.string().default(''),
+  pcblintStartupTimeoutMs: Schema.number().default(90_000),
+  pcblintIdleTimeoutMs: Schema.number().default(60_000),
+  pcblintJavaOptions: Schema.string().default(''),
   pcblintToken: Schema.string().default(''),
   defaultTimeoutSeconds: Schema.number().default(600),
 }) as unknown as Schema<Config>
@@ -146,10 +170,56 @@ export function apply(ctx: Context, config: Config): void {
 
   // 两个后端都构建：mode 可以按次覆盖默认模式，所以本地/远程都需要在场。
   const local = new LocalExecutor(config.kicadCliPath || undefined, { configHome })
+
+  // pcblintBaseUrl 为空 = 托管随 KiCad 分发的组件；非空 = 外部固定服务（只连接，不结束进程）。
+  const managedPcblint = config.pcblintBaseUrl.trim() === ''
+  const pcblintDataRoot = resolvePcblintDataRoot()
+  let launcher: PcblintLauncher | undefined
+  let launcherError: string | undefined
+  if (managedPcblint) {
+    try {
+      launcher = new PcblintLauncher({
+        // 惰性解析：定位 kicad-cli 的最后一级是全盘搜索，不能放在插件加载的同步路径
+        resolveInstallation: () => resolvePcblintInstallation({
+          configuredHome: config.pcblintHome,
+          // 已显式指定组件目录时无需再定位 kicad-cli
+          kicadCliPath: config.pcblintHome.trim()
+            ? undefined
+            : resolveKicadCli(config.kicadCliPath || undefined),
+        }),
+        dataRoot: pcblintDataRoot,
+        ...(config.kicadCliPath ? { kicadCliPath: config.kicadCliPath } : {}),
+        resolveKicadCli: () => resolveKicadCli(),
+        startupTimeoutMs: config.pcblintStartupTimeoutMs,
+        idleTimeoutMs: config.pcblintIdleTimeoutMs,
+        ...(config.pcblintJavaOptions.trim() ? { javaOptions: config.pcblintJavaOptions } : {}),
+      })
+    } catch (e) {
+      // 配置错误不该让整个插件加载失败：remote 判不可用，auto 自动降级 local
+      launcherError = e instanceof Error ? e.message : String(e)
+      console.warn(`[@huaqiu/dsh-kicad-drc] PCBLint 托管配置无效: ${launcherError}`)
+    }
+  }
+
   const remote = new RemoteExecutor({
-    baseUrl: config.pcblintBaseUrl,
+    ...(launcher ? { launcher } : { baseUrl: config.pcblintBaseUrl }),
     token: config.pcblintToken,
   })
+
+  // 托管进程必须跟着插件生命周期：卸载时停止，宿主 exit 时同步结束（来不及等异步）
+  if (launcher) {
+    const owned = launcher
+    const onHostExit = (): void => { owned.disposeSync() }
+    process.once('exit', onHostExit)
+    ctx.effect(() => () => {
+      process.removeListener('exit', onHostExit)
+      void owned.dispose().catch((e: unknown) => {
+        console.warn(
+          `[@huaqiu/dsh-kicad-drc] 释放 PCBLint 服务失败: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      })
+    }, '@huaqiu/dsh-kicad-drc: pcblint launcher')
+  }
 
   const backends: DrcExecutor[] = [local, remote, new KicadIpcExecutor(ipcPython)]
   const adaptive = new AdaptiveExecutor(backends, {
@@ -167,7 +237,13 @@ export function apply(ctx: Context, config: Config): void {
     `[@huaqiu/dsh-kicad-drc] 模式: ${config.executorMode}`
     + `；后端优先顺序: ${config.backendPriority.join(' → ')}`
     + `；本地配置隔离: ${configHome ? `开（${configHome}）` : '关'}`
-    + `；远程: ${config.pcblintBaseUrl}${config.pcblintToken ? '（已配 x-token）' : '（无 x-token，需本地免鉴权）'}`
+    + `；远程: ${
+      launcher
+        ? `托管 pcblint-local（按需启动，数据 ${pcblintDataRoot}）`
+        : launcherError
+          ? `不可用（${launcherError}）`
+          : `${config.pcblintBaseUrl}${config.pcblintToken ? '（已配 x-token）' : '（无 x-token，需本地免鉴权）'}`
+    }`
     + `；kicad-ipc: ${ipcPython}（需要华秋定制版 KiCad 提供 RunDrc）`,
   )
 

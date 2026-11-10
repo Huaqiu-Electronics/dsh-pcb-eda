@@ -35,7 +35,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/adaptive-executor.test.ts test/config.test.ts test/drc-summary.test.ts test/kicad-ipc-executor.test.ts test/local-env.test.ts test/local-executor.test.ts test/remote-executor.test.ts test/tools.test.ts test/web-routes.test.ts test/client-parse.test.ts test/pcblint-format.test.ts test/project-rules.test.ts test/service.test.ts",
+    "test": "node --test test/adaptive-executor.test.ts test/config.test.ts test/drc-summary.test.ts test/kicad-ipc-executor.test.ts test/local-env.test.ts test/local-executor.test.ts test/remote-executor.test.ts test/tools.test.ts test/web-routes.test.ts test/client-parse.test.ts test/pcblint-format.test.ts test/project-rules.test.ts test/service.test.ts test/pcblint-installation.test.ts test/pcblint-launcher.test.ts",
     "prepack": "pnpm run build",
     "pack:tgz": "pnpm run build && pnpm pack --pack-destination ."
   },
