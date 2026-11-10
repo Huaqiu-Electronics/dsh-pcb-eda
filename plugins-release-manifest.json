@@ -5,11 +5,11 @@
     "publishedAt": "2026-11-10T03:12:29.692Z",
     "channel": "stable",
     "requiresRestart": true,
-    "summary": "EDA 主机拖拽放置稳定性修复，零件搜索与报价插件体验优化，以及插件更新面板的进度与发布说明展示。",
+    "summary": "EDA 主机拖拽放置稳定性修复，器件搜索与报价插件体验优化，以及插件更新面板的进度与发布说明展示。",
     "notesUrl": "https://example.invalid/releases/dsh-plugin-set-0.6.14",
     "notes": [
       "修复 EDA 主机在拖拽放置元件时偶发的画布错位问题",
-      "零件搜索支持按封装类型筛选",
+      "器件搜索支持按封装类型筛选",
       "报价插件支持新区域税率计算",
       "插件更新面板新增下载进度、阶段说明与发布说明展示"
     ],
@@ -202,7 +202,7 @@
       "minHqEdge": null,
       "maxHqEdge": null,
       "minDsh": null,
-      "displayName": "零件搜索",
+      "displayName": "器件搜索",
       "description": "元件库检索与选型",
       "sizeBytes": 601433,
       "changes": [
