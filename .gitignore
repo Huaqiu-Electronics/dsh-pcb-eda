@@ -24,3 +24,5 @@ packages/dsh-tool-freerouting/python/**/*.pyc
 packages/dsh-tool-pcb-viewer/test/fixtures/.hq/
 # Agent session memory/logs; project notes live outside the repo.
 .workbuddy/
+# release-pcblint.ps1 build artifacts (zip + sha256 + manifest for CDN upload)
+packages/dsh-kicad-drc/scripts/release/
