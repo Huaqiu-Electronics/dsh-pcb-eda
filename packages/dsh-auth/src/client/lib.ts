@@ -21,7 +21,11 @@
 
 export const AUTH_ORIGIN = 'https://auth.eda.cn'
 
-/**「Go to profile」destination: the eda.cn account page. */
+/** Standalone-DSH fallback for the「Go to profile」destination. Under HQ Edge the full URL is
+ * resolved ONCE from `HQ_AI_ENV` (PROD: `https://www.eda.cn/account/profile`,
+ * TEST: `http://www.fdatasheets.com/account`) and arrives via the node half's
+ * `/config` route; this constant is used only when nothing supplies one.
+ */
 export const PROFILE_URL = 'https://www.eda.cn/account/profile'
 
 // ── Subscription (quota + upgrade dialog) ────────────────────────────────────
@@ -171,15 +175,21 @@ export async function fetchSubscriptionQuota(options: {
  * in the query, mirroring `hq-eda-ai`'s `UserMenu`
  * (`/account/profile?token=…&phone=…`).
  *
- * The token is always attached: eda.cn consumes it to establish the session
- * and strips it from the address bar / history itself, so there is nothing to
- * leak beyond the target site. `encodeURIComponent` is required (not cosmetic):
- * tokens are base64-ish and may contain `+`, `/` or `=`, and a raw `+` in a
- * query string decodes to a space, which would corrupt the credential.
+ * `profileUrl` comes from the node half (HQ Edge → `HQ_AI_ENV`); omitted in
+ * standalone DSH, which keeps the {@link PROFILE_URL} PROD fallback. The
+ * injected value is a FULL URL (path included), because PROD and TEST do not
+ * share it (`/account/profile` vs `/account`); any existing query string on it
+ * is preserved and `token`/`phone` are appended.
  */
-export function buildProfileUrl(options: { token: string; phone?: string | number }): string {
+export function buildProfileUrl(options: {
+  token: string
+  phone?: string | number
+  profileUrl?: string
+}): string {
   const phone = options.phone === undefined || options.phone === null ? '' : String(options.phone)
-  return `${PROFILE_URL}?token=${encodeURIComponent(options.token)}&phone=${encodeURIComponent(phone)}`
+  const base = options.profileUrl?.length ? options.profileUrl : PROFILE_URL
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}token=${encodeURIComponent(options.token)}&phone=${encodeURIComponent(phone)}`
 }
 
 /**

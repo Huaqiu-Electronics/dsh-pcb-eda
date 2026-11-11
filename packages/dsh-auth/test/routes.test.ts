@@ -10,6 +10,7 @@ import { authFetch } from './helpers.js'
 
 // Test-environment values the way HQ Edge resolves them from HQ_AI_ENV=test.
 const TEST_BALANCES_URL = 'http://www.fdatasheets.com/sub-api/subscriptions/balances/current'
+const TEST_PROFILE_URL = 'http://www.fdatasheets.com/account'
 const TEST_SUBSCRIPTION_ORIGIN = 'http://gen.fdatasheets.com'
 
 // Isolate the persisted-session directory to a temp dir so the standalone
@@ -29,6 +30,7 @@ describe('auth webServer routes (browser→node transport)', () => {
       {
         subscriptionBalancesUrl: TEST_BALANCES_URL,
         subscriptionOrigin: TEST_SUBSCRIPTION_ORIGIN,
+        profileUrl: TEST_PROFILE_URL,
       },
       { fetchImpl: authFetch() },
     )
@@ -120,6 +122,7 @@ describe('auth webServer routes (browser→node transport)', () => {
     expect(standaloneSvc.hostMode).toBe(false)
     expect(standaloneSvc.subscriptionOrigin).toBeNull()
     expect(standaloneSvc.subscriptionApiBaseUrl).toBeNull()
+    expect(standaloneSvc.profileUrl).toBeNull()
   })
 
   it('GET /config exposes the subscription origin resolved from the same AI env', async () => {
@@ -128,6 +131,9 @@ describe('auth webServer routes (browser→node transport)', () => {
     // The GEN/ERC quota calls take the balances endpoint's origin, so they
     // follow the same HQ_AI_ENV resolution and no host is hardcoded.
     expect(res.subscriptionApiBaseUrl).toBe('http://www.fdatasheets.com')
+    // The profile URL keeps its own path (/account vs /account/profile), which
+    // is why the full URL — not an origin — crosses the route.
+    expect(res.profileUrl).toBe(TEST_PROFILE_URL)
   })
 
   it('GET /config reports host mode when an HQ Edge base URL is configured', async () => {

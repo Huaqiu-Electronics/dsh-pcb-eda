@@ -112,6 +112,11 @@ export interface HuaqiuAuthService {
    * or null when none was configured (standalone keeps its PROD default).
    */
   readonly subscriptionOrigin: string | null
+  /**
+   * Full「Go to profile」URL injected by HQ Edge (`config.profileUrl`), or null
+   * when none was configured — the browser half then keeps its PROD default.
+   */
+  readonly profileUrl: string | null
 }
 
 const PERSIST_FILE = 'session.json'
@@ -246,6 +251,7 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
     this.subscriptionOrigin = resolved.subscriptionOrigin?.length
       ? resolved.subscriptionOrigin
       : null
+    this.profileUrl = resolved.profileUrl?.length ? resolved.profileUrl : null
     this.log.info('auth service started', {
       hostMode: this.hostMode,
       hostAuthPath: resolved.hostAuthPath,
@@ -266,6 +272,8 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
   readonly subscriptionApiBaseUrl: string | null
   /** Subscription origin resolved by HQ Edge (`HQ_AI_ENV`); null → standalone. */
   readonly subscriptionOrigin: string | null
+  /**「Go to profile」URL resolved by HQ Edge (`HQ_AI_ENV`); null → standalone. */
+  readonly profileUrl: string | null
 
   readonly auth: HuaqiuAuthApi = {
     isAuthenticated: async () => {

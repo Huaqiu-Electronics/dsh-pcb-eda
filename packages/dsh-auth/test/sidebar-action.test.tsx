@@ -34,6 +34,7 @@ function stubAuth(initial: StubInfo | null, hostMode = false, profile: { nicknam
       for (const l of listeners) l(null)
     }),
     getSubscriptionQuota: vi.fn(async () => null),
+    getProfileUrl: () => null,
     getAiTokenUsage: vi.fn(async () => null),
     onAuthStateChanged: (cb: (info: StubInfo | null) => void) => {
       listeners.add(cb)
@@ -267,6 +268,46 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     expect(buildProfileUrl({ token: 'tok' })).toBe(
       'https://www.eda.cn/account/profile?token=tok&phone=',
     )
+  })
+
+  it('「Go to profile」uses the injected HQ_AI_ENV profile URL and keeps its path', () => {
+    // TEST resolves to a DIFFERENT path (/account), so the full URL — not just
+    // the origin — has to travel from the node half.
+    expect(
+      buildProfileUrl({
+        token: 'tok',
+        phone: '138',
+        profileUrl: 'http://www.fdatasheets.com/account',
+      }),
+    ).toBe('http://www.fdatasheets.com/account?token=tok&phone=138')
+  })
+
+  it('「Go to profile」preserves an existing query string when appending the token', () => {
+    expect(
+      buildProfileUrl({ token: 'tok', profileUrl: 'https://example.com/account?lang=zh' }),
+    ).toBe('https://example.com/account?lang=zh&token=tok&phone=')
+  })
+
+  it('the profile menu item opens the client-resolved profile URL', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const auth = (await import('../src/client/auth-state.js')).getAuth() as unknown as {
+      getProfileUrl: () => string | null
+    }
+    const original = auth.getProfileUrl
+    auth.getProfileUrl = () => 'http://www.fdatasheets.com/account'
+    try {
+      const container = await renderSettled()
+      click(trigger(container))
+      await act(async () => {
+        click(menuItem('个人中心'))
+        await Promise.resolve()
+      })
+      expect(open.mock.calls[0]?.[0]).toBe(
+        'http://www.fdatasheets.com/account?token=tok&phone=13800000000',
+      )
+    } finally {
+      auth.getProfileUrl = original
+    }
   })
 
   it('「Log out」logs out and closes the menu', async () => {

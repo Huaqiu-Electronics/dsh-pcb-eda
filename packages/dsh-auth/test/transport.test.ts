@@ -10,6 +10,7 @@ describe('createWebServerAuthTransport', () => {
         hostMode: true,
         subscriptionOrigin: 'http://gen.fdatasheets.com',
         subscriptionApiBaseUrl: 'http://www.fdatasheets.com',
+        profileUrl: 'http://www.fdatasheets.com/account',
       }),
     })) as unknown as typeof fetch
     const t = createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch)
@@ -17,6 +18,7 @@ describe('createWebServerAuthTransport', () => {
       hostMode: true,
       subscriptionOrigin: 'http://gen.fdatasheets.com',
       subscriptionApiBaseUrl: 'http://www.fdatasheets.com',
+      profileUrl: 'http://www.fdatasheets.com/account',
     })
     expect(doFetch).toHaveBeenCalledWith('/api/v1/huaqiu/auth/config', expect.objectContaining({ method: 'GET' }))
   })
@@ -30,6 +32,7 @@ describe('createWebServerAuthTransport', () => {
       hostMode: false,
       subscriptionOrigin: null,
       subscriptionApiBaseUrl: null,
+      profileUrl: null,
     })
   })
 
@@ -40,12 +43,14 @@ describe('createWebServerAuthTransport', () => {
         hostMode: true,
         subscriptionOrigin: 'javascript:alert(1)',
         subscriptionApiBaseUrl: 'not-a-url',
+        profileUrl: 'mailto:someone@example.com',
       }),
     })) as unknown as typeof fetch
     await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchRuntimeConfig()).resolves.toEqual({
       hostMode: true,
       subscriptionOrigin: null,
       subscriptionApiBaseUrl: null,
+      profileUrl: null,
     })
   })
 
@@ -57,6 +62,7 @@ describe('createWebServerAuthTransport', () => {
       hostMode: false,
       subscriptionOrigin: null,
       subscriptionApiBaseUrl: null,
+      profileUrl: null,
     })
   })
 

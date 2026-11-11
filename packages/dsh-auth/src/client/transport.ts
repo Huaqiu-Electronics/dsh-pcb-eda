@@ -16,7 +16,9 @@ export interface AuthTransport {
    * - `subscriptionOrigin`: the SAME `HQ_AI_ENV`-resolved origin used for the
    *   subscription dialog (null → standalone PROD fallback);
    * - `subscriptionApiBaseUrl`: origin of the resolved balances API, used for
-   *   the GEN/ERC active-subscription calls (null → quota unavailable).
+   *   the GEN/ERC active-subscription calls (null → quota unavailable);
+   * - `profileUrl`: full「Go to profile」URL from the same resolution (null →
+   *   standalone keeps lib.ts's PROD default).
    */
   fetchRuntimeConfig(): Promise<AuthRuntimeConfig>
   /**
@@ -67,10 +69,12 @@ export interface AuthRuntimeConfig {
   subscriptionOrigin: string | null
   /** Origin for GEN/ERC quota calls; null = no environment configured. */
   subscriptionApiBaseUrl: string | null
+  /** Full profile URL (path kept); null = standalone PROD fallback. */
+  profileUrl: string | null
 }
 
-/** Accept only an absolute http(s) origin; anything else → null. */
-function normalizeOrigin(value: unknown): string | null {
+/** Accept only an absolute http(s) URL; anything else → null. A path is kept. */
+function normalizeHttpUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim().replace(/\/+$/, '')
   if (!trimmed) return null
@@ -133,17 +137,20 @@ export function createWebServerAuthTransport(
             hostMode: false,
             subscriptionOrigin: null,
             subscriptionApiBaseUrl: null,
+            profileUrl: null,
           }
         }
         const body = await res.json() as {
           hostMode?: unknown
           subscriptionOrigin?: unknown
           subscriptionApiBaseUrl?: unknown
+          profileUrl?: unknown
         }
         return {
           hostMode: body.hostMode === true,
-          subscriptionOrigin: normalizeOrigin(body.subscriptionOrigin),
-          subscriptionApiBaseUrl: normalizeOrigin(body.subscriptionApiBaseUrl),
+          subscriptionOrigin: normalizeHttpUrl(body.subscriptionOrigin),
+          subscriptionApiBaseUrl: normalizeHttpUrl(body.subscriptionApiBaseUrl),
+          profileUrl: normalizeHttpUrl(body.profileUrl),
         }
       } catch {
         // Offline/same-origin failure: fall back to standalone (show the login
@@ -153,6 +160,7 @@ export function createWebServerAuthTransport(
           hostMode: false,
           subscriptionOrigin: null,
           subscriptionApiBaseUrl: null,
+          profileUrl: null,
         }
       }
     },

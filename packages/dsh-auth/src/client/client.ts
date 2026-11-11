@@ -83,6 +83,12 @@ export interface AuthClient {
      */
     getSubscriptionQuota(productCode: string): Promise<SubscriptionQuota | null>
     /**
+     *「Go to profile」URL resolved by HQ Edge from the same `HQ_AI_ENV` (node
+     * `/config`). Null in standalone → callers fall back to lib.ts's PROD
+     * default via {@link buildProfileUrl}.
+     */
+    getProfileUrl(): string | null
+    /**
      * AI token usage for the signed-in account. Resolved by the NODE half
      * (`GET /api/v1/huaqiu/auth/ai-usage`) — the endpoint is served over plain
      * `http`, which this WebView refuses (App Transport Security + CORS), so the
@@ -151,6 +157,11 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
    * when no environment is configured → GEN/ERC quota calls are skipped.
    */
   let subscriptionApiBaseUrl: string | null = null
+  /**
+   *「Go to profile」URL resolved by HQ Edge from `HQ_AI_ENV`. Null in
+   * standalone → lib.ts keeps its PROD fallback.
+   */
+  let profileUrl: string | null = null
 
   const emit = (info: AuthTokenPayload | null): void => {
     for (const listener of listeners) listener(info)
@@ -285,6 +296,7 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
         ...(subscriptionApiBaseUrl ? { baseUrl: subscriptionApiBaseUrl } : {}),
       })
     },
+    getProfileUrl: (): string | null => profileUrl,
     getAiTokenUsage: async (): Promise<AiUsage | null> => {
       if (hostMode && !hostSessionLoaded) await resolveHost()
       // Gate on a credential first: the node route resolves the token itself,
@@ -385,10 +397,12 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
         mode = runtime.hostMode
         subscriptionOrigin = runtime.subscriptionOrigin
         subscriptionApiBaseUrl = runtime.subscriptionApiBaseUrl
+        profileUrl = runtime.profileUrl
       } catch {
         mode = false
         subscriptionOrigin = null
         subscriptionApiBaseUrl = null
+        profileUrl = null
       }
       hostMode = mode
       hostSessionLoaded = false
@@ -428,6 +442,7 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       hostSessionLoaded = false
       subscriptionOrigin = null
       subscriptionApiBaseUrl = null
+      profileUrl = null
       void trustedOrigin // referenced for clarity: the auth iframe URL comes from it
     },
   }

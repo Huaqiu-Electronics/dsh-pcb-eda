@@ -240,6 +240,9 @@ export function createAuthHandler(service: HuaqiuAuthService): AuthHandler {
           // Origin of the resolved balances API — lets the browser build the
           // GEN/ERC active-subscription calls without hardcoding eda.cn.
           subscriptionApiBaseUrl: service.subscriptionApiBaseUrl,
+          // Full profile URL (path included) resolved from the same HQ_AI_ENV;
+          // null in standalone → the browser keeps lib.ts's PROD default.
+          profileUrl: service.profileUrl,
         })
         return
       }

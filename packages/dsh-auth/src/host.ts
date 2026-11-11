@@ -56,6 +56,11 @@ export interface HuaqiuAuthConfig {
    * `HQ_AI_ENV`. Absent → the browser half keeps its standalone PROD default.
    */
   subscriptionOrigin?: string
+  /**
+   * Full「Go to profile」URL resolved by HQ Edge from the SAME `HQ_AI_ENV`.
+   * Absent → the browser half keeps its standalone PROD default.
+   */
+  profileUrl?: string
 }
 
 export const DEFAULT_HOST_AUTH_PATH = '/api/v1/auth/token'
@@ -112,6 +117,7 @@ export function resolveHostConfig(
   const subscriptionOrigin = (config?.subscriptionOrigin ?? env.HQ_AI_SUBSCRIPTION_ORIGIN ?? '')
     .trim()
     .replace(/\/+$/, '')
+  const profileUrl = (config?.profileUrl ?? env.HQ_AI_PROFILE_URL ?? '').trim()
   return {
     hqEdgeBaseUrl: baseUrl,
     hostAuthPath,
@@ -121,6 +127,7 @@ export function resolveHostConfig(
     validationTtlSeconds,
     subscriptionBalancesUrl,
     subscriptionOrigin,
+    profileUrl,
   }
 }
 

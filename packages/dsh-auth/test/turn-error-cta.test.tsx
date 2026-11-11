@@ -35,6 +35,7 @@ function stubAuth({ authenticated = true, open, login }: StubOptions = {}) {
       for (const listener of listeners) listener(null)
     }),
     getSubscriptionQuota: async () => null,
+    getProfileUrl: () => null,
     getAiTokenUsage: async () => null,
     openSubscriptionDialog: vi.fn(open ?? (async (): Promise<SubscriptionDialogOutcome> => ({ status: 'opened' }))),
     onAuthStateChanged: (listener: (info: { token: string } | null) => void) => {

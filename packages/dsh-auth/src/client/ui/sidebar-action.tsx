@@ -859,7 +859,14 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
             .then((i) => (i ? { token: i.token, phone: i.phone } : null))
             .catch(() => null)
       if (!info?.token) return
-      window.open(buildProfileUrl(info), '_blank', 'noopener,noreferrer')
+      // `profileUrl` is the HQ Edge-resolved full URL (`HQ_AI_ENV`); null in
+      // standalone, where buildProfileUrl keeps its PROD fallback.
+      const profileUrl = auth.getProfileUrl()
+      window.open(
+        buildProfileUrl({ ...info, ...(profileUrl ? { profileUrl } : {}) }),
+        '_blank',
+        'noopener,noreferrer',
+      )
     })()
   }
 
