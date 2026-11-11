@@ -2,6 +2,12 @@
 .SYNOPSIS
     Package pcblint-local component for cloud distribution.
 
+.DESCRIPTION
+    Default zip URL is derived from DEFAULT_PCBLINT_MANIFEST in src/config.ts
+    (same directory as this script's parent), so plugin manifest and zip stay
+    on the same CDN path out of the box. Override with -ManifestUrl if you
+    need a different zip location.
+
 .OUTPUTS
     <outputDir>/pcblint-local-<version>.zip
     <outputDir>/pcblint-local-<version>.zip.sha256
@@ -17,8 +23,9 @@
     Output directory, defaults to ./scripts/release relative to this script.
 
 .PARAMETER ManifestUrl
-    Zip download URL baked into manifest.json. Defaults to
-    https://pcblint-cdn.huaqiu.cn/pcblint/pcblint-local-<version>.zip.
+    Zip download URL baked into manifest.json. Defaults to a sibling file of
+    DEFAULT_PCBLINT_MANIFEST (from src/config.ts, filename replaced with
+    pcblint-local-<version>.zip).
 
 .PARAMETER MinKiCad
     Optional min KiCad version written into manifest.minKiCad.
@@ -97,9 +104,25 @@ if ($NoTopLevel) {
 $sha = (certutil -hashfile $zipPath SHA256 | Select-Object -Index 1).Trim().ToLower()
 [System.IO.File]::WriteAllText("$zipPath.sha256", $sha, [System.Text.Encoding]::ASCII)
 
-# Manifest
+# Manifest — default zip URL derived from src/config.ts DEFAULT_PCBLINT_MANIFEST
+# so plugin and release script stay on the same CDN without two sources of truth.
 if (-not $ManifestUrl) {
-    $ManifestUrl = "https://pcblint-cdn.huaqiu.cn/pcblint/$zipName"
+    $configPath = Join-Path (Split-Path -Parent $scriptDir) 'src\config.ts'
+    $defaultManifestUrl = $null
+    if (Test-Path -LiteralPath $configPath) {
+        $content = [System.IO.File]::ReadAllText($configPath)
+        $m = [regex]::Match($content, "(?s)DEFAULT_PCBLINT_MANIFEST\s*=\s*'([^']+)'")
+        if ($m.Success) {
+            $defaultManifestUrl = $m.Groups[1].Value
+        }
+    }
+    if ($defaultManifestUrl) {
+        $uri = [System.Uri]$defaultManifestUrl
+        $dir = (Split-Path -Parent $uri.AbsolutePath).Replace('\', '/')
+        $ManifestUrl = "$($uri.Scheme)://$($uri.Host)$dir/$zipName"
+    } else {
+        throw "Cannot derive default manifest URL from src/config.ts. Pass -ManifestUrl explicitly."
+    }
 }
 $manifest = [ordered]@{
     latest = $Version
