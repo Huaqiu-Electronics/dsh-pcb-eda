@@ -207,7 +207,12 @@ the tools still register and fail per-call with a typed `FAILED_PRECONDITION`
 naming the script they needed. `readBundledSkill()` stays fatal, so packaging
 checks and tests still fail loudly.
 
-Verified after rebuild (`~/.hq-edge/logs/dsh-plugins/dsh-plugins.log`):
+Verified after rebuild. At the time of this migration plugin records landed in the
+shared file `~/.hq-edge/logs/dsh-plugins/dsh-plugins.log`; since the log-isolation
+work (see `docs/dsh-plugin-log-isolation-implementation.md`) the same records are
+written per DSH process to
+`~/.hq-edge/logs/instances/<edge-instance-id>/dsh/<dsh-instance-id>/dsh.<date>.log`.
+Grep either location with `pluginId=dsh-kicad`:
 
 ```
 applying dsh-kicad node half  skillDir=…/builtin-plugins/0.1.3-29-g0d3ac71/dsh-kicad/skills/kicad-ipc  skillPresent=true
