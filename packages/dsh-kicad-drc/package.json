@@ -35,7 +35,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/adaptive-executor.test.ts test/config.test.ts test/drc-summary.test.ts test/kicad-ipc-executor.test.ts test/local-env.test.ts test/local-executor.test.ts test/remote-executor.test.ts test/tools.test.ts test/web-routes.test.ts test/client-parse.test.ts test/pcblint-format.test.ts test/project-rules.test.ts test/service.test.ts test/pcblint-installation.test.ts test/pcblint-launcher.test.ts",
+    "test": "node --test test/adaptive-executor.test.ts test/config.test.ts test/drc-summary.test.ts test/kicad-ipc-executor.test.ts test/local-env.test.ts test/local-executor.test.ts test/remote-executor.test.ts test/tools.test.ts test/web-routes.test.ts test/client-parse.test.ts test/pcblint-format.test.ts test/project-rules.test.ts test/service.test.ts test/pcblint-installation.test.ts test/pcblint-launcher.test.ts test/pcblint-downloader.test.ts",
     "prepack": "pnpm run build",
     "pack:tgz": "pnpm run build && pnpm pack --pack-destination ."
   },
@@ -65,13 +65,15 @@
     }
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/schemastery": "^3.18.1",
+    "unzipper": "^0.12.5"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
     "@deepseek-ai/dsh-tools": "^0.2.1-rc.2",
     "@types/node": "^22.19.0",
     "@types/react": "^18.3.31",
+    "@types/unzipper": "^0.10.11",
     "react": "^18.3.1",
     "tsdown": "^0.22.14",
     "typescript": "^5.9.2"

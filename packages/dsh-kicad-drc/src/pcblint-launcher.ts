@@ -17,6 +17,7 @@ import { dirname, join } from 'node:path'
 import { DrcAbortedError, ExecutorError } from './executor.ts'
 import { PcblintProcess } from './pcblint-process.ts'
 import type { PcblintInstallation } from './pcblint-installation.ts'
+import type { PcblintDownloader } from './pcblint-downloader.ts'
 
 /** 健康轮询间隔。 */
 const HEALTH_POLL_MS = 500
@@ -52,6 +53,10 @@ export interface PcblintLauncherOptions {
   port?: number
   /** 注入 fetch，便于单测。 */
   fetchImpl?: typeof fetch
+  /** 可选：组件下载器。首次启动时组件不在磁盘上则触发下载；已存在且版本匹配时跳过。 */
+  downloader?: PcblintDownloader
+  /** 是否允许自动下载。默认 true；false 时 downloader 不生效。 */
+  autoDownload?: boolean
 }
 
 /** 托管状态的只读快照，供 `probe()` 使用。 */
@@ -428,6 +433,19 @@ export class PcblintLauncher {
       } else {
         this.child = undefined
         this.url = ''
+      }
+    }
+    // 如果有 downloader，先确保组件在磁盘上：首次启动时可能需要从云端下载
+    // ensure() 内部会先检查已安装版本，版本对就直接返回，不影响冷启动时间
+    const shouldDownload = this.options.autoDownload !== false
+    if (shouldDownload && this.options.downloader) {
+      try {
+        await this.options.downloader.ensure(signal)
+      } catch (error) {
+        // 下载失败进入冷却：让 probe 判不可用，auto 模式降级 local
+        this.lastFailureAt = Date.now()
+        this.lastFailureMessage = `PCBLint 组件下载失败：${messageOf(error)}`
+        throw new ExecutorError(this.lastFailureMessage)
       }
     }
     const installation = this.resolveInstallation()

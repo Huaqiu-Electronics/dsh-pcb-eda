@@ -192,7 +192,9 @@ DRC 成功生成报告后，工具输出会附带一个 `viewUrl`（形如 `/drc
 | `isolatedConfig` | `true` | local 后端：使用隔离的 `KICAD_CONFIG_HOME`（实测省约 5s；关闭后用用户默认配置，库比对类检查更完整） |
 | `ipcPythonPath` | `''` | kicad-ipc 后端使用的 Python 解释器（需装 `kipy`）；留空读 `DSH_KICAD_DRC_PYTHON`，再兜底 `python3`。与 `dsh-kicad` 的 `DSH_KICAD_PYTHON` **刻意分开**：两个插件可能部署在不同机器、对着不同 KiCad 版本 |
 | `pcblintBaseUrl` | `''` | remote 后端：pcblint 服务地址。**留空 = 托管**随 KiCad 分发的 `bin\pcblint-local\`（随机回环端口，执行检查时按需启动，空闲后自动关闭）；非空 = 外部固定服务，只连接、**绝不结束该进程** |
-| `pcblintHome` | `''` | 托管模式：组件目录覆盖（`...\bin\pcblint-local`）。留空读 `DSH_PCBLINT_HOME`，再回退到 kicad-cli 同级目录 |
+| `pcblintHome` | `''` | 托管模式：组件目录覆盖（`...\bin\pcblint-local`）。留空读 `DSH_PCBLINT_HOME`，再回退到 kicad-cli 同级目录；三者都没有时**首次 DRC 自动从云端下载**（见下） |
+| `pcblintManifestUrl` | `''` | 托管模式：组件下载 manifest URL（空用内置 CDN）；企业内网可配私有镜像 |
+| `pcblintAutoDownload` | `true` | 托管模式：允许组件缺失时从云端自动下载到 `HQ_EDGE_HOME/plugin-data/dsh-kicad-drc/cache/pcblint-local/`；关闭后找不到组件直接降级 local |
 | `pcblintStartupTimeoutMs` | `90000` | 托管模式：冷启动等待上限。首次启动要等 Spring + H2 建库，通常会比后续慢 |
 | `pcblintIdleTimeoutMs` | `60000` | 托管模式：空闲关闭时间；`0` = 每次检查结束立即关闭（最省内存，但每次都要冷启动） |
 | `pcblintJavaOptions` | `''` | 托管模式：追加 JVM 参数（空白分隔），如 `-Xmx1536m` |

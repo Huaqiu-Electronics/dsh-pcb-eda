@@ -1,20 +1,26 @@
 /**
  * PCBLint 本地组件的安装位置解析。
  *
- * 组件随 KiCad 安装包分发到 `bin\pcblint-local\`，与 `freerouting.exe` 同级：
+ * 组件来源有三种可能（优先级从高到低）：
+ *   1. 插件配置 `pcblintHome`（用户显式指定）
+ *   2. 环境变量 `DSH_PCBLINT_HOME`
+ *   3. 下载缓存（插件自下载的组件，位于 `cacheRoot/pcblint-local/`）
+ *   4. kicad-cli 同级的 `pcblint-local`（随 KiCad 安装包分发）
+ *
+ * 每个来源都使用同一套目录结构：
  *
  * ```text
- * bin\pcblint-local\
+ * pcblint-local\
  *   pcblint\pcblint.jar
- *   pcblint\version.txt   # 可选，安装包写入的版本号
+ *   pcblint\version.txt   # 可选
  *   jre25\bin\java.exe
  * ```
  *
- * 解析顺序：插件配置 `pcblintHome` → 环境变量 `DSH_PCBLINT_HOME` →
- * kicad-cli 同级的 `pcblint-local`。只使用自带 JRE，不回退 `JAVA_HOME`/PATH：
- * 系统 Java 17/21 与组件要求的 25 混用会报错，现场很难定位。
+ * 只使用自带 JRE，不回退 `JAVA_HOME`/PATH：系统 Java 17/21 与组件要求
+ * 的 25 混用会报错，现场很难定位。
  *
  * 本模块只做路径解析与存在性校验，不启动进程，也不创建目录。
+ * 下载逻辑由 `pcblint-downloader.ts` 负责，找到 null 时触发。
  *
  * @module
  */
@@ -46,16 +52,23 @@ export interface PcblintInstallation {
   jarPath: string
   /** 安装包写入的版本号；没有该文件时为空。 */
   version?: string
+  /** 来源：用于诊断。 */
+  source: 'config' | 'env' | 'cache' | 'kicad-cli'
 }
 
-export interface ResolvePcblintInstallationInput {
+export interface FindPcblintInstallationInput {
   /** 插件配置 `pcblintHome`，优先级最高。 */
   configuredHome?: string
+  /** 下载缓存根目录（检查 `<cacheRoot>/pcblint-local`）。 */
+  cacheRoot?: string
   /** 已解析的 kicad-cli 路径，用于推导同级的 `pcblint-local`。 */
   kicadCliPath?: string
   /** 环境变量来源，便于单测。 */
   env?: NodeJS.ProcessEnv
 }
+
+/** 旧接口兼容（不传入 cacheRoot）。 */
+export interface ResolvePcblintInstallationInput extends FindPcblintInstallationInput {}
 
 /** 读取安装包写入的版本号；文件缺失或为空视为未知。 */
 function readInstalledVersion(home: string): string | undefined {
@@ -72,7 +85,10 @@ function readInstalledVersion(home: string): string | undefined {
  *
  * 缺文件时一次性列出两个期望路径，避免用户改完一个又撞下一个。
  */
-export function inspectPcblintHome(home: string): PcblintInstallation {
+export function inspectPcblintHome(
+  home: string,
+  source: PcblintInstallation['source'] = 'kicad-cli',
+): PcblintInstallation {
   const root = resolve(home)
   const javaPath = join(root, JAVA_RELATIVE)
   const jarPath = join(root, JAR_RELATIVE)
@@ -87,28 +103,72 @@ export function inspectPcblintHome(home: string): PcblintInstallation {
     )
   }
   const version = readInstalledVersion(root)
-  return { home: root, javaPath, jarPath, ...(version ? { version } : {}) }
+  return { home: root, javaPath, jarPath, source, ...(version ? { version } : {}) }
 }
 
 /**
- * 按配置 → 环境变量 → kicad-cli 同级目录的顺序解析组件位置。
+ * 按配置 → 环境变量 → 下载缓存 → kicad-cli 同级目录的顺序查找已安装组件。
  *
- * `kicadCliPath` 由调用方惰性提供：定位 kicad-cli 可能触发全盘搜索，
- * 不能在插件加载的同步路径里调用。
+ * 找不到时返回 null（不抛错），供调用方决定是否触发下载。
+ * 每一级只在路径存在时才尝试 `inspectPcblintHome`，避免误抛。
  */
-export function resolvePcblintInstallation(input: ResolvePcblintInstallationInput): PcblintInstallation {
+export function findPcblintInstallation(
+  input: FindPcblintInstallationInput,
+): PcblintInstallation | null {
   const env = input.env ?? process.env
   const configured = input.configuredHome?.trim()
   const fromEnv = env[PCBLINT_HOME_ENV]?.trim()
+  const cacheRoot = input.cacheRoot?.trim()
   const kicadCli = input.kicadCliPath?.trim()
-  const besideKicad = kicadCli ? join(dirname(kicadCli), PCBLINT_DIR_NAME) : ''
-  const home = configured || fromEnv || besideKicad
-  if (!home) {
-    throw new ExecutorError(
-      '找不到 PCBLint 本地组件：没有配置 pcblintHome，也没有设置 DSH_PCBLINT_HOME，'
-      + '且无法从 kicad-cli 安装目录推导。请确认 KiCad 安装包包含 bin\\pcblint-local\\，'
-      + '或在插件配置里设置 pcblintHome。',
-    )
+
+  // 1. 显式配置
+  if (configured) {
+    return inspectPcblintHome(configured, 'config')
   }
-  return inspectPcblintHome(home)
+  // 2. 环境变量
+  if (fromEnv) {
+    return inspectPcblintHome(fromEnv, 'env')
+  }
+  // 3. 下载缓存
+  if (cacheRoot) {
+    const cached = join(cacheRoot, PCBLINT_DIR_NAME)
+    if (existsSync(cached)) {
+      try {
+        return inspectPcblintHome(cached, 'cache')
+      } catch {
+        // 缓存目录可能不完整，继续往下找
+      }
+    }
+  }
+  // 4. kicad-cli 同级
+  if (kicadCli) {
+    const besideKicad = join(dirname(kicadCli), PCBLINT_DIR_NAME)
+    if (existsSync(besideKicad)) {
+      try {
+        return inspectPcblintHome(besideKicad, 'kicad-cli')
+      } catch {
+        // 同级目录不完整
+      }
+    }
+  }
+  return null
+}
+
+/**
+ * 旧接口：找不到时抛 ExecutorError（带友好的安装指引）。
+ *
+ * 内部委托 `findPcblintInstallation`，保持兼容。新代码应优先用
+ * `findPcblintInstallation`，找不到时再决定是否触发下载。
+ */
+export function resolvePcblintInstallation(
+  input: ResolvePcblintInstallationInput,
+): PcblintInstallation {
+  const found = findPcblintInstallation(input)
+  if (found) return found
+  throw new ExecutorError(
+    '找不到 PCBLint 本地组件：没有配置 pcblintHome，也没有设置 DSH_PCBLINT_HOME，'
+    + '下载缓存里也没有，且无法从 kicad-cli 安装目录推导。'
+    + '请安装随 KiCad 分发的 PCBLint 组件（bin\\pcblint-local\\），'
+    + '或在插件配置里设置 pcblintHome。',
+  )
 }

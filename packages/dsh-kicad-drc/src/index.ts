@@ -24,12 +24,24 @@ import { RemoteExecutor } from './remote-executor.ts'
 import { AdaptiveExecutor } from './adaptive-executor.ts'
 import { KicadIpcExecutor } from './kicad-ipc-executor.ts'
 import { PcblintLauncher } from './pcblint-launcher.ts'
-import { resolvePcblintInstallation, PCBLINT_HOME_ENV } from './pcblint-installation.ts'
-import { resolveIpcPython, resolvePcblintDataRoot, IPC_PYTHON_ENV } from './config.ts'
+import { PcblintDownloader } from './pcblint-downloader.ts'
+import {
+  findPcblintInstallation,
+  resolvePcblintInstallation,
+  PCBLINT_HOME_ENV,
+} from './pcblint-installation.ts'
+import {
+  resolveIpcPython,
+  resolvePcblintDataRoot,
+  resolvePcblintCacheRoot,
+  resolvePcblintManifestUrl,
+  IPC_PYTHON_ENV,
+} from './config.ts'
 import { createDrcTool, createBackendsTool, TOOL_NAME, BACKENDS_TOOL_NAME } from './tools.ts'
 import { createReportRegistry, createDrcReportHandler } from './web-routes.ts'
 import { createDrcService, DRC_SERVICE_NAME } from './service.ts'
 import type { DrcExecutor, DrcMode, DrcBackendName } from './executor.ts'
+import { ExecutorError } from './executor.ts'
 
 /** 插件版本号（唯一来源：package.json），启动时打印用于确认生效版本。 */
 const PLUGIN_VERSION = pkg.version
@@ -41,13 +53,24 @@ export { KicadIpcExecutor } from './kicad-ipc-executor.ts'
 export { AdaptiveExecutor, rankBackends } from './adaptive-executor.ts'
 export { PcblintLauncher, buildPcblintJavaArgs, findFreePort } from './pcblint-launcher.ts'
 export type { PcblintLauncherOptions, PcblintLauncherState } from './pcblint-launcher.ts'
+export { PcblintDownloader } from './pcblint-downloader.ts'
+export type { PcblintDownloaderOptions, PcblintManifest } from './pcblint-downloader.ts'
 export {
   resolvePcblintInstallation,
+  findPcblintInstallation,
   inspectPcblintHome,
   PCBLINT_HOME_ENV,
 } from './pcblint-installation.ts'
 export type { PcblintInstallation } from './pcblint-installation.ts'
-export { resolveIpcPython, resolvePcblintDataRoot, IPC_PYTHON_ENV, HQ_EDGE_HOME_ENV } from './config.ts'
+export {
+  resolveIpcPython,
+  resolvePcblintDataRoot,
+  resolvePcblintCacheRoot,
+  resolvePcblintManifestUrl,
+  DEFAULT_PCBLINT_MANIFEST,
+  IPC_PYTHON_ENV,
+  HQ_EDGE_HOME_ENV,
+} from './config.ts'
 export type { RankedCandidate, RankInput, VerifiedBy } from './adaptive-executor.ts'
 export { parseDrcSummary, formatSummaryText } from './drc-summary.ts'
 export {
@@ -112,6 +135,10 @@ export interface Config {
   pcblintIdleTimeoutMs: number
   /** 托管模式：追加 JVM 参数（空白分隔），如 `-Xmx1536m`。 */
   pcblintJavaOptions: string
+  /** 托管模式：自动下载组件 manifest 的 URL（空/无效用默认 CDN）。 */
+  pcblintManifestUrl: string
+  /** 托管模式：允许自动下载组件；关闭后找不到组件时直接报不可用。 */
+  pcblintAutoDownload: boolean
   /** 远程模式：`x-token` 鉴权令牌。生产环境必填；本地部署开了
    *  `pcblint.auth.local-bypass` 时留空即可。 */
   pcblintToken: string
@@ -143,6 +170,8 @@ export const Config: Schema<Config> = Schema.object({
   pcblintStartupTimeoutMs: Schema.number().default(90_000),
   pcblintIdleTimeoutMs: Schema.number().default(60_000),
   pcblintJavaOptions: Schema.string().default(''),
+  pcblintManifestUrl: Schema.string().default(''),
+  pcblintAutoDownload: Schema.boolean().default(true),
   pcblintToken: Schema.string().default(''),
   defaultTimeoutSeconds: Schema.number().default(600),
 }) as unknown as Schema<Config>
@@ -174,25 +203,48 @@ export function apply(ctx: Context, config: Config): void {
   // pcblintBaseUrl 为空 = 托管随 KiCad 分发的组件；非空 = 外部固定服务（只连接，不结束进程）。
   const managedPcblint = config.pcblintBaseUrl.trim() === ''
   const pcblintDataRoot = resolvePcblintDataRoot()
+  const pcblintCacheRoot = resolvePcblintCacheRoot()
+  const kicadCli = config.pcblintHome.trim()
+    ? undefined
+    : resolveKicadCli(config.kicadCliPath || undefined)
+  const downloader = config.pcblintAutoDownload
+    ? new PcblintDownloader({
+        manifestUrl: resolvePcblintManifestUrl(config.pcblintManifestUrl),
+        cacheRoot: pcblintCacheRoot,
+        installationFinder: () => findPcblintInstallation({
+          configuredHome: config.pcblintHome,
+          cacheRoot: pcblintCacheRoot,
+          kicadCliPath: kicadCli,
+        }),
+      })
+    : undefined
   let launcher: PcblintLauncher | undefined
   let launcherError: string | undefined
   if (managedPcblint) {
     try {
       launcher = new PcblintLauncher({
         // 惰性解析：定位 kicad-cli 的最后一级是全盘搜索，不能放在插件加载的同步路径
-        resolveInstallation: () => resolvePcblintInstallation({
-          configuredHome: config.pcblintHome,
-          // 已显式指定组件目录时无需再定位 kicad-cli
-          kicadCliPath: config.pcblintHome.trim()
-            ? undefined
-            : resolveKicadCli(config.kicadCliPath || undefined),
-        }),
+        resolveInstallation: () => {
+          const found = findPcblintInstallation({
+            configuredHome: config.pcblintHome,
+            cacheRoot: pcblintCacheRoot,
+            kicadCliPath: kicadCli,
+          })
+          if (found) return found
+          throw new ExecutorError(
+            '找不到 PCBLint 本地组件（KiCad 安装包目录、自下载缓存都没有）。'
+            + (config.pcblintAutoDownload
+              ? '首次运行 DRC 时会从云端自动下载'
+              : '请检查 pcblintHome 配置或启用 pcblintAutoDownload'),
+          )
+        },
         dataRoot: pcblintDataRoot,
         ...(config.kicadCliPath ? { kicadCliPath: config.kicadCliPath } : {}),
         resolveKicadCli: () => resolveKicadCli(),
         startupTimeoutMs: config.pcblintStartupTimeoutMs,
         idleTimeoutMs: config.pcblintIdleTimeoutMs,
         ...(config.pcblintJavaOptions.trim() ? { javaOptions: config.pcblintJavaOptions } : {}),
+        ...(downloader ? { downloader, autoDownload: config.pcblintAutoDownload } : {}),
       })
     } catch (e) {
       // 配置错误不该让整个插件加载失败：remote 判不可用，auto 自动降级 local
