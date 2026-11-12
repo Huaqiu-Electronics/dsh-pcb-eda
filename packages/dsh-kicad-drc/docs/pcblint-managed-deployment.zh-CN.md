@@ -127,6 +127,8 @@ stopped ──ensureUp()──> starting ──health 200──> running
 
 - `probe()` **绝不启动服务**（`src/index.ts` 启动 1.5s 后会 `describe()`，启动 JVM 会拖慢宿主）。
 - 托管模式下 `probe()` 只判断：安装文件存在 + 不在失败冷却 + 运行中则真实探活。返回 `available: true` 表示“可以启动”，`reason` 写明“按需启动”。
+- **组件不在磁盘但启用自下载（`pcblintAutoDownload` 非 false）时，`probe()` 必须判 `available: true`**，`reason` 写明“执行检查时会从云端自动下载”。否则 `auto` 会按“不可用”把 remote 过滤掉，`start()` 永远不执行，下载也就永远触发不了——这是一个只能靠显式 `mode: "remote"` 绕过的死锁。
+- 下载完成后必须清掉 `resolveInstallation()` 缓存的解析失败，否则 60s 冷却期内的旧错误会让刚下载好的组件仍被判为不存在。
 - 真正的启动只发生在 `RemoteExecutor.run()` 内。
 - 不改 `backendPriority` 默认顺序（`remote → local → ipc`）；用户在低内存机器上可改为 `['local','ipc','remote']`。
 
@@ -415,7 +417,7 @@ ctx.effect(() => () => {
 - 实机 DRC（`simple_led.kicad_pcb` 副本）：11.1s 完成，`kicadDrcUsed=true`，报告落盘为 `<pcb>_drc.pcblint.json`。
 - 连续 10 次调用（默认 `idleTimeoutMs=60000`）：首次 12.0s（含 JVM + Spring + H2 冷启动），第 2–10 次 4.45–4.89s；10 次报告里的 `endpoint` 全部为同一地址（`127.0.0.1:61762`），每次自有 `java.exe` 均为 1 个，工作集 370–390MB 无持续增长。
 - 默认空闲关闭：第 10 次结束后 60s 进程退出，`ownsProcess=false`，残留 `java.exe` 为 0；`dispose()` 后仍为 0。
-- 回退到 local（真实 kicad-cli，`auto` 模式）：组件目录缺失时 `probe()` 判不可用（reason 列出缺失的 JRE/jar 路径），直接选 local；组件齐全但 jar 损坏时远程真实启动失败（日志尾部 `Invalid or corrupt jarfile`），`verifiedBy.backend=local`、`fallbackFrom=remote`，且失败后不残留自有进程引用。两种情况结果均为 16 条违规、退出码 0。
+- 回退到 local（真实 kicad-cli，`auto` 模式）：关闭自下载时组件目录缺失由 `probe()` 判不可用（reason 列出缺失的 JRE/jar 路径），直接选 local；组件齐全但 jar 损坏时远程真实启动失败（日志尾部 `Invalid or corrupt jarfile`），`verifiedBy.backend=local`、`fallbackFrom=remote`，且失败后不残留自有进程引用。两种情况结果均为 16 条违规、退出码 0。
 
 尚未验证（不做“已验证”表述）：
 

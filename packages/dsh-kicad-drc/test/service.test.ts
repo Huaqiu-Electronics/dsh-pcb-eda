@@ -265,7 +265,7 @@ test('内置规则只剩锁定项参与时判不完整，notes 指出覆盖度',
   const result = await createDrcService(adaptive).check({ pcbPath: 'board.kicad_pcb' })
   // kicadDrcUsed=true 也救不了：内置规则没参与，结果仍然缺 kicad-cli 那部分
   assert.equal(result.complete, false)
-  assert.match(result.notes, /只有被锁定的项参与判定/)
+  assert.match(result.notes, /内置 DRC 检查项只剩被锁定的项参与判定/)
 })
 
 test('额外打开了内置规则时判为完整', async () => {

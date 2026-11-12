@@ -10,6 +10,7 @@ import {
   findFreePort,
 } from '../src/pcblint-launcher.ts'
 import { inspectPcblintHome } from '../src/pcblint-installation.ts'
+import { PcblintDownloader } from '../src/pcblint-downloader.ts'
 import { resolvePcblintDataRoot } from '../src/config.ts'
 import { RemoteExecutor } from '../src/remote-executor.ts'
 import { ExecutorError } from '../src/executor.ts'
@@ -142,6 +143,44 @@ test('describe：组件解析失败按冷却期缓存，避免每次探测都全
   assert.equal(launcher.describe().available, false)
   assert.equal(launcher.describe().available, false)
   assert.equal(calls, 1)
+})
+
+test('describe：启用自下载时组件缺失仍判可用，否则 auto 模式永远不会触发下载', () => {
+  const root = mkdtempSync(join(tmpdir(), 'pcblint-auto-download-'))
+  try {
+    const cacheRoot = join(root, 'cache', 'pcblint-local')
+    const downloader = new PcblintDownloader({
+      manifestUrl: 'https://example.invalid/pcblint-manifest.json',
+      cacheRoot,
+      installationFinder: () => null,
+      fetchImpl: (() => Promise.reject(new Error('测试不联网'))) as unknown as typeof fetch,
+    })
+    const enabled = new PcblintLauncher({
+      resolveInstallation: () => {
+        throw new ExecutorError('找不到 PCBLint 本地组件')
+      },
+      dataRoot: join(root, 'data'),
+      downloader,
+      autoDownload: true,
+    })
+    const state = enabled.describe()
+    assert.equal(state.available, true, '可自下载时组件缺失也必须判可用')
+    assert.equal(state.home, join(cacheRoot, 'pcblint-local'))
+    assert.match(state.reason, /自动下载/u)
+
+    // 对照组：关掉自下载后同一输入必须判不可用
+    const disabled = new PcblintLauncher({
+      resolveInstallation: () => {
+        throw new ExecutorError('找不到 PCBLint 本地组件')
+      },
+      dataRoot: join(root, 'data'),
+      downloader,
+      autoDownload: false,
+    })
+    assert.equal(disabled.describe().available, false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 test('dispose 只结束自有进程：外部进程保持运行', async () => {

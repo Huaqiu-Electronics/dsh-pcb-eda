@@ -382,8 +382,8 @@ export function createDrcService(adaptive: AdaptiveExecutor): DrcService {
       let notes = result.stderr
       if (narrowedRules) {
         notes = appendLine(notes,
-          '警告: 服务端内置规则里只有被锁定的项参与判定'
-          + `（${enabledKeys?.join(', ') || '无'}），其余全部关闭，结果不含这些内置规则的违规；`
+          '警告: 服务端内置 DRC 检查项只剩被锁定的项参与判定'
+          + `（${enabledKeys?.join(', ') || '无'}），其余检查项全部关闭，结果不含这些检查项的违规；`
           + '需要它们参与时，用 drcRuleOverrides 显式打开')
       }
       if (impliedRemote) {

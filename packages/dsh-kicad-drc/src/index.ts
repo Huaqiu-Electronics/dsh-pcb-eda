@@ -182,6 +182,20 @@ export const name = '@huaqiu/dsh-kicad-drc'
 /** 依赖的 DSH 服务（webServer 用于 /drc-report 报告查看路由；headless 环境缺失时自动降级）。 */
 export const inject = ['tools', 'webServer']
 
+/** 已打印过的进度档位，按阶段记录，避免同一档位被每个数据块重复打印。 */
+const lastReportedProgress = new Map<string, number>()
+
+/** 按 10% 档位打印组件下载/解压进度。 */
+function reportPcblintProgress(percent: number, phase: 'fetch' | 'extract'): void {
+  const bucket = Math.floor(percent / 10) * 10
+  if (lastReportedProgress.get(phase) === bucket) {
+    return
+  }
+  lastReportedProgress.set(phase, bucket)
+  const label = phase === 'fetch' ? '下载' : '解压'
+  console.log(`[@huaqiu/dsh-kicad-drc] PCBLint 组件${label} ${bucket}%`)
+}
+
 /**
  * 插件入口：构建全部后端、装配自适应执行器并注册工具。
  */
@@ -216,6 +230,7 @@ export function apply(ctx: Context, config: Config): void {
           cacheRoot: pcblintCacheRoot,
           kicadCliPath: kicadCli,
         }),
+        onProgress: reportPcblintProgress,
       })
     : undefined
   let launcher: PcblintLauncher | undefined

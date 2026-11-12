@@ -342,6 +342,16 @@ export class PcblintLauncher {
     try {
       installation = this.resolveInstallation()
     } catch (error) {
+      // 启用自下载时不能判"不可用"：auto 模式会直接过滤掉不可用后端，
+      // 那样 start() 永远不会执行，下载也就永远触发不了。
+      if (this.options.autoDownload !== false && this.options.downloader) {
+        return {
+          running: false,
+          available: true,
+          home: this.options.downloader.installedHome,
+          reason: 'PCBLint 组件尚未安装，执行检查时会从云端自动下载',
+        }
+      }
       return { running: false, available: false, home: '', reason: messageOf(error) }
     }
     const base = { home: installation.home, ...(installation.version ? { version: installation.version } : {}) }
@@ -441,6 +451,9 @@ export class PcblintLauncher {
     if (shouldDownload && this.options.downloader) {
       try {
         await this.options.downloader.ensure(signal)
+        // 下载前的 describe() 会缓存"组件不存在"；不清掉会继续抛 60s
+        this.installation = undefined
+        this.installationFailure = ''
       } catch (error) {
         // 下载失败进入冷却：让 probe 判不可用，auto 模式降级 local
         this.lastFailureAt = Date.now()

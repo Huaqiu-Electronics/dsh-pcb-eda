@@ -83,6 +83,11 @@ export class PcblintDownloader {
     this.onProgress = options.onProgress
   }
 
+  /** 组件最终安装目录（下载完成后的组件根目录）。未下载时用于状态说明。 */
+  get installedHome(): string {
+    return this.activeDir
+  }
+
   private get manifestCachePath(): string {
     return join(this.cacheRoot, 'pcblint-manifest.json')
   }

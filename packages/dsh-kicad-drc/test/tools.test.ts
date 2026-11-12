@@ -224,9 +224,10 @@ test('execute：内置规则只剩锁定项参与时同样标 reportComplete=fal
   }), 600)
   const out = await run(tool, { pcbPath: 'D:/proj/board.kicad_pcb' })
   assert.equal(out.reportComplete, false)
-  // kicadDrcUsed=true 时也要能区分出"内置规则没参与"这第二种不完整
+  // kicad-cli 跑了但只有锁定项参与：原因必须与"没跑 kicad-cli"区分开
+  assert.equal(out.reportIncomplete, 'rules')
   const reasons = (out.verifiedBy as { reasons: string[] }).reasons
-  assert.match(reasons.join('\n'), /只有被锁定的项参与判定/)
+  assert.match(reasons.join('\n'), /内置 DRC 检查项只剩被锁定的项参与/)
 })
 
 test('execute：drcRulesCount 为 0 但规则状态显示内置规则已参与时不误判', async () => {

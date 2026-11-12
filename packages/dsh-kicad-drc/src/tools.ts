@@ -46,6 +46,8 @@ interface KicadDrcOutput {
    * 字段缺失表示结果完整、或后端没给出可判定的口径。
    */
   reportComplete?: boolean
+  /** `reportComplete=false` 的具体原因，用于生成不产生歧义的提示文案。 */
+  reportIncomplete?: 'kicad-cli' | 'rules'
   /** 内置规则开关状态（remote 后端总是出现；status=observed 表示只读取未写入）。 */
   drcRules?: Record<string, JsonValue>
   /** drc.json 持久化保存的绝对路径（PCB 文件同目录，可直接打开）。 */
@@ -183,12 +185,18 @@ export function createDrcTool(
               + '或 pcblint（pcblint 语义服务，severity 大写、带 confidence/ruleId/backend）。'
               + '两种格式的违规数不可直接比较。',
           },
+          reportIncomplete: {
+            type: 'string',
+            description:
+              'reportComplete=false 时的具体原因。kicad-cli 表示服务端未执行原生检查；'
+              + 'rules 表示原生检查已执行，但内置 DRC 检查项只剩锁定项参与。',
+          },
           reportComplete: {
             type: 'boolean',
             description:
-              '报告是否完整。值为 false 表示结果缺少 kicad-cli 原生检查那部分——'
+              '报告是否完整。值为 false 表示结果缺少 kicad-cli 原生检查中的一部分——'
               + '要么服务端根本没执行 kicad-cli（kicadDrcUsed=false），'
-              + '要么内置规则里只有被锁定的项在参与（用户没主动打开任何内置规则）。'
+              + '要么内置 DRC 检查项只剩被锁定的项在参与（其余检查项未启用）。'
               + '这类报告的违规数不能当作完整 DRC 结论，也不能与 local 的条数比较。'
               + '字段缺失表示结果完整或该后端未给出可判定的口径。',
           },
@@ -270,13 +278,18 @@ export function createDrcTool(
           ? `\n\n⚠️ 规则口径: 未注入工程板级约束（${rules.status}${rules.message ? `：${rules.message}` : ''}），`
             + '本次按服务端默认工程判定，线宽/间距类结论不可直接采信'
           : ''
-        // 结果缺 kicad-cli 那半边时（kicad-cli 没跑，或内置规则只剩锁定项在参与），
-        // drcSummary 的数字不是完整 DRC。模型基本只读摘要正文，所以这句必须
-        // 放在最前面——只写进 stderr 是看不见的。
-        const incompleteLine = value.reportComplete === false
-          ? '⚠️ 报告不完整：本次只有 pcblint 规则引擎结果（kicad-cli 未执行，或内置规则只剩锁定项在参与），'
-            + '不能当作完整 DRC 结论，也不要与 local 后端的违规数比较\n\n'
-          : ''
+        // 结果缺半边时 drcSummary 的数字不是完整 DRC。模型基本只读摘要正文，
+        // 所以这句必须放在最前面——只写进 stderr 是看不见的。
+        // 两种原因要分开写：曾经合写成"kicad-cli 未执行，或内置规则只剩锁定项"，
+        // 结果模型把原生检查确实跑过的情况也报成"kicad-cli 没出结果"。
+        let incompleteLine = ''
+        if (value.reportComplete === false) {
+          incompleteLine = value.reportIncomplete === 'rules'
+            ? '⚠️ 报告不完整：kicad-cli 已执行，但内置 DRC 检查项只剩被锁定的项参与（其余内置检查项默认关闭），'
+              + '因此缺少这部分原生检查结果，不能当作完整 DRC 结论\n\n'
+            : '⚠️ 报告不完整：服务端未执行 kicad-cli 原生检查，本次只有 pcblint 规则引擎结果，'
+              + '不能当作完整 DRC 结论，也不要与 local 后端的违规数比较\n\n'
+        }
         const blocks: Array<{ type: 'text'; text: string }> = [
           { type: 'text', text: incompleteLine + summary + pathLine + backendLine + rulesLine },
         ]
@@ -358,13 +371,16 @@ export function createDrcTool(
       }
       if (result.drcJsonPath) output.drcJsonPath = result.drcJsonPath
       if (result.reportFormat) output.reportFormat = result.reportFormat
-      // 两类"不完整"都要显式标出来：kicad-cli 没跑（kicadDrcUsed=false），
-      // 或内置规则里只有被锁定项在参与（用户没主动打开任何内置规则）。
-      // 后者更隐蔽——kicadDrcUsed=true 看着一切正常，结果却缺了 kicad-cli 那部分。
+      // 两类"不完整"要显式标出来，并且区分原因：服务端没跑 kicad-cli（kicadDrcUsed=false），
+      // 或原生检查跑了但内置语义规则只剩锁定项参与。两者缺的是不同的半边。
       // 判据不能用 lint-drc 的 drcRulesCount：实测它恒为固定值、与开关无关。
       const narrowedRules = onlyLockedRulesEnabled(result.drcRules)
-      if (result.metrics?.kicadDrcUsed === false || narrowedRules) {
+      if (result.metrics?.kicadDrcUsed === false) {
         output.reportComplete = false
+        output.reportIncomplete = 'kicad-cli'
+      } else if (narrowedRules) {
+        output.reportComplete = false
+        output.reportIncomplete = 'rules'
       }
       if (result.drcRules) {
         output.drcRules = result.drcRules as unknown as Record<string, JsonValue>
@@ -392,7 +408,7 @@ export function createDrcTool(
         verifiedBy.reasons.push(
           result.metrics?.kicadDrcUsed === false
             ? '服务端未执行 kicad-cli 原生检查，报告仅含规则引擎结果（不完整）'
-            : '内置规则里只有被锁定的项参与判定，其余内置规则全部关闭，报告缺这部分结果（不完整）',
+            : '内置 DRC 检查项只剩被锁定的项参与，其余检查项全部关闭，报告缺这部分原生结果（不完整）',
         )
       }
       output.verifiedBy = verifiedBy as unknown as Record<string, JsonValue>
