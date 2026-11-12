@@ -187,19 +187,6 @@ function str(value: unknown): string {
 }
 
 /**
- * The render endpoint decodes `format` as a protobuf int32 enum, so enum names
- * are rejected ("invalid int32 NaN"). Always send the numeric value and fall
- * back to PNG when the caller supplies nothing.
- */
-// function schematicImageFormatValue(
-//   format: RenderSchematicParams['format'],
-// ): number {
-//   if (typeof format === 'number') return format
-//   if (format === 'SCHEMATIC_IMAGE_FORMAT_UNSPECIFIED') return 0
-//   return 1
-// }
-
-/**
  * Extract a complete `EdaHostInfo` from an hq-edge host-info body.
  *
  * `hq.host.v1` has no availability flags, so the only way to distinguish "the
@@ -572,8 +559,6 @@ export function createEdaHostClient(
       if (params.sheetInstancePaths && params.sheetInstancePaths.length > 0) {
         requestBody.sheetInstancePaths = params.sheetInstancePaths
       }
-      // The host decodes this as an int32 enum; never send the enum name.
-      // requestBody.format = schematicImageFormatValue(params.format)
       // if (typeof params.maxWidth === 'number') requestBody.maxWidth = params.maxWidth
       // if (typeof params.maxHeight === 'number') requestBody.maxHeight = params.maxHeight
       // if (typeof params.scale === 'number') requestBody.scale = params.scale

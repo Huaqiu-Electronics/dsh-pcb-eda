@@ -134,8 +134,7 @@ describe('createEdaHostClient — schematic render end-to-end', () => {
       // POST body: proto3 JSON style (only real values, no defaults)
       expect(capturedBody).toEqual({
         activeDocument: true,
-        // enum name on the way in, int32 value on the wire
-        format: 1,
+        // format is not forwarded: the host defaults to PNG
       })
 
       expect(result.documentId).toBe('proj-001')
@@ -170,9 +169,6 @@ describe('createEdaHostClient — schematic render end-to-end', () => {
       expect(capturedBody).toEqual({
         activeDocument: false,
         sheetInstancePaths: ['/', '/Regulator'],
-        format: 1,
-        maxWidth: 1024,
-        maxHeight: 768,
       })
 
       expect(result.images).toHaveLength(2)
@@ -305,7 +301,27 @@ describe('createEdaHostTools — schematic render tools', () => {
     await tool.execute({ active_document: false }, {} as never)
     expect(capturedBody).toEqual({
       activeDocument: false,
-      format: 1,
+    })
+  })
+
+  it('get_schematic_png_screenshot forwards sheet_instance_paths', async () => {
+    let capturedBody: unknown
+    const tools = createEdaHostTools({
+      client: createEdaHostClient(BASE_CONFIG, {
+        fetchImpl: async (_url, init) => {
+          capturedBody = JSON.parse(String((init as RequestInit).body ?? '{}'))
+          return jsonResponse(200, RENDER_PNG_MULTI_BODY)
+        },
+      }),
+    })
+    const tool = tools.find((t) => t.name === 'get_schematic_png_screenshot')!
+    await tool.execute(
+      { active_document: false, sheet_instance_paths: ['/', '/Regulator'] },
+      {} as never,
+    )
+    expect(capturedBody).toEqual({
+      activeDocument: false,
+      sheetInstancePaths: ['/', '/Regulator'],
     })
   })
 })
