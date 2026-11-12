@@ -1891,6 +1891,16 @@ export interface ClientContext {
 }
 
 /**
+ * A transient "installing" flag with no live job behind it is stale. An install
+ * of this plugin's own package restarts DSH, so the last `/activity` read can
+ * be lost; `schedulePoll()` then stops (no active job) while the 60 s report
+ * refresh keeps running — the footer would say "更新中" forever. A real install
+ * always has a non-terminal active job, so after this window without one we
+ * stop claiming progress rather than waiting for a read that will never come.
+ */
+const STALE_INSTALL_MS = 120_000
+
+/**
  * In-memory update-report store shared by the badge and the modal.
  *
  * Exported for tests: the re-attach logic (watch a job by id, notice that the
@@ -1911,6 +1921,11 @@ export class UpdateStore implements UpdateStoreLike {
   private pollInFlight = false
   /** The job this panel started (or adopted) and is following by id. */
   private watchedJobId: string | null = null
+  /** True between `setInstalling(true)` and the install response landing: a
+   *  state read in that window has no job yet, and must not clear the flag. */
+  private installPending = false
+  /** When the transient installing flag was raised (stale-install watchdog). */
+  private installingSinceMs = 0
   /** hq-edge process identity from the last `/activity` read. */
   private activityBootId: string | null = null
   private stalledFlag = false
@@ -1949,6 +1964,9 @@ export class UpdateStore implements UpdateStoreLike {
    * page comes back to a server that has no "active job" left to report).
    */
   watchJob(id: string | null): void {
+    // The install response has landed: from here on a state read is allowed to
+    // judge whether the flag is stale (see settleStaleInstall).
+    this.installPending = false
     this.watchedJobId = id
     if (id !== null) this.schedulePoll()
   }
@@ -1987,7 +2005,16 @@ export class UpdateStore implements UpdateStoreLike {
     this.active = status.activeJob
     this.recent = status.recentJobs
     if (this.active !== null) this.watchedJobId = this.active.id
-    if (wasActive && this.active === null) this.observeSettled()
+    // `/status` is the fallback for an older hq-edge with no `/activity`. It
+    // has no `job` field, but a settled watched job is still in recentJobs —
+    // the same answer the re-attach read would have given us.
+    const watchedSettled =
+      this.watchedJobId !== null &&
+      status.recentJobs.some(
+        (entry) => entry.id === this.watchedJobId && TERMINAL_PHASES.has(entry.phase),
+      )
+    if ((wasActive && this.active === null) || watchedSettled) this.observeSettled()
+    else this.settleStaleInstall()
     this.emit()
     this.schedulePoll()
   }
@@ -1995,7 +2022,7 @@ export class UpdateStore implements UpdateStoreLike {
   /**
    * Adopt a `/activity` snapshot.
    *
-   * Two things only this read can tell us:
+   * Three things only this read can tell us:
    *
    *   - `bootId` changed → hq-edge was recreated underneath the page. That is
    *     what an install of this plugin's own package looks like from here: the
@@ -2003,6 +2030,11 @@ export class UpdateStore implements UpdateStoreLike {
    *     trusted, so the installing flag is cleared and the report re-read.
    *   - `stalled` → the active job has stopped advancing. The progress bar must
    *     stop pretending; the panel shows a "confirming" note with a retry.
+   *   - `job` → the durable record of the job we followed by id. It is the ONLY
+   *     evidence left when that job settled while DSH was restarting: the
+   *     active slot is already empty on this page's first read back, so there
+   *     is no active → null transition to notice. Without this check the
+   *     installing flag survives the restart and the panel stays "更新中".
    */
   private applyActivity(activity: UpdateActivity): void {
     const rebooted = this.activityBootId !== null && this.activityBootId !== activity.bootId
@@ -2014,13 +2046,25 @@ export class UpdateStore implements UpdateStoreLike {
     this.active = activity.activeJob
     if (activity.job !== null) this.upsertRecent(activity.job)
 
+    // Settle on EITHER signal: the active slot emptied, or our own job (the one
+    // `watchJob` made every read ask about) reached a terminal phase. The id
+    // comparison matters — `job` may be any job in the ledger.
+    const watchedSettled =
+      this.watchedJobId !== null &&
+      activity.job !== null &&
+      activity.job.id === this.watchedJobId &&
+      TERMINAL_PHASES.has(activity.job.phase)
+    const settled = (wasActive && this.active === null) || watchedSettled
+
     if (rebooted) {
       this.installingFlag = false
       this.stalledFlag = false
       this.phaseAgeMsValue = 0
-      void this.refresh()
+      // observeSettled() refreshes too — avoid two identical report reads.
+      if (!settled) void this.refresh()
     }
-    if (wasActive && this.active === null) this.observeSettled()
+    if (settled) this.observeSettled()
+    else this.settleStaleInstall()
     this.emit()
     this.schedulePoll()
   }
@@ -2032,10 +2076,33 @@ export class UpdateStore implements UpdateStoreLike {
    */
   private observeSettled(): void {
     this.installingFlag = false
+    this.installPending = false
+    this.installingSinceMs = 0
     this.stalledFlag = false
     this.phaseAgeMsValue = 0
     this.watchedJobId = null
     void this.refresh()
+  }
+
+  /**
+   * Last-resort reset for the restart case: the page is back, the transient
+   * installing flag is still set, but no job is running and no re-attach read
+   * is coming (the poll loop stops without an active job). Called on mount,
+   * on every successful state read and on each idle refresh, so the footer
+   * cannot stay "更新中" forever. A failed read is not evidence of anything, so
+   * it never clears the flag. A live job, or an install request in flight, always
+   * wins — this only clears a flag with nothing behind it.
+   */
+  settleStaleInstall(): void {
+    if (!this.installingFlag || this.installPending) return
+    const liveJob = this.active !== null && !TERMINAL_PHASES.has(this.active.phase)
+    if (liveJob) return
+    // A watched id means /activity may still answer; give it the watchdog
+    // window before declaring the re-attach lost. No watched id means the
+    // panel has nothing left to ask about, so reset on the first state read.
+    const timedOut = Date.now() - this.installingSinceMs >= STALE_INSTALL_MS
+    if (this.watchedJobId !== null && !timedOut) return
+    this.observeSettled()
   }
 
   /** Keep one job fresh in the local history without duplicating it. */
@@ -2086,7 +2153,16 @@ export class UpdateStore implements UpdateStoreLike {
       this.pollTimer = null
     }
     const job = this.active
-    if (job === null || TERMINAL_PHASES.has(job.phase)) {
+    const jobActive = job !== null && !TERMINAL_PHASES.has(job.phase)
+    // Re-attach window: the install replaced this plugin's own process, so the
+    // active slot can be empty for a while even though the job has not been
+    // confirmed settled. Keep asking about the watched id (bounded by the
+    // stale-install watchdog) instead of letting one lost read end the poll.
+    const awaitingReattach =
+      this.installingFlag &&
+      this.watchedJobId !== null &&
+      Date.now() - this.installingSinceMs < STALE_INSTALL_MS
+    if (!jobActive && !awaitingReattach) {
       this.pollBackoffMs = 1_000
       return
     }
@@ -2136,14 +2212,20 @@ export class UpdateStore implements UpdateStoreLike {
 
   /** Mark the set as installing (set by the modal before the restart). */
   setInstalling(flag: boolean): void {
+    if (flag && !this.installingFlag) this.installingSinceMs = Date.now()
     this.installingFlag = flag
+    this.installPending = flag
+    if (!flag) this.installingSinceMs = 0
     this.emit()
   }
 
-  /** Idle refresh while mounted (60 s) — no overlapping poll loop. */
+  /** Idle refresh while mounted (60 s) — no overlapping poll loop. This is
+   *  also the only timer that still runs after a re-attach read was lost, so
+   *  it carries the stale-install fallback as well. */
   startIdleRefresh(): void {
     if (this.refreshTimer !== null) return
     this.refreshTimer = window.setInterval(() => {
+      this.settleStaleInstall()
       void this.refresh()
     }, 60_000) as unknown as number
   }
@@ -2269,6 +2351,9 @@ export function apply(ctx: ClientContext): () => void {
     }
   })
 
+  // Mount path: a page that came back from the DSH restart must not inherit a
+  // transient "installing" state with no job to follow.
+  store.settleStaleInstall()
   store.startIdleRefresh()
   void store.refresh()
   void store.fetchStatus()
