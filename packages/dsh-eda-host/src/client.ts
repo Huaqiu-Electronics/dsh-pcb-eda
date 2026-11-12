@@ -10,12 +10,16 @@
  * @module
  */
 
-import { DEFAULT_REQUEST_TIMEOUT_MS, hostUrlOf, netlistUrlOf, pcbBoardUrlOf, pcbSelectionUrlOf, syncSchematicToPcbUrlOf, type EdaHostConfig, type NetlistScope } from './config.js'
+import { DEFAULT_REQUEST_TIMEOUT_MS, hostUrlOf, netlistUrlOf, pcbBoardUrlOf, pcbSelectionUrlOf, schematicRenderUrlOf, syncSchematicToPcbUrlOf, type EdaHostConfig, type NetlistScope } from './config.js'
 import {
   NetlistError,
   type EdaHostCapability,
   type EdaHostInfo,
+  type ListSchematicSheetsResult,
   type PcbSnapshot,
+  type RenderCapabilities,
+  type RenderSchematicParams,
+  type RenderSchematicResult,
   type SchematicNetlist,
 } from './types.js'
 
@@ -72,6 +76,31 @@ export interface EdaHostClient {
    * or unsupported). It performs no synchronization itself.
    */
   syncSchematicToPcb(options?: EdaHostRequestOptions): Promise<void>
+  /**
+   * Query the connected EDA host's schematic render capabilities
+   * (`hq.services.v1.SchematicRenderService.GetRenderCapabilities`).
+   * Tells the caller whether PNG/SVG/hierarchy/region render are supported,
+   * along with max image dimensions.
+   */
+  getRenderCapabilities(options?: EdaHostRequestOptions): Promise<RenderCapabilities>
+  /**
+   * List schematic sheets available for rendering
+   * (`hq.services.v1.SchematicRenderService.ListSchematicSheets`).
+   */
+  listSchematicSheets(
+    document?: RenderSchematicParams['document'],
+    options?: EdaHostRequestOptions,
+  ): Promise<ListSchematicSheetsResult>
+  /**
+   * Render one or more schematic sheets to PNG images
+   * (`hq.services.v1.SchematicRenderService.RenderSchematic`).
+   * Returns proto3 JSON where each image's `imageData` field is base64-encoded
+   * bytes from the upstream protobuf response.
+   */
+  renderSchematic(
+    params: RenderSchematicParams,
+    options?: EdaHostRequestOptions,
+  ): Promise<RenderSchematicResult>
 }
 
 /** HTTP status → semantic error kind (see routes/edaHostStatus.ts on hq-edge). */
@@ -156,6 +185,19 @@ export function parseNetlistBody(body: unknown): SchematicNetlist {
 function str(value: unknown): string {
   return typeof value === 'string' ? value : ''
 }
+
+/**
+ * The render endpoint decodes `format` as a protobuf int32 enum, so enum names
+ * are rejected ("invalid int32 NaN"). Always send the numeric value and fall
+ * back to PNG when the caller supplies nothing.
+ */
+// function schematicImageFormatValue(
+//   format: RenderSchematicParams['format'],
+// ): number {
+//   if (typeof format === 'number') return format
+//   if (format === 'SCHEMATIC_IMAGE_FORMAT_UNSPECIFIED') return 0
+//   return 1
+// }
 
 /**
  * Extract a complete `EdaHostInfo` from an hq-edge host-info body.
@@ -318,6 +360,53 @@ export function createEdaHostClient(
     }
   }
 
+  /** Perform one POST with a JSON body and return the parsed JSON response. */
+  async function postJson(
+    url: string,
+    body: unknown,
+    options: EdaHostRequestOptions | undefined,
+    what: string,
+  ): Promise<unknown> {
+    const signal = resolveSignal(config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS, options?.signal)
+
+    let response: Response
+    try {
+      response = await fetchImpl(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body ?? {}),
+        ...(signal ? { signal } : {}),
+      })
+    } catch (err) {
+      if (isAbortError(err)) {
+        throw new NetlistError(
+          'DEADLINE_EXCEEDED',
+          `eda-host: ${what} request exceeded its time budget at ${url}`,
+        )
+      }
+      throw new NetlistError(
+        'UNAVAILABLE',
+        `eda-host: cannot reach hq-edge at ${url}: ${String((err as Error)?.message ?? err)}`,
+      )
+    }
+
+    if (!response.ok) {
+      let detail = ''
+      try {
+        const body = (await response.json()) as { detail?: unknown }
+        if (typeof body.detail === 'string') detail = body.detail
+      } catch {
+        // non-JSON error body — fall through with empty detail
+      }
+      throw new NetlistError(
+        statusToKind(response.status),
+        `eda-host: ${what} request failed (${response.status}${detail ? `: ${detail}` : ''})`,
+      )
+    }
+
+    return response.json()
+  }
+
   async function fetchScope(
     scope: NetlistScope,
     options?: EdaHostRequestOptions,
@@ -405,6 +494,127 @@ export function createEdaHostClient(
       const resolved = resolveConfig()
       const url = syncSchematicToPcbUrlOf(resolved)
       await postSync(url, options, 'schematic-to-pcb sync')
+    },
+
+    getRenderCapabilities: async (options) => {
+      const resolved = resolveConfig()
+      const url = schematicRenderUrlOf(resolved, 'capabilities')
+      const body = (await getJson(url, options, 'render capabilities')) as Record<string, unknown>
+
+      if (!body || typeof body !== 'object') {
+        throw new NetlistError('INTERNAL', 'eda-host: malformed render capabilities response from hq-edge')
+      }
+
+      const pickBool = (k: string): boolean =>
+        typeof (body as Record<string, unknown>)[k] === 'boolean'
+          ? ((body as Record<string, unknown>)[k] as boolean)
+          : false
+      const pickUint = (k: string): number => {
+        const v = (body as Record<string, unknown>)[k]
+        return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : 0
+      }
+
+      return {
+        supportsActiveDocument: pickBool('supportsActiveDocument'),
+        supportsDocumentId: pickBool('supportsDocumentId'),
+        supportsHierarchy: pickBool('supportsHierarchy'),
+        supportsSheetInstance: pickBool('supportsSheetInstance'),
+        supportsPng: pickBool('supportsPng'),
+        supportsSvg: pickBool('supportsSvg'),
+        supportsRegionRender: pickBool('supportsRegionRender'),
+        maxWidth: pickUint('maxWidth'),
+        maxHeight: pickUint('maxHeight'),
+      } satisfies RenderCapabilities
+    },
+
+    listSchematicSheets: async (document, options) => {
+      const resolved = resolveConfig()
+      const baseUrl = schematicRenderUrlOf(resolved, 'sheets')
+
+      const params = new URLSearchParams()
+      if (document?.source) params.set('source', document.source)
+      if (document?.documentId) params.set('document_id', document.documentId)
+      const url = params.size > 0 ? `${baseUrl}?${params.toString()}` : baseUrl
+
+      const body = (await getJson(url, options, 'schematic sheets')) as Record<string, unknown>
+
+      if (!body || typeof body !== 'object') {
+        throw new NetlistError('INTERNAL', 'eda-host: malformed schematic sheets response from hq-edge')
+      }
+
+      const rawSheets = Array.isArray((body as Record<string, unknown>).sheets)
+        ? ((body as Record<string, unknown>).sheets as unknown[])
+        : []
+
+      const sheets = rawSheets
+        .filter((s): s is Record<string, unknown> => Boolean(s) && typeof s === 'object')
+        .map((s) => ({
+          instancePath: str(s.instancePath as unknown),
+          sheetName: str(s.sheetName as unknown),
+          sourcePath: str(s.sourcePath as unknown),
+          sheetUuid: str(s.sheetUuid as unknown),
+        }))
+
+      return {
+        documentId: str((body as Record<string, unknown>).documentId as unknown),
+        documentRevision: str((body as Record<string, unknown>).documentRevision as unknown),
+        sheets,
+      } satisfies ListSchematicSheetsResult
+    },
+
+    renderSchematic: async (params, options) => {
+      const resolved = resolveConfig()
+      const url = schematicRenderUrlOf(resolved, 'render')
+
+      // Proto3 JSON omits defaults — we only send fields that have a real value.
+      const requestBody: Record<string, unknown> = {}
+      if (params.document) requestBody.document = params.document
+      if (params.sheetInstancePaths && params.sheetInstancePaths.length > 0) {
+        requestBody.sheetInstancePaths = params.sheetInstancePaths
+      }
+      // The host decodes this as an int32 enum; never send the enum name.
+      // requestBody.format = schematicImageFormatValue(params.format)
+      // if (typeof params.maxWidth === 'number') requestBody.maxWidth = params.maxWidth
+      // if (typeof params.maxHeight === 'number') requestBody.maxHeight = params.maxHeight
+      // if (typeof params.scale === 'number') requestBody.scale = params.scale
+      // if (typeof params.transparentBackground === 'boolean') {
+      //   requestBody.transparentBackground = params.transparentBackground
+      // }
+      // if (params.expectedRevision) requestBody.expectedRevision = params.expectedRevision
+      if (typeof params.activeDocument === 'boolean') {
+        requestBody.activeDocument = params.activeDocument
+      }
+
+      const body = (await postJson(url, requestBody, options, 'schematic render')) as Record<string, unknown>
+
+      if (!body || typeof body !== 'object') {
+        throw new NetlistError('INTERNAL', 'eda-host: malformed schematic render response from hq-edge')
+      }
+
+      const rawImages = Array.isArray((body as Record<string, unknown>).images)
+        ? ((body as Record<string, unknown>).images as unknown[])
+        : []
+
+      const images = rawImages
+        .filter((img): img is Record<string, unknown> => Boolean(img) && typeof img === 'object')
+        .map((img) => ({
+          sheetInstancePath: str(img.sheetInstancePath as unknown),
+          format: (typeof img.format === 'string'
+            ? img.format
+            : 'SCHEMATIC_IMAGE_FORMAT_UNSPECIFIED') as RenderSchematicResult['images'][number]['format'],
+          width: typeof img.width === 'number' ? img.width : 0,
+          height: typeof img.height === 'number' ? img.height : 0,
+          // proto3 JSON: bytes image_data → base64 string
+          imageData: str(img.imageData as unknown),
+          contentHash:
+            typeof img.contentHash === 'string' ? img.contentHash : undefined,
+        }))
+
+      return {
+        documentId: str((body as Record<string, unknown>).documentId as unknown),
+        documentRevision: str((body as Record<string, unknown>).documentRevision as unknown),
+        images,
+      } satisfies RenderSchematicResult
     },
   }
 }

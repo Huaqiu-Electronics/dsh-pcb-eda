@@ -367,6 +367,15 @@ describe('createNetListTools', () => {
     syncSchematicToPcb: async () => {
       throw new Error('not used')
     },
+    getRenderCapabilities: async () => {
+      throw new Error('not used')
+    },
+    listSchematicSheets: async () => {
+      throw new Error('not used')
+    },
+    renderSchematic: async () => {
+      throw new Error('not used')
+    },
   }
 }
 
@@ -447,16 +456,28 @@ describe('createEdaHostTools', () => {
       syncSchematicToPcb: async () => {
         throw new Error('not used')
       },
+      getRenderCapabilities: async () => {
+        throw new Error('not used')
+      },
+      listSchematicSheets: async () => {
+        throw new Error('not used')
+      },
+      renderSchematic: async () => {
+        throw new Error('not used')
+      },
     }
   }
 
-  it('registers exactly the five host discovery/query/sync tools', () => {
+  it('registers exactly the eight host discovery/query/render/sync tools', () => {
     const tools = createEdaHostTools({ client: hostEnvOf({}) })
     expect(tools.map((t) => t.name).sort()).toEqual([
       'get_eda_host_capabilities',
       'get_eda_host_info',
       'get_pcb_board',
       'get_pcb_selection',
+      'get_schematic_png_screenshot',
+      'get_schematic_render_capabilities',
+      'list_schematic_sheets',
       'sync_schematic_to_pcb',
     ])
   })
