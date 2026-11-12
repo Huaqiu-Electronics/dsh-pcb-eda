@@ -430,7 +430,8 @@ export function createNetListTools(env: NetlistToolEnv) {
           `where each image carries base64-encoded PNG data in imageData, plus ` +
           `width/height in pixels and sheetInstancePath. ` +
           `DEFAULT BEHAVIOUR: active_document=true renders only the currently ` +
-          `active view as PNG. Set active_document=false to render all sheets. ` +
+          `active view as PNG. Set active_document=false to render all sheets, ` +
+          `optionally narrowed by sheet_instance_paths. ` +
           `Call get_schematic_render_capabilities first to confirm supportsPng=true; ` +
           `a host that does not support PNG will return ok:false with kind UNIMPLEMENTED. ` +
           ERROR_SEMANTICS,
@@ -440,18 +441,28 @@ export function createNetListTools(env: NetlistToolEnv) {
             description:
               'When true (default): render only the currently-active view. When false: render all sheets.',
           },
+          sheet_instance_paths: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Sheet instance paths to render. Empty (default) = all sheets when active_document=false; ignored when active_document=true. Use list_schematic_sheets to discover valid paths.',
+            default: [],
+          },
         },
         output: { schema: { type: 'json' }, render: renderJson },
         async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
           try {
-            const a = args as { active_document?: boolean }
+            const a = args as {
+              active_document?: boolean
+              sheet_instance_paths?: string[]
+            }
             const options: EdaHostRequestOptions = exec?.signal
               ? { signal: exec.signal }
               : {}
             const render = await env.client.renderSchematic(
               {
                 activeDocument: a.active_document ?? true,
-                format: 1,
+                sheetInstancePaths: a.sheet_instance_paths ?? [],
               },
               options,
             )
