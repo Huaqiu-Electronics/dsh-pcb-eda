@@ -144,6 +144,15 @@ describe('createEdaHostTools — sync_schematic_to_pcb', () => {
         void options
         await syncImpl()
       }) as EdaHostClient['syncSchematicToPcb'],
+      getRenderCapabilities: async () => {
+        throw new Error('not used')
+      },
+      listSchematicSheets: async () => {
+        throw new Error('not used')
+      },
+      renderSchematic: async () => {
+        throw new Error('not used')
+      },
     }
   }
 
@@ -226,6 +235,15 @@ describe('createEdaHostTools — sync_schematic_to_pcb', () => {
       syncSchematicToPcb: (async (options?: EdaHostRequestOptions) => {
         observed = options?.signal
       }) as EdaHostClient['syncSchematicToPcb'],
+      getRenderCapabilities: async () => {
+        throw new Error('not used')
+      },
+      listSchematicSheets: async () => {
+        throw new Error('not used')
+      },
+      renderSchematic: async () => {
+        throw new Error('not used')
+      },
     }
     const tools = createEdaHostTools({ client })
     const tool = tools.find((t) => t.name === 'sync_schematic_to_pcb')!

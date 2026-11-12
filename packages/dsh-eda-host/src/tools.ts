@@ -28,7 +28,7 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { EdaHostClient, EdaHostRequestOptions } from './client.js'
-import { NetlistError, type EdaHostCapability, type EdaHostInfo, type PcbSnapshot, type SchematicNetlist } from './types.js'
+import { NetlistError, type EdaHostCapability, type EdaHostInfo, type ListSchematicSheetsResult, type PcbSnapshot, type RenderCapabilities, type RenderSchematicResult, type SchematicNetlist, type SchematicSource } from './types.js'
 
 /** Structural alias of the DSH `JsonValue`. */
 type Json = string | number | boolean | null | Json[] | { [key: string]: Json }
@@ -76,6 +76,18 @@ type PcbBoardResult =
 
 type SyncSchematicToPcbResult =
   | { ok: true }
+  | { ok: false; error: { kind: string; message: string } }
+
+type RenderCapabilitiesResult =
+  | { ok: true; capabilities: RenderCapabilities }
+  | { ok: false; error: { kind: string; message: string } }
+
+type ListSchematicSheetsResultEnvelope =
+  | { ok: true; sheets: ListSchematicSheetsResult }
+  | { ok: false; error: { kind: string; message: string } }
+
+type SchematicRenderResultEnvelope =
+  | { ok: true; render: RenderSchematicResult }
   | { ok: false; error: { kind: string; message: string } }
 
 /**
@@ -325,6 +337,130 @@ export function createNetListTools(env: NetlistToolEnv) {
             return asJson<SyncSchematicToPcbResult>({ ok: true })
           } catch (err) {
             return asJson<SyncSchematicToPcbResult>({ ok: false, error: failureOf(err) })
+          }
+        },
+      }),
+
+      // ── Schematic Render (PNG export) ────────────────────────────────────
+
+      defineTool({
+        name: 'get_schematic_render_capabilities',
+        description:
+          `Query the connected EDA host's schematic render capabilities through ` +
+          `hq-edge (DSH → dsh-eda-host → hq-edge → EDA host). ` +
+          `Uses the hq.services.v1.SchematicRenderService.GetRenderCapabilities ` +
+          `RPC. ` +
+          `Returns { ok, capabilities } where capabilities reports supportsPng, ` +
+          `supportsHierarchy, supportsSheetInstance, supportsRegionRender, ` +
+          `maxWidth, maxHeight and related flags. Only PNG is currently supported; ` +
+          `other format flags (SVG etc.) are reserved for future use. ` +
+          `Call this FIRST before using get_schematic_png_screenshot — a host ` +
+          `that does not advertise supportsPng=true will fail the render call. ` +
+          ERROR_SEMANTICS,
+        parameters: {},
+        output: { schema: { type: 'json' }, render: renderJson },
+        async execute(_args: unknown, exec: ToolExecLike): Promise<Json> {
+          try {
+            const options: EdaHostRequestOptions = exec?.signal
+              ? { signal: exec.signal }
+              : {}
+            const capabilities = await env.client.getRenderCapabilities(options)
+            return asJson<RenderCapabilitiesResult>({ ok: true, capabilities })
+          } catch (err) {
+            return asJson<RenderCapabilitiesResult>({ ok: false, error: failureOf(err) })
+          }
+        },
+      }),
+
+      defineTool({
+        name: 'list_schematic_sheets',
+        description:
+          `List the schematic sheets available for PNG rendering on the current ` +
+          `project, through hq-edge (DSH → dsh-eda-host → hq-edge → EDA host). ` +
+          `Uses the hq.services.v1.SchematicRenderService.ListSchematicSheets ` +
+          `RPC. Returns { ok, sheets: { documentId, documentRevision, sheets[] } } ` +
+          `where each sheet has instancePath, sheetName, sourcePath and sheetUuid. ` +
+          `Call this before get_schematic_png_screenshot when you need to render ` +
+          `a specific sheet rather than the currently-active one. ` +
+          ERROR_SEMANTICS,
+        parameters: {
+          source: {
+            type: 'string',
+            description:
+              'Schematic source selector. "SCHEMATIC_SOURCE_ACTIVE_DOCUMENT" (default) uses the currently-open schematic; "SCHEMATIC_SOURCE_DOCUMENT_ID" requires document_id.',
+          },
+          document_id: {
+            type: 'string',
+            description: 'Required when source is SCHEMATIC_SOURCE_DOCUMENT_ID.',
+          },
+        },
+        output: { schema: { type: 'json' }, render: renderJson },
+        async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
+          try {
+            const a = args as { source?: SchematicSource; document_id?: string }
+            const options: EdaHostRequestOptions = exec?.signal
+              ? { signal: exec.signal }
+              : {}
+            const document =
+              a.source && a.source !== 'SCHEMATIC_SOURCE_UNSPECIFIED'
+                ? {
+                    source: a.source,
+                    documentId: a.document_id,
+                  }
+                : undefined
+            const sheets = await env.client.listSchematicSheets(document, options)
+            return asJson<ListSchematicSheetsResultEnvelope>({ ok: true, sheets })
+          } catch (err) {
+            return asJson<ListSchematicSheetsResultEnvelope>({
+              ok: false,
+              error: failureOf(err),
+            })
+          }
+        },
+      }),
+
+      defineTool({
+        name: 'get_schematic_png_screenshot',
+        description:
+          `Render schematic sheets to PNG images through hq-edge ` +
+          `(DSH → dsh-eda-host → hq-edge → EDA host). This invokes the host's ` +
+          `NATIVE schematic render path — NOT reimplemented in TypeScript. ` +
+          `Uses the hq.services.v1.SchematicRenderService.RenderSchematic RPC. ` +
+          `Returns { ok, render: { documentId, documentRevision, images[] } } ` +
+          `where each image carries base64-encoded PNG data in imageData, plus ` +
+          `width/height in pixels and sheetInstancePath. ` +
+          `DEFAULT BEHAVIOUR: active_document=true renders only the currently ` +
+          `active view as PNG. Set active_document=false to render all sheets. ` +
+          `Call get_schematic_render_capabilities first to confirm supportsPng=true; ` +
+          `a host that does not support PNG will return ok:false with kind UNIMPLEMENTED. ` +
+          ERROR_SEMANTICS,
+        parameters: {
+          active_document: {
+            type: 'boolean',
+            description:
+              'When true (default): render only the currently-active view. When false: render all sheets.',
+          },
+        },
+        output: { schema: { type: 'json' }, render: renderJson },
+        async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
+          try {
+            const a = args as { active_document?: boolean }
+            const options: EdaHostRequestOptions = exec?.signal
+              ? { signal: exec.signal }
+              : {}
+            const render = await env.client.renderSchematic(
+              {
+                activeDocument: a.active_document ?? true,
+                format: 1,
+              },
+              options,
+            )
+            return asJson<SchematicRenderResultEnvelope>({ ok: true, render })
+          } catch (err) {
+            return asJson<SchematicRenderResultEnvelope>({
+              ok: false,
+              error: failureOf(err),
+            })
           }
         },
       }),
