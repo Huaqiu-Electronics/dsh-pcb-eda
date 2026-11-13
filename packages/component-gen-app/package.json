@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/component-gen-app",
-  "version": "0.6.26",
+  "version": "0.6.27",
   "type": "module",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
