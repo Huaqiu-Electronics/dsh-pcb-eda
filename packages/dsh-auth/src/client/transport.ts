@@ -4,17 +4,23 @@
  * browser→host channel — `apiProxy`'s dispatch table is closed, so a
  * plugin-owned `webServer` route is the smallest supported extension point.
  */
-import type { AiTokenUsage, AuthTokenPayload } from './lib.js'
+import type { AiUsage, AuthTokenPayload } from './lib.js'
 
 export interface AuthTransport {
   pushSession(info: AuthTokenPayload): Promise<void>
   pushLogout(): Promise<void>
   /**
-   * Whether the plugin runs under an HQ Edge host. In host mode hq-edge already
-   * holds the operator credential (EDA hands it over on launch), so the
-   * browser half's own login UI (sidebar entrypoint) is suppressed.
+   * Runtime config resolved by the node half (`/config`):
+   * - `hostMode`: whether the plugin runs under an HQ Edge host (in host mode
+   *   the browser half's own login UI is suppressed);
+   * - `subscriptionOrigin`: the SAME `HQ_AI_ENV`-resolved origin used for the
+   *   subscription dialog (null → standalone PROD fallback);
+   * - `subscriptionApiBaseUrl`: origin of the resolved balances API, used for
+   *   the GEN/ERC active-subscription calls (null → quota unavailable);
+   * - `profileUrl`: full「Go to profile」URL from the same resolution (null →
+   *   standalone keeps lib.ts's PROD default).
    */
-  fetchHostMode(): Promise<boolean>
+  fetchRuntimeConfig(): Promise<AuthRuntimeConfig>
   /**
    * Fetch the node half's authoritative session. The node resolves host-mode
    * credentials first (host session → pushed browser session → persisted
@@ -38,14 +44,14 @@ export interface AuthTransport {
    */
   fetchUserInfo(): Promise<EdaUserProfile | null>
   /**
-   * Fetch the account's AI token usage from the NODE half (`/ai-usage`), which
-   * performs the upstream `GET http://www.fdatasheets.com/user-rest/api/ai/usage`
-   * with the `X-Token` header. This half must NOT call that endpoint itself: it
-   * is plain `http`, which the WebView refuses on two independent grounds — App
-   * Transport Security and CORS — and the failures are what the browser console
-   * reports as a blocked resource. Null on failure (the sidebar shows「—」).
+   * Fetch the account's AI usage from the NODE half (`/ai-usage`), which
+   * performs the upstream subscription-balances call (endpoint resolved by HQ
+   * Edge from `HQ_AI_ENV`) with the `X-Token` header. This half must NOT call
+   * that endpoint itself: the TEST endpoint is plain `http`, which the WebView
+   * refuses on two independent grounds — App Transport Security and CORS.
+   * Null on failure (the sidebar shows「—」).
    */
-  fetchAiUsage(): Promise<AiTokenUsage | null>
+  fetchAiUsage(): Promise<AiUsage | null>
 }
 
 /** Minimal session user shape returned by the node `/session` route. */
@@ -54,6 +60,40 @@ export interface HostSessionUser {
   token?: string
   nickname?: string
   expiresAt?: number
+}
+
+/** Runtime config served by the node `/config` route. */
+export interface AuthRuntimeConfig {
+  hostMode: boolean
+  /** Absolute http(s) origin; null = standalone (client keeps its default). */
+  subscriptionOrigin: string | null
+  /** Origin for GEN/ERC quota calls; null = no environment configured. */
+  subscriptionApiBaseUrl: string | null
+  /** Full profile URL (path kept); null = standalone PROD fallback. */
+  profileUrl: string | null
+}
+
+/** Accept only an absolute http(s) URL; anything else → null. A path is kept. */
+function normalizeHttpUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim().replace(/\/+$/, '')
+  if (!trimmed) return null
+  try {
+    const url = new URL(trimmed)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+    return trimmed
+  } catch {
+    return null
+  }
+}
+
+/** Accept only a finite `quotaRemainPercent`; anything else → unavailable. */
+function normalizeUsage(value: unknown): AiUsage | null {
+  if (value === null || typeof value !== 'object') return null
+  const percent = (value as { quotaRemainPercent?: unknown }).quotaRemainPercent
+  return typeof percent === 'number' && Number.isFinite(percent)
+    ? { quotaRemainPercent: percent }
+    : null
 }
 
 /** Rich eda.cn profile served by the node `/user-info` route. */
@@ -86,20 +126,42 @@ export function createWebServerAuthTransport(
       const res = await doFetch(`${base}/logout`, { method: 'POST' })
       if (!res.ok) throw new Error(`auth logout push failed: HTTP ${res.status}`)
     },
-    async fetchHostMode() {
+    async fetchRuntimeConfig() {
       try {
         const res = await doFetch(`${base}/config`, {
           method: 'GET',
           headers: { accept: 'application/json' },
         })
-        if (!res.ok) return false
-        const body = await res.json() as { hostMode?: unknown }
-        return body.hostMode === true
+        if (!res.ok) {
+          return {
+            hostMode: false,
+            subscriptionOrigin: null,
+            subscriptionApiBaseUrl: null,
+            profileUrl: null,
+          }
+        }
+        const body = await res.json() as {
+          hostMode?: unknown
+          subscriptionOrigin?: unknown
+          subscriptionApiBaseUrl?: unknown
+          profileUrl?: unknown
+        }
+        return {
+          hostMode: body.hostMode === true,
+          subscriptionOrigin: normalizeHttpUrl(body.subscriptionOrigin),
+          subscriptionApiBaseUrl: normalizeHttpUrl(body.subscriptionApiBaseUrl),
+          profileUrl: normalizeHttpUrl(body.profileUrl),
+        }
       } catch {
         // Offline/same-origin failure: fall back to standalone (show the login
         // entrypoint) rather than hiding it — a login UI is never a security
         // regression, but a missing one in standalone would lock the user out.
-        return false
+        return {
+          hostMode: false,
+          subscriptionOrigin: null,
+          subscriptionApiBaseUrl: null,
+          profileUrl: null,
+        }
       }
     },
     async fetchSession() {
@@ -139,8 +201,8 @@ export function createWebServerAuthTransport(
           headers: { accept: 'application/json' },
         })
         if (!res.ok) return null
-        const body = await res.json() as { usage?: AiTokenUsage | null }
-        return body.usage ?? null
+        const body = await res.json() as { usage?: unknown }
+        return normalizeUsage(body.usage)
       } catch {
         return null
       }

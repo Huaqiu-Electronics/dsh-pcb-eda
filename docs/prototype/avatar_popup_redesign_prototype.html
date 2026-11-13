@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Avatar Popup Menu Redesign Prototype</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Google Fonts: Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            eda: {
+              brand: '#E62E44',
+              'brand-hover': '#D02338',
+              'brand-dark': '#FF4D4F',
+              'brand-dark-hover': '#FF6B6D',
+              surface: '#181A1F',
+              card: '#22252C',
+              border: 'rgba(255, 255, 255, 0.08)',
+            }
+          },
+          boxShadow: {
+            'popover-dark': '0 16px 36px -4px rgba(0, 0, 0, 0.6), 0 0 1px 1px rgba(255, 255, 255, 0.08)',
+            'popover-light': '0 16px 36px -4px rgba(15, 23, 42, 0.12), 0 4px 12px -2px rgba(15, 23, 42, 0.08)',
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(156, 163, 175, 0.3);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(156, 163, 175, 0.5);
+    }
+    
+    /* Animation Keyframes */
+    @keyframes popoverIn {
+      from {
+        opacity: 0;
+        transform: scale(0.95) translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+    .animate-popover {
+      animation: popoverIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+
+    /* Grid pattern background */
+    .bg-grid-pattern {
+      background-size: 24px 24px;
+      background-image: 
+        radial-gradient(circle, rgba(156, 163, 175, 0.15) 1px, transparent 1px);
+    }
+    .dark .bg-grid-pattern {
+      background-image: 
+        radial-gradient(circle, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+    }
+  </style>
+</head>
+
+<body class="bg-slate-100 dark:bg-[#0F1115] text-slate-900 dark:text-slate-100 font-sans antialiased min-h-screen transition-colors duration-300 overflow-x-hidden">
+
+  <!-- TOP HEADER / CONTROL BAR -->
+  <header class="sticky top-0 z-40 w-full border-b border-slate-200 dark:border-white/10 bg-white/80 dark:bg-[#14161C]/80 backdrop-blur-md px-4 py-3 flex flex-wrap items-center justify-between gap-4">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-eda-brand flex items-center justify-center text-white font-bold text-lg shadow-md">
+        H
+      </div>
+      <div>
+        <h1 class="text-base font-bold leading-tight">EDA Platform — User Avatar Menu Redesign</h1>
+        <p class="text-xs text-slate-500 dark:text-slate-400">UI/UX Contrast & Visual Hierarchy Polish Solution</p>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex items-center gap-3 flex-wrap">
+      <!-- View Mode Switcher -->
+      <div class="bg-slate-200/80 dark:bg-slate-800/80 p-1 rounded-xl flex items-center gap-1 text-xs font-semibold">
+        <button id="btn-view-interactive" onclick="setViewMode('interactive')" class="px-3 py-1.5 rounded-lg transition-all bg-white dark:bg-slate-700 shadow-sm text-slate-900 dark:text-white">
+          <i class="fa-solid fa-desktop mr-1.5"></i>Live Interactive App
+        </button>
+        <button id="btn-view-comparison" onclick="setViewMode('comparison')" class="px-3 py-1.5 rounded-lg transition-all text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">
+          <i class="fa-solid fa-columns mr-1.5"></i>Before vs After
+        </button>
+      </div>
+
+      <!-- Global Theme Toggle -->
+      <button onclick="toggleTheme()" class="px-3 py-1.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-2 transition-all">
+        <i id="theme-toggle-icon" class="fa-solid fa-moon text-amber-500 dark:text-amber-400"></i>
+        <span id="theme-toggle-text">Dark Mode</span>
+      </button>
+
+      <!-- Contrast Check Badge -->
+      <div class="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold">
+        <i class="fa-solid fa-circle-check"></i>
+        <span>WCAG AA Passed (14.5:1)</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTAINER -->
+  <main class="w-full min-h-[calc(100vh-65px)] relative">
+    
+    <!-- MODE 1: LIVE INTERACTIVE EDA PLATFORM SIMULATION -->
+    <div id="view-interactive" class="w-full h-[calc(100vh-65px)] flex relative overflow-hidden">
+
+      <!-- Left Sidebar (Simulated App Navigation) -->
+      <aside class="w-16 sm:w-16 border-r border-slate-200 dark:border-white/10 bg-white dark:bg-[#14161C] flex flex-col items-center justify-between py-4 z-20 flex-shrink-0">
+        <!-- Top Icons -->
+        <div class="flex flex-col items-center gap-5 w-full">
+          <div class="w-9 h-9 rounded-xl bg-eda-brand flex items-center justify-center text-white font-black text-xl shadow-md cursor-pointer hover:scale-105 transition-transform">
+            H
+          </div>
+          <div class="w-full flex flex-col items-center gap-3 text-slate-400 dark:text-slate-500">
+            <button class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 flex items-center justify-center transition-colors">
+              <i class="fa-regular fa-clock text-lg"></i>
+            </button>
+            <button class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 flex items-center justify-center transition-colors">
+              <i class="fa-solid fa-microchip text-lg"></i>
+            </button>
+            <button class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 flex items-center justify-center transition-colors">
+              <i class="fa-solid fa-plug text-lg"></i>
+            </button>
+            <button class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 flex items-center justify-center transition-colors">
+              <i class="fa-solid fa-diagram-project text-lg"></i>
+            </button>
+            <button class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 flex items-center justify-center transition-colors relative">
+              <i class="fa-solid fa-sparkles text-lg text-amber-500"></i>
+              <span class="absolute top-1.5 right-1.5 w-4 h-4 bg-eda-brand text-white text-[10px] font-bold rounded-full flex items-center justify-center">1</span>
+            </button>
+            <button class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 flex items-center justify-center transition-colors">
+              <i class="fa-regular fa-folder-open text-lg"></i>
+            </button>
+            <button class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 flex items-center justify-center transition-colors">
+              <i class="fa-solid fa-magnifying-glass text-lg"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Bottom Avatars & Settings -->
+        <div class="flex flex-col items-center gap-3 w-full relative">
+          <!-- Avatar Trigger Button (Target Element) -->
+          <button id="avatar-trigger-btn" onclick="toggleAvatarMenu(event)" class="relative group p-0.5 rounded-full ring-2 ring-transparent hover:ring-eda-brand focus:ring-eda-brand transition-all cursor-pointer">
+            <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="User Avatar" class="w-9 h-9 rounded-full object-cover shadow-sm">
+            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white dark:border-[#14161C] rounded-full"></span>
+          </button>
+
+          <!-- Settings Icon -->
+          <button class="w-10 h-10 rounded-xl hover:bg-slate-100 dark:hover:bg-white/5 text-slate-400 dark:text-slate-500 flex items-center justify-center transition-colors">
+            <i class="fa-solid fa-gear text-lg"></i>
+          </button>
+        </div>
+      </aside>
+
+      <!-- Interactive Canvas Area -->
+      <section class="flex-1 bg-slate-50 dark:bg-[#0F1115] bg-grid-pattern relative flex flex-col items-center justify-center p-6 overflow-y-auto">
+
+        <!-- Top Platform Header -->
+        <div class="absolute top-8 text-center flex flex-col items-center gap-3 max-w-lg">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-eda-brand flex items-center justify-center text-white font-black text-2xl shadow-lg">
+              H
+            </div>
+            <h2 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+              Electronic Design Agent Platform
+            </h2>
+          </div>
+          <div class="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <span class="px-2.5 py-1 rounded-md bg-slate-200/70 dark:bg-white/5 border border-slate-300/50 dark:border-white/10 flex items-center gap-1.5">
+              <i class="fa-regular fa-folder text-slate-400"></i> complex_hierarchy <i class="fa-solid fa-chevron-down text-[10px] ml-1"></i>
+            </span>
+            <span class="px-2.5 py-1 rounded-md bg-slate-200/70 dark:bg-white/5 border border-slate-300/50 dark:border-white/10 flex items-center gap-1.5">
+              <i class="fa-solid fa-atom text-slate-400"></i> Standard mode <i class="fa-solid fa-chevron-down text-[10px] ml-1"></i>
+            </span>
+          </div>
+        </div>
+
+        <!-- Simulated Central Console Input Box -->
+        <div class="w-full max-w-2xl bg-white dark:bg-[#1A1C23] border border-slate-200 dark:border-white/10 rounded-2xl shadow-xl p-4 mt-16 flex flex-col gap-4">
+          <div class="text-sm text-slate-400 dark:text-slate-500 flex items-center justify-between">
+            <span>Send command, / commands, @ files or sessions</span>
+            <span class="text-xs bg-slate-100 dark:bg-white/5 px-2 py-0.5 rounded border border-slate-200 dark:border-white/10 font-mono">⌘K</span>
+          </div>
+          <div class="flex items-center justify-between pt-6 border-t border-slate-100 dark:border-white/5">
+            <button class="text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200 flex items-center gap-1.5">
+              auto-model <i class="fa-solid fa-chevron-down text-[10px]"></i>
+            </button>
+            <button class="w-8 h-8 rounded-full bg-eda-brand text-white flex items-center justify-center hover:bg-eda-brand-hover shadow-md transition-all">
+              <i class="fa-solid fa-arrow-up"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Hint Toast -->
+        <div class="mt-8 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-xs font-medium flex items-center gap-2 animate-bounce">
+          <i class="fa-solid fa-hand-pointer"></i>
+          <span>Click on the bottom-left avatar icon in the sidebar to open the popover menu!</span>
+        </div>
+
+        <!-- RE-DESIGNED POPUP MENU (DYNAMIC FLOATING POSITION) -->
+        <div id="redesigned-popover" class="hidden absolute bottom-16 left-20 z-50 w-72 bg-white dark:bg-[#1C1E24] text-slate-900 dark:text-slate-100 border border-slate-200 dark:border-white/10 rounded-2xl shadow-popover-light dark:shadow-popover-dark p-3.5 backdrop-blur-xl animate-popover">
+          
+          <!-- Popover Pointer/Arrow -->
+          <div class="absolute bottom-4 -left-2 w-4 h-4 bg-white dark:bg-[#1C1E24] border-l border-b border-slate-200 dark:border-white/10 transform rotate-45"></div>
+
+          <!-- Section 1: User Header -->
+          <div class="relative z-10 flex items-center justify-between pb-3">
+            <div class="flex items-center gap-2.5">
+              <span class="font-bold text-sm tracking-tight text-slate-900 dark:text-white">老铁</span>
+              <span class="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-red-500/10 text-red-600 dark:bg-red-500/20 dark:text-red-400 border border-red-500/20">
+                内部套餐
+              </span>
+            </div>
+            <!-- Accessible High-Contrast Status Pill -->
+            <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Online</span>
+            </div>
+          </div>
+
+          <div class="h-px w-full bg-slate-100 dark:bg-white/10 my-1"></div>
+
+          <!-- Section 2: Usage & Quota (Clean Card Layout) -->
+          <div class="py-2.5 space-y-3">
+            <div class="flex items-center justify-between text-[11px] font-bold tracking-wider text-slate-400 dark:text-slate-400 uppercase">
+              <span>Plan & Usage Quota</span>
+              <i class="fa-solid fa-chart-pie text-slate-400"></i>
+            </div>
+
+            <!-- Meter Card -->
+            <div class="p-3 rounded-xl bg-slate-100/80 dark:bg-[#252831] border border-slate-200/60 dark:border-white/5 space-y-2">
+              <div class="flex items-center justify-between text-xs font-semibold">
+                <span class="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                  <i class="fa-solid fa-wand-magic-sparkles text-cyan-500 dark:text-cyan-400"></i>
+                  AI usage
+                </span>
+                <span class="font-mono text-xs text-slate-900 dark:text-white font-bold">66%</span>
+              </div>
+              
+              <!-- Progress Bar Track -->
+              <div class="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden p-0.5">
+                <div class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 transition-all duration-500" style="width: 66%;"></div>
+              </div>
+            </div>
+
+            <!-- Vibrant High-Contrast CTA Button -->
+            <button onclick="simulateAction('Upgrade Plan Triggered')" class="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-eda-brand to-red-600 dark:from-eda-dark dark:to-red-500 text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-md hover:shadow-lg hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer">
+              <i class="fa-solid fa-crown text-amber-300"></i>
+              <span>Subscribe / Upgrade plan</span>
+            </button>
+          </div>
+
+          <div class="h-px w-full bg-slate-100 dark:bg-white/10 my-1"></div>
+
+          <!-- Section 3: Navigation Menu Items -->
+          <div class="pt-1 space-y-0.5 text-xs font-medium">
+            <a href="javascript:void(0)" onclick="simulateAction('Navigated to Profile')" class="flex items-center justify-between p-2 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors group">
+              <div class="flex items-center gap-2.5">
+                <i class="fa-regular fa-user text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-colors"></i>
+                <span>Go to profile</span>
+              </div>
+              <i class="fa-solid fa-chevron-right text-[10px] text-slate-400 group-hover:translate-x-0.5 transition-transform"></i>
+            </a>
+
+            <a href="javascript:void(0)" onclick="simulateAction('User Logged Out')" class="flex items-center gap-2.5 p-2 rounded-xl text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition-colors">
+              <i class="fa-solid fa-arrow-right-from-bracket"></i>
+              <span class="font-semibold">Log out</span>
+            </a>
+          </div>
+
+        </div>
+
+      </section>
+    </div>
+
+    <!-- MODE 2: SIDE-BY-SIDE BEFORE VS AFTER COMPARISON -->
+    <div id="view-comparison" class="hidden w-full p-6 md:p-10 max-w-7xl mx-auto space-y-8">
+      
+      <!-- Section Intro -->
+      <div class="text-center space-y-2">
+        <h2 class="text-2xl font-bold">Dark Theme UI & UX Redesign Breakdown</h2>
+        <p class="text-slate-500 dark:text-slate-400 text-sm max-w-2xl mx-auto">
+          Comparing the original layout's accessibility & contrast defects with the newly optimized dark theme color palette and refined visual hierarchy.
+        </p>
+      </div>
+
+      <!-- Side by Side Grid -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+        
+        <!-- BEFORE CARD -->
+        <div class="bg-white dark:bg-[#16181D] border border-red-200 dark:border-red-900/40 rounded-2xl p-6 shadow-xl space-y-4 relative">
+          <div class="flex items-center justify-between border-b border-slate-100 dark:border-white/10 pb-3">
+            <span class="px-3 py-1 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-bold flex items-center gap-1.5">
+              <i class="fa-solid fa-triangle-exclamation"></i> Original (Low Contrast Defects)
+            </span>
+            <span class="text-xs font-mono text-slate-400">WCAG Fail</span>
+          </div>
+
+          <!-- Mock Old Popup Container (Dark Mode Version from Image) -->
+          <div class="mx-auto w-72 bg-[#575B64] text-slate-200 border border-slate-500 rounded-2xl p-4 shadow-2xl font-sans">
+            <!-- Header -->
+            <div class="flex items-center justify-between pb-3">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm text-slate-100">老铁</span>
+                <!-- Low contrast red badge from screenshot -->
+                <span class="px-2 py-0.5 text-[10px] rounded bg-[#9B2C38] text-[#F87171] font-semibold">
+                  内部套餐
+                </span>
+              </div>
+              <!-- Low contrast green online tag from screenshot -->
+              <span class="px-2 py-0.5 text-[10px] rounded-full bg-[#2F4F4F] text-[#20B2AA] border border-[#20B2AA]/30">
+                • Online
+              </span>
+            </div>
+
+            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider py-2">
+              Plan & Usage Quota
+            </div>
+
+            <!-- Progress section -->
+            <div class="bg-[#484C55] p-2.5 rounded-xl space-y-2 mb-3">
+              <div class="flex justify-between text-xs text-slate-200">
+                <span><i class="fa-solid fa-sparkles text-cyan-400"></i> AI usage</span>
+                <span class="font-bold">66%</span>
+              </div>
+              <div class="w-full bg-slate-600 h-2 rounded-full overflow-hidden">
+                <div class="bg-cyan-400 h-full w-[66%]"></div>
+              </div>
+            </div>
+
+            <!-- Overly saturated CTA -->
+            <button class="w-full py-2 bg-gradient-to-r from-red-600 to-pink-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow mb-4">
+              <i class="fa-solid fa-crown text-amber-300"></i> Subscribe / Upgrade plan
+            </button>
+
+            <!-- Links -->
+            <div class="space-y-2 border-t border-slate-400/30 pt-3 text-xs text-slate-300">
+              <div class="flex items-center justify-between">
+                <span class="flex items-center gap-2"><i class="fa-regular fa-user"></i> Go to profile</span>
+                <i class="fa-solid fa-chevron-right text-[10px]"></i>
+              </div>
+              <div class="flex items-center gap-2 text-red-400 pt-1">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i> Log out
+              </div>
+            </div>
+          </div>
+
+          <!-- Issues List -->
+          <ul class="text-xs space-y-2 text-slate-600 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-white/5">
+            <li class="flex items-start gap-2">
+              <i class="fa-solid fa-xmark text-red-500 mt-0.5"></i>
+              <span><strong>Background Muddy:</strong> Medium-gray surface (`#575B64`) lacks depth and premium feel.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <i class="fa-solid fa-xmark text-red-500 mt-0.5"></i>
+              <span><strong>Tag Legibility:</strong> Dark red text on dark background creates severe contrast failure.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <i class="fa-solid fa-xmark text-red-500 mt-0.5"></i>
+              <span><strong>Status Badge:</strong> Muted teal text on dark olive fails WCAG readability standards.</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- AFTER CARD -->
+        <div class="bg-white dark:bg-[#16181D] border border-emerald-200 dark:border-emerald-900/40 rounded-2xl p-6 shadow-xl space-y-4 relative">
+          <div class="flex items-center justify-between border-b border-slate-100 dark:border-white/10 pb-3">
+            <span class="px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1.5">
+              <i class="fa-solid fa-circle-check"></i> Improved (Accessible & Modern)
+            </span>
+            <span class="text-xs font-mono text-emerald-500">Contrast 14.5:1</span>
+          </div>
+
+          <!-- Mock New Popup Container -->
+          <div class="mx-auto w-72 bg-[#1C1E24] text-slate-100 border border-white/10 rounded-2xl p-3.5 shadow-popover-dark font-sans">
+            <!-- Header -->
+            <div class="flex items-center justify-between pb-3">
+              <div class="flex items-center gap-2">
+                <span class="font-bold text-sm text-white">老铁</span>
+                <span class="px-2 py-0.5 text-[11px] font-semibold rounded-md bg-red-500/20 text-red-400 border border-red-500/20">
+                  内部套餐
+                </span>
+              </div>
+              <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span>Online</span>
+              </div>
+            </div>
+
+            <div class="h-px w-full bg-white/10 my-1"></div>
+
+            <div class="py-2 space-y-2.5">
+              <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                PLAN & USAGE QUOTA
+              </div>
+              <div class="p-3 rounded-xl bg-[#252831] border border-white/5 space-y-2">
+                <div class="flex justify-between text-xs font-medium">
+                  <span class="flex items-center gap-1.5 text-slate-200"><i class="fa-solid fa-wand-magic-sparkles text-cyan-400"></i> AI usage</span>
+                  <span class="font-mono font-bold">66%</span>
+                </div>
+                <div class="w-full h-2 rounded-full bg-slate-700 overflow-hidden">
+                  <div class="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500" style="width: 66%;"></div>
+                </div>
+              </div>
+
+              <button class="w-full py-2.5 rounded-xl bg-eda-dark text-white font-semibold text-xs flex items-center justify-center gap-2 shadow-md">
+                <i class="fa-solid fa-crown text-amber-300"></i> Subscribe / Upgrade plan
+              </button>
+            </div>
+
+            <div class="h-px w-full bg-white/10 my-1"></div>
+
+            <div class="pt-1 space-y-1 text-xs">
+              <div class="flex items-center justify-between p-2 rounded-xl text-slate-200 hover:bg-white/5">
+                <span class="flex items-center gap-2"><i class="fa-regular fa-user text-slate-400"></i> Go to profile</span>
+                <i class="fa-solid fa-chevron-right text-[10px] text-slate-400"></i>
+              </div>
+              <div class="flex items-center gap-2 p-2 text-red-400 font-semibold">
+                <i class="fa-solid fa-arrow-right-from-bracket"></i> Log out
+              </div>
+            </div>
+          </div>
+
+          <!-- Improvements List -->
+          <ul class="text-xs space-y-2 text-slate-600 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-white/5">
+            <li class="flex items-start gap-2">
+              <i class="fa-solid fa-check text-emerald-500 mt-0.5"></i>
+              <span><strong>Deep Slate Surface (`#1C1E24`):</strong> Crisp high-contrast surface separating content from background.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <i class="fa-solid fa-check text-emerald-500 mt-0.5"></i>
+              <span><strong>Alpha-Tinted Badges:</strong> Translucent red/green fills with bright text ensure high visibility in both light & dark mode.</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <i class="fa-solid fa-check text-emerald-500 mt-0.5"></i>
+              <span><strong>Harmonized Accent Gradients:</strong> Cyan-to-blue bar gradient creates a modern tech feel while avoiding color clash with primary red buttons.</span>
+            </li>
+          </ul>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- Notification Toast -->
+  <div id="toast" class="fixed bottom-5 right-5 z-50 transform translate-y-16 opacity-0 transition-all duration-300 pointer-events-none bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-2.5 rounded-xl shadow-2xl text-xs font-semibold flex items-center gap-2 border border-slate-700/50">
+    <i class="fa-solid fa-circle-info text-amber-400 dark:text-amber-500"></i>
+    <span id="toast-message">Notification</span>
+  </div>
+
+  <!-- SCRIPT DEFINITIONS -->
+  <script>
+    // Theme Toggle Logic
+    function toggleTheme() {
+      const htmlEl = document.documentElement;
+      const themeIcon = document.getElementById('theme-toggle-icon');
+      const themeText = document.getElementById('theme-toggle-text');
+
+      if (htmlEl.classList.contains('dark')) {
+        htmlEl.classList.remove('dark');
+        themeIcon.className = 'fa-solid fa-sun text-amber-500';
+        themeText.innerText = 'Light Mode';
+      } else {
+        htmlEl.classList.add('dark');
+        themeIcon.className = 'fa-solid fa-moon text-amber-400';
+        themeText.innerText = 'Dark Mode';
+      }
+    }
+
+    // View Mode Switcher Logic
+    function setViewMode(mode) {
+      const interactiveView = document.getElementById('view-interactive');
+      const comparisonView = document.getElementById('view-comparison');
+      const btnInteractive = document.getElementById('btn-view-interactive');
+      const btnComparison = document.getElementById('btn-view-comparison');
+
+      const activeClass = ['bg-white', 'dark:bg-slate-700', 'shadow-sm', 'text-slate-900', 'dark:text-white'];
+      const inactiveClass = ['text-slate-600', 'dark:text-slate-400', 'hover:text-slate-900', 'dark:hover:text-white'];
+
+      if (mode === 'interactive') {
+        interactiveView.classList.remove('hidden');
+        comparisonView.classList.add('hidden');
+
+        btnInteractive.classList.add(...activeClass);
+        btnInteractive.classList.remove(...inactiveClass);
+        btnComparison.classList.remove(...activeClass);
+        btnComparison.classList.add(...inactiveClass);
+      } else {
+        interactiveView.classList.add('hidden');
+        comparisonView.classList.remove('hidden');
+
+        btnComparison.classList.add(...activeClass);
+        btnComparison.classList.remove(...inactiveClass);
+        btnInteractive.classList.remove(...activeClass);
+        btnInteractive.classList.add(...inactiveClass);
+      }
+    }
+
+    // Avatar Menu Toggle Logic
+    function toggleAvatarMenu(event) {
+      if (event) event.stopPropagation();
+      const popover = document.getElementById('redesigned-popover');
+      popover.classList.toggle('hidden');
+    }
+
+    // Toast Notification Feedback Helper
+    function simulateAction(msg) {
+      const toast = document.getElementById('toast');
+      const toastMsg = document.getElementById('toast-message');
+
+      toastMsg.innerText = msg;
+      toast.classList.remove('translate-y-16', 'opacity-0', 'pointer-events-none');
+      toast.classList.add('translate-y-0', 'opacity-100');
+
+      setTimeout(() => {
+        toast.classList.add('translate-y-16', 'opacity-0', 'pointer-events-none');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 2500);
+    }
+
+    // Close Popover on Outside Click & Esc Key
+    document.addEventListener('click', (event) => {
+      const popover = document.getElementById('redesigned-popover');
+      const avatarBtn = document.getElementById('avatar-trigger-btn');
+      if (popover && !popover.classList.contains('hidden')) {
+        if (!popover.contains(event.target) && !avatarBtn.contains(event.target)) {
+          popover.classList.add('hidden');
+        }
+      }
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        const popover = document.getElementById('redesigned-popover');
+        if (popover) popover.classList.add('hidden');
+      }
+    });
+  </script>
+
+</body>
+</html>

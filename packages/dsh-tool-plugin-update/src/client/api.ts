@@ -149,6 +149,25 @@ export function runtimeLatestVersion(
 }
 
 /**
+ * Whether the report offers an HQ Edge runtime update the user can act on:
+ * hq-edge reports that a newer distribution exists AND it actually named one.
+ *
+ * Both halves matter, and sharing one predicate keeps the sidebar badge and the
+ * runtime card from disagreeing: the card can only render its 升级核心 row when
+ * it knows the target version, so an `updateAvailable` without a `latest` entry
+ * must not add a count anywhere. hq-edge already fails closed here (it only
+ * sets the flag when `semver.gt(latest, current)` holds on a comparable pair),
+ * so this is a shape guard, not a second compatibility decision.
+ */
+export function runtimeUpdateOffered(
+  runtime: RuntimeUpdateInfo | null | undefined,
+): boolean {
+  if (runtime === null || runtime === undefined) return false
+  if (runtime.updateAvailable !== true) return false
+  return runtimeLatestVersion(runtime) !== null
+}
+
+/**
  * Set-level release metadata from a schemaVersion-2 plugin manifest. ALL
  * fields optional: v1 manifests send none, and the panel must fall back to
  * showing just the version then.
@@ -265,6 +284,28 @@ export interface UpdateJob {
 export interface UpdateJobStatus {
   activeJob: UpdateJob | null
   recentJobs: UpdateJob[]
+}
+
+/**
+ * `GET /activity`: the re-attach snapshot.
+ *
+ * The panel can be updating its own package, which restarts the DSH process
+ * that serves this plugin — the page then has to rebuild its state from
+ * scratch. `bootId` changes when that process is recreated, `stalled` says the
+ * active job has stopped advancing (so the UI must stop animating a progress
+ * bar that will never move), and `setVersion` is what is actually installed.
+ */
+export interface UpdateActivity {
+  bootId: string
+  startedAt: string
+  now: string
+  activeJob: UpdateJob | null
+  /** The job named by `?job=`, settled or not; null when not asked/unknown. */
+  job: UpdateJob | null
+  phaseAgeMs: number
+  stalled: boolean
+  setVersion: string | null
+  actionableCount: number
 }
 
 const PHASE_VALUES: ReadonlySet<string> = new Set<string>([
@@ -420,11 +461,20 @@ export interface InstallResult {
 }
 
 /** POST the install transaction for the confirmed set version. */
-export function installSet(setVersion: string): Promise<InstallResult> {
+export function installSet(setVersion: string, pluginNames?: string[]): Promise<InstallResult> {
   return request<InstallResult>('/install', {
     method: 'POST',
-    body: JSON.stringify({ setVersion }),
+    body: JSON.stringify({ setVersion, ...(pluginNames ? { pluginNames } : {}) }),
   })
+}
+
+/** Persist a per-plugin decision for this release set. */
+export function ignorePlugin(setVersion: string, name: string): Promise<unknown> {
+  return request<unknown>('/plugin-ignore', { method: 'POST', body: JSON.stringify({ setVersion, name }) })
+}
+
+export function unignorePlugin(setVersion: string, name: string): Promise<unknown> {
+  return request<unknown>('/plugin-unignore', { method: 'POST', body: JSON.stringify({ setVersion, name }) })
 }
 
 /** POST ignore for the current offer (set-scoped, persists across restarts). */
@@ -537,4 +587,38 @@ export function fetchJob(id: string): Promise<UpdateJob> {
     if (job === null) throw new Error('malformed job payload')
     return job
   })
+}
+
+/**
+ * Normalize `GET /activity`. Unknown/missing fields degrade to a usable
+ * snapshot: a `bootId` empty string simply never triggers a re-attach, and an
+ * unparseable age reads as 0 rather than "stalled".
+ */
+export function normalizeActivity(raw: unknown): UpdateActivity {
+  const r = (raw !== null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '')
+  const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  return {
+    bootId: str(r.bootId),
+    startedAt: str(r.startedAt),
+    now: str(r.now),
+    activeJob: normalizeJob(r.activeJob),
+    job: normalizeJob(r.job),
+    phaseAgeMs: Math.max(0, num(r.phaseAgeMs)),
+    stalled: r.stalled === true,
+    setVersion: typeof r.setVersion === 'string' && r.setVersion.length > 0 ? r.setVersion : null,
+    actionableCount: num(r.actionableCount),
+  }
+}
+
+/**
+ * GET the re-attach snapshot, optionally naming the job being watched.
+ *
+ * Used instead of `/status` whenever the panel is following a job it started:
+ * it answers "what happened to MY job" across a DSH restart, and each read lets
+ * hq-edge settle a job that its own process could not finish.
+ */
+export function fetchActivity(jobId?: string): Promise<UpdateActivity> {
+  const query = jobId ? `?job=${encodeURIComponent(jobId)}` : ''
+  return request<unknown>(`/activity${query}`).then(normalizeActivity)
 }

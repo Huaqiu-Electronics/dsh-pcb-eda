@@ -51,6 +51,20 @@ export const REFRESH_ICON = (size = 16): string =>
     'M14.4999 1.5V5.1H10.8999',
   ])
 
+/**
+ * The toolbar's log toggle: a page with ruled lines — "the update log".
+ *
+ * Not a shell primitive (the shell has no equivalent glyph), so it is drawn to
+ * the same 16×16 / 1px-stroke contract as the rest of this module.
+ */
+export const LOG_ICON = (size = 16): string =>
+  glyph(size, REGULAR, [
+    'M9.5 1.5H4.5C3.94772 1.5 3.5 1.94772 3.5 2.5V13.5C3.5 14.0523 3.94772 14.5 4.5 14.5H11.5C12.0523 14.5 12.5 14.0523 12.5 13.5V4.5L9.5 1.5Z',
+    'M9.5 1.5V4.5H12.5',
+    'M6 8.25H10',
+    'M6 10.75H10',
+  ])
+
 /** The panel's close action (`IconCloseOutlineMedium`). */
 export const CLOSE_ICON = (size = 16): string =>
   glyph(size, MEDIUM, ['M2.5 2.5L13.5 13.5', 'M13.5 2.5L2.5 13.5'])
@@ -89,3 +103,34 @@ export const INFO_ICON = (size = 11): string =>
 /** A folded section's chevron (`IconChevronDownOutlineRegular`). */
 export const CHEVRON_DOWN_ICON = (size = 14): string =>
   glyph(size, REGULAR, ['M4 6L7.29289 9.29289C7.68342 9.68342 8.31658 9.68342 8.70711 9.29289L12 6'])
+
+/** A right-pointing chevron — a collapsed row, rotated by CSS when it opens. */
+export const CHEVRON_RIGHT_ICON = (size = 14): string =>
+  glyph(size, REGULAR, ['M6 4L9.29289 7.29289C9.68342 7.68342 9.68342 8.31658 9.29289 8.70711L6 12'])
+
+/**
+ * The per-card mute action: an eye with a slash (忽略此插件).
+ *
+ * Drawn here rather than borrowed: the shell's icon set has no
+ * "stop offering this" glyph, and a bare 忽略 text button competed with the
+ * card's primary action for the same 40 px.
+ */
+export const EYE_OFF_ICON = (size = 14): string =>
+  glyph(size, REGULAR, [
+    'M1.5 8C3 4.6 5.4 3 8 3C10.6 3 13 4.6 14.5 8C13 11.4 10.6 13 8 13C5.4 13 3 11.4 1.5 8Z',
+    'M10 8C10 9.10457 9.10457 10 8 10C6.89543 10 6 9.10457 6 8C6 6.89543 6.89543 6 8 6C9.10457 6 10 6.89543 10 8Z',
+    'M2.5 2.5L13.5 13.5',
+  ])
+
+/**
+ * Copy-to-clipboard (the log drawer's 复制日志 ID): two offset rounded frames.
+ */
+export const COPY_ICON = (size = 14): string =>
+  glyph(size, REGULAR, [
+    'M5.5 5.5V2.5C5.5 2.22386 5.72386 2 6 2H13C13.2761 2 13.5 2.22386 13.5 2.5V9.5C13.5 9.77614 13.2761 10 13 10H10',
+    'M2.5 6C2.5 5.72386 2.72386 5.5 3 5.5H10C10.2761 5.5 10.5 5.72386 10.5 6V13C10.5 13.2761 10.2761 13.5 10 13.5H3C2.72386 13.5 2.5 13.2761 2.5 13V6Z',
+  ])
+
+/** The runtime card's badge: a bolt (the HQ Edge core distribution). */
+export const BOLT_ICON = (size = 14): string =>
+  glyph(size, REGULAR, ['M9.33333 2L4.66667 8H8L6.66667 14L11.33333 8H8L9.33333 2Z'])

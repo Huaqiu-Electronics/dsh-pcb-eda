@@ -14,6 +14,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  normalizeActivity,
   normalizeJob,
   normalizeJobStatus,
   TERMINAL_PHASES,
@@ -120,6 +121,47 @@ describe('normalizeJob', () => {
     expect(normalizeJobStatus({}).activeJob).toBeNull()
   })
 
+  it('normalizeActivity keeps the process identity and the named job', () => {
+    const out = normalizeActivity({
+      bootId: 'boot_abc',
+      startedAt: '2026-10-29T08:00:00.000Z',
+      now: '2026-10-29T08:04:00.000Z',
+      activeJob: job({ phase: 'restarting', progress: { percent: 100 } }),
+      job: job({ phase: 'done' }),
+      phaseAgeMs: 120_000,
+      stalled: true,
+      setVersion: '0.6.14',
+      actionableCount: 2,
+    })
+    expect(out.bootId).toBe('boot_abc')
+    expect(out.activeJob?.phase).toBe('restarting')
+    expect(out.job?.phase).toBe('done')
+    expect(out.phaseAgeMs).toBe(120_000)
+    expect(out.stalled).toBe(true)
+    expect(out.setVersion).toBe('0.6.14')
+    expect(out.actionableCount).toBe(2)
+  })
+
+  it('normalizeActivity never invents a stall from a broken payload', () => {
+    // An older hq-edge has no /activity at all; a partial body must read as
+    // "nothing to report", not as "your job is stuck".
+    const out = normalizeActivity(null)
+    expect(out).toEqual({
+      bootId: '',
+      startedAt: '',
+      now: '',
+      activeJob: null,
+      job: null,
+      phaseAgeMs: 0,
+      stalled: false,
+      setVersion: null,
+      actionableCount: 0,
+    })
+    expect(normalizeActivity({ phaseAgeMs: -5, stalled: 'yes' }).phaseAgeMs).toBe(0)
+    expect(normalizeActivity({ stalled: 'yes' }).stalled).toBe(false)
+    expect(normalizeActivity({ setVersion: '' }).setVersion).toBeNull()
+  })
+
   it('exposes the terminal phase set', () => {
     expect(TERMINAL_PHASES.has('done')).toBe(true)
     expect(TERMINAL_PHASES.has('downloading')).toBe(false)
@@ -144,7 +186,7 @@ describe('active-job view', () => {
     expect(fill).not.toBeNull()
     expect(fill!.style.width).toBe('42%')
     // "Closing the panel does not cancel" is stated.
-    expect(view!.textContent).toContain(zh.job.closeNote)
+    expect(view!.textContent).toContain(zh.ui.activeCloseNote)
   })
 
   it('does not render a progress bar when the server gives no percentage', () => {
@@ -209,7 +251,7 @@ describe('check-status banner', () => {
     openUpdateView(storeFor(failed, null, []), zh)
     const view = document.querySelector<HTMLElement>('[data-hq-plugin-update-view]')
     expect(view!.textContent).toContain('manifest fetch timed out')
-    expect(view!.textContent).toContain(zh.retry)
+    expect(view!.textContent).toContain(zh.retryNow)
     // The silent success-empty state must NOT appear alongside a failure.
     expect(view!.textContent).not.toContain(zh.empty)
     expect(view!.querySelector('[data-group="check-status"]')).not.toBeNull()

@@ -29,6 +29,11 @@ export interface EdaHostConfig {
    */
   syncSchematicToPcbPathPrefix?: string
   /**
+   * Path prefix for schematic render (PNG/SVG export); default
+   * "/api/v1/schematic-render". Covers capabilities, sheet listing, and render.
+   */
+  schematicRenderPathPrefix?: string
+  /**
    * End-to-end budget for one EDA-host request, in milliseconds.
    *
    * This is the SINGLE request budget for the whole chain — the plugin does
@@ -48,6 +53,8 @@ export const DEFAULT_PCB_BOARD_PATH_PREFIX = '/api/v1/pcb-board'
 export const DEFAULT_HOST_PATH_PREFIX = '/api/v1/host'
 
 export const DEFAULT_SYNC_SCHEMATIC_TO_PCB_PATH_PREFIX = '/api/v1/sync-schematic-to-pcb'
+
+export const DEFAULT_SCHEMATIC_RENDER_PATH_PREFIX = '/api/v1/schematic-render'
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
 
@@ -81,6 +88,10 @@ export function resolveEdaHostConfig(
     config?.syncSchematicToPcbPathPrefix ??
     env.HQ_EDGE_SYNC_SCHEMATIC_TO_PCB_PATH ??
     DEFAULT_SYNC_SCHEMATIC_TO_PCB_PATH_PREFIX
+  const schematicRenderPrefix =
+    config?.schematicRenderPathPrefix ??
+    env.HQ_EDGE_SCHEMATIC_RENDER_PATH ??
+    DEFAULT_SCHEMATIC_RENDER_PATH_PREFIX
   const timeoutRaw = config?.requestTimeoutMs ?? env.HQ_EDGE_REQUEST_TIMEOUT_MS
   const timeout = Number.parseInt(String(timeoutRaw ?? ''), 10)
   return {
@@ -90,6 +101,7 @@ export function resolveEdaHostConfig(
     pcbBoardPathPrefix: pcbBoardPrefix,
     hostPathPrefix: hostPrefix,
     syncSchematicToPcbPathPrefix: syncSchematicToPcbPrefix,
+    schematicRenderPathPrefix: schematicRenderPrefix,
     requestTimeoutMs:
       Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_REQUEST_TIMEOUT_MS,
   }
@@ -150,4 +162,26 @@ export function syncSchematicToPcbUrlOf(config: EdaHostConfig): string {
     '',
   )
   return `${base}/${prefix}`
+}
+
+/** Schematic render sub-route suffix. */
+export type SchematicRenderRoute = 'capabilities' | 'sheets' | 'render'
+
+const SCHEMATIC_RENDER_ROUTE: Record<SchematicRenderRoute, string> = {
+  capabilities: '/capabilities',
+  sheets: '/sheets',
+  render: '/render',
+}
+
+/** Build the absolute URL for one schematic render sub-route. */
+export function schematicRenderUrlOf(
+  config: EdaHostConfig,
+  route: SchematicRenderRoute,
+): string {
+  const base = (config.hqEdgeBaseUrl ?? '').replace(/\/+$/, '')
+  const prefix = (config.schematicRenderPathPrefix ?? DEFAULT_SCHEMATIC_RENDER_PATH_PREFIX).replace(
+    /^\/+|\/+$/g,
+    '',
+  )
+  return `${base}/${prefix}${SCHEMATIC_RENDER_ROUTE[route]}`
 }

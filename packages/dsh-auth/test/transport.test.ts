@@ -3,29 +3,67 @@ import { describe, expect, it, vi } from 'vitest'
 import { createWebServerAuthTransport } from '../src/client/transport.js'
 
 describe('createWebServerAuthTransport', () => {
-  it('fetchHostMode returns true when the node config route reports host mode', async () => {
+  it('fetchRuntimeConfig returns host mode and the resolved subscription origin', async () => {
     const doFetch = vi.fn(async () => ({
       ok: true,
-      json: async () => ({ hostMode: true }),
+      json: async () => ({
+        hostMode: true,
+        subscriptionOrigin: 'http://gen.fdatasheets.com',
+        subscriptionApiBaseUrl: 'http://www.fdatasheets.com',
+        profileUrl: 'http://www.fdatasheets.com/account',
+      }),
     })) as unknown as typeof fetch
     const t = createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch)
-    expect(await t.fetchHostMode()).toBe(true)
+    await expect(t.fetchRuntimeConfig()).resolves.toEqual({
+      hostMode: true,
+      subscriptionOrigin: 'http://gen.fdatasheets.com',
+      subscriptionApiBaseUrl: 'http://www.fdatasheets.com',
+      profileUrl: 'http://www.fdatasheets.com/account',
+    })
     expect(doFetch).toHaveBeenCalledWith('/api/v1/huaqiu/auth/config', expect.objectContaining({ method: 'GET' }))
   })
 
-  it('fetchHostMode returns false for standalone mode', async () => {
+  it('fetchRuntimeConfig returns standalone defaults (null origin)', async () => {
     const doFetch = vi.fn(async () => ({
       ok: true,
       json: async () => ({ hostMode: false }),
     })) as unknown as typeof fetch
-    expect(await createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchHostMode()).toBe(false)
+    await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchRuntimeConfig()).resolves.toEqual({
+      hostMode: false,
+      subscriptionOrigin: null,
+      subscriptionApiBaseUrl: null,
+      profileUrl: null,
+    })
   })
 
-  it('fetchHostMode falls back to false (standalone) when the route is unreachable', async () => {
+  it('fetchRuntimeConfig rejects a non-http(s) or relative origin', async () => {
+    const doFetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        hostMode: true,
+        subscriptionOrigin: 'javascript:alert(1)',
+        subscriptionApiBaseUrl: 'not-a-url',
+        profileUrl: 'mailto:someone@example.com',
+      }),
+    })) as unknown as typeof fetch
+    await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchRuntimeConfig()).resolves.toEqual({
+      hostMode: true,
+      subscriptionOrigin: null,
+      subscriptionApiBaseUrl: null,
+      profileUrl: null,
+    })
+  })
+
+  it('fetchRuntimeConfig falls back to standalone when the route is unreachable', async () => {
     const doFetch = vi.fn(async () => {
       throw new Error('offline')
     }) as unknown as typeof fetch
-    expect(await createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchHostMode()).toBe(false)
+    await expect(createWebServerAuthTransport('/api/v1/huaqiu/auth', doFetch).fetchRuntimeConfig()).resolves.toEqual({
+      hostMode: false,
+      subscriptionOrigin: null,
+      subscriptionApiBaseUrl: null,
+      profileUrl: null,
+    })
   })
 
   it('fetchSession parses an authenticated host session', async () => {
@@ -61,14 +99,7 @@ describe('createWebServerAuthTransport', () => {
   })
 
   it('fetchAiUsage reads the /ai-usage route (never the external endpoint)', async () => {
-    const usage = {
-      availablePoints: 198735,
-      availableQuota: 9936735,
-      availableUsd: 19.87347,
-      usedPoints: 1265,
-      usedQuota: 63265,
-      usedUsd: 0.12653,
-    }
+    const usage = { quotaRemainPercent: 99.68 }
     const doFetch = vi.fn(async () => ({
       ok: true,
       json: async () => ({ usage }),

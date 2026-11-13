@@ -95,10 +95,50 @@ export interface HuaqiuAuthService {
    * hq-edge, so the auth plugin's own login UI is suppressed.
    */
   readonly hostMode: boolean
+  /**
+   * Resolved subscription balances endpoint injected by HQ Edge
+   * (`config.subscriptionBalancesUrl`), or null when none was configured.
+   * `/ai-usage` never falls back to a stale hardcoded environment endpoint.
+   */
+  readonly subscriptionBalancesUrl: string | null
+  /**
+   * Origin of {@link subscriptionBalancesUrl} (e.g. `https://www.eda.cn`), used
+   * by the browser half for the GEN/ERC active-subscription calls. Null when no
+   * endpoint was configured — DSH Auth never hardcodes a production host.
+   */
+  readonly subscriptionApiBaseUrl: string | null
+  /**
+   * Resolved subscription origin injected by HQ Edge (`config.subscriptionOrigin`),
+   * or null when none was configured (standalone keeps its PROD default).
+   */
+  readonly subscriptionOrigin: string | null
+  /**
+   * Full「Go to profile」URL injected by HQ Edge (`config.profileUrl`), or null
+   * when none was configured — the browser half then keeps its PROD default.
+   */
+  readonly profileUrl: string | null
 }
 
 const PERSIST_FILE = 'session.json'
 const PERSIST_DIR = () => dshHomePath('auth')
+
+/** Host-only label for diagnostics (never log a complete AI usage URL). */
+function safeHost(url: string): string {
+  try {
+    return new URL(url).host
+  } catch {
+    return '<invalid-url>'
+  }
+}
+
+/** Scheme + host origin of a URL, or null when it does not parse. */
+function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
 
 /**
  * Bounded wait for the host to confirm a logout. Shorter than the login wait
@@ -202,15 +242,38 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
       fetchImpl: this.doFetch,
     })
     this.hostMode = this.host.enabled
+    this.subscriptionBalancesUrl = resolved.subscriptionBalancesUrl?.length
+      ? resolved.subscriptionBalancesUrl
+      : null
+    this.subscriptionApiBaseUrl = this.subscriptionBalancesUrl
+      ? originOf(this.subscriptionBalancesUrl)
+      : null
+    this.subscriptionOrigin = resolved.subscriptionOrigin?.length
+      ? resolved.subscriptionOrigin
+      : null
+    this.profileUrl = resolved.profileUrl?.length ? resolved.profileUrl : null
     this.log.info('auth service started', {
       hostMode: this.hostMode,
       hostAuthPath: resolved.hostAuthPath,
       hostSessionTtlSeconds: resolved.hostSessionTtlSeconds,
+      // Hosts only — never a complete URL that could carry a credential.
+      subscriptionBalancesHost: this.subscriptionBalancesUrl
+        ? safeHost(this.subscriptionBalancesUrl)
+        : null,
+      subscriptionOrigin: this.subscriptionOrigin,
     })
   }
 
   /** Host mode is active iff a host base URL was configured (see HostSessionResolver.enabled). */
   readonly hostMode: boolean
+  /** Subscription balances endpoint resolved by HQ Edge (`HQ_AI_ENV`); null → no call. */
+  readonly subscriptionBalancesUrl: string | null
+  /** Origin used for GEN/ERC active-subscription calls; null → unavailable. */
+  readonly subscriptionApiBaseUrl: string | null
+  /** Subscription origin resolved by HQ Edge (`HQ_AI_ENV`); null → standalone. */
+  readonly subscriptionOrigin: string | null
+  /**「Go to profile」URL resolved by HQ Edge (`HQ_AI_ENV`); null → standalone. */
+  readonly profileUrl: string | null
 
   readonly auth: HuaqiuAuthApi = {
     isAuthenticated: async () => {

@@ -21,19 +21,27 @@
 
 export const AUTH_ORIGIN = 'https://auth.eda.cn'
 
-/**「Go to profile」destination: the eda.cn account page. */
+/** Standalone-DSH fallback for the「Go to profile」destination. Under HQ Edge the full URL is
+ * resolved ONCE from `HQ_AI_ENV` (PROD: `https://www.eda.cn/account/profile`,
+ * TEST: `http://www.fdatasheets.com/account`) and arrives via the node half's
+ * `/config` route; this constant is used only when nothing supplies one.
+ */
 export const PROFILE_URL = 'https://www.eda.cn/account/profile'
 
 // ── Subscription (quota + upgrade dialog) ────────────────────────────────────
 
 /**
  * Subscription landing page — the same page `hq-eda-ai` serves at
- * `gen.eda.cn/subscription` (token taken from the URL query; see its
+ * `<origin>/subscription` (token taken from the URL query; see its
  * `UserInfoContext`). The preferred window size for BOTH surfaces (KiCad
  * native dialog via DialogService.OpenUrl and the standalone iframe dialog)
  * is 1400×740.
+ *
+ * This constant is the standalone-DSH fallback only. Under HQ Edge the origin
+ * arrives from the node half's `/config` route, resolved ONCE from `HQ_AI_ENV`
+ * (PROD: gen.eda.cn / TEST: gen.fdatasheets.com).
  */
-export const SUBSCRIPTION_ORIGIN = 'https://gen.eda.cn'
+export const DEFAULT_SUBSCRIPTION_ORIGIN = 'https://gen.eda.cn'
 export const SUBSCRIPTION_PATH = '/subscription'
 export const SUBSCRIPTION_PREFERRED_SIZE = { width: 1400, height: 740 } as const
 
@@ -48,45 +56,36 @@ export const SUBSCRIPTION_PREFERRED_SIZE = { width: 1400, height: 740 } as const
 export const GEN_PRODUCT_CODE = 'auto-design'
 export const ERC_PRODUCT_CODE = 'erc'
 
-// ── AI token usage ──────────────────────────────────────────────────────────
+// ── AI usage (subscription balances) ────────────────────────────────────────
 
 /**
- * Normalized AI token usage — the shape the node half's `/ai-usage` route
- * returns (the node half owns the upstream call; see
- * `routes.ts#fetchAiTokenUsage`).
+ * Client-facing AI usage shape. Re-exported (type-only) from the single
+ * authoritative contract in `../subscription-balances.ts`; the browser half
+ * must not import node modules, and a type-only re-export adds no runtime
+ * code to this bundle.
  *
- * `points` is the account-level token balance (what the user thinks of as
- * "tokens"); `quota` is the same figure in the gateway's internal unit
- * (points × 50) and `usd` its money equivalent. All three pairs are reported
- * because the endpoint reports all three; the UI reads `points`.
- *
- * WHY THE BROWSER NEVER CALLS THIS ENDPOINT DIRECTLY: it is served over plain
- * `http` (`http://www.fdatasheets.com/user-rest/api/ai/usage`), which the
- * WebView refuses twice over — App Transport Security ("the resource could not
- * be loaded because the App Transport Security policy requires the use of a
- * secure connection") and CORS (the response carries no
- * `Access-Control-Allow-Origin`). The node half has neither restriction — it is
- * the same process that already calls this host for the Huaqiu AI gateway — so
- * IT performs the fetch and this half reads a same-origin route, exactly like
- * the eda.cn profile on `/user-info`.
+ * WHY THE BROWSER NEVER CALLS THE UPSTREAM ENDPOINT DIRECTLY: the TEST endpoint
+ * is served over plain `http`, which the WebView refuses twice over — App
+ * Transport Security ("the resource could not be loaded because the App
+ * Transport Security policy requires the use of a secure connection") and CORS
+ * (the response carries no `Access-Control-Allow-Origin`). The node half has
+ * neither restriction, so IT performs the fetch and this half reads a
+ * same-origin route, exactly like the eda.cn profile on `/user-info`.
  */
-export interface AiTokenUsage {
-  availablePoints: number
-  availableQuota: number
-  availableUsd: number
-  usedPoints: number
-  usedQuota: number
-  usedUsd: number
-}
+export type { AiUsage } from '../subscription-balances.js'
 
 /**
  * Build the subscription landing URL. Mirrors `buildProfileUrl`: the token is
- * always attached — `gen.eda.cn/subscription` consumes it to establish the
+ * always attached — the subscription page consumes it to establish the
  * session and hides it itself. `encodeURIComponent` is required (tokens are
  * base64-ish and may contain `+`, `/` or `=`).
+ *
+ * `origin` comes from the node half (HQ Edge → `HQ_AI_ENV`); omitted in
+ * standalone DSH, which keeps the PROD fallback.
  */
-export function buildSubscriptionUrl(options: { token: string }): string {
-  return `${SUBSCRIPTION_ORIGIN}${SUBSCRIPTION_PATH}?token=${encodeURIComponent(options.token)}`
+export function buildSubscriptionUrl(options: { token: string; origin?: string }): string {
+  const origin = (options.origin ?? DEFAULT_SUBSCRIPTION_ORIGIN).replace(/\/+$/, '')
+  return `${origin}${SUBSCRIPTION_PATH}?token=${encodeURIComponent(options.token)}`
 }
 
 /** Normalized active-subscription quota view (whatever the backend sends). */
@@ -125,11 +124,15 @@ function quotaOf(subscription: Record<string, unknown> | null | undefined): Subs
 }
 
 /**
- * Fetch the active subscription quota DIRECTLY from eda.cn
- * (`GET {baseUrl}/sub-api/subscriptions/active?userId&productCode` with
- * `x-token` + `X-User-Id` headers) — the same API `hq-eda-ai`'s
- * `getActiveSubscription` and `hq-edge`'s ERC quota proxy call, so displaying
- * the available quota never depends on an hq-edge hop.
+ * Fetch the active subscription quota (`GET {baseUrl}/sub-api/subscriptions/
+ * active?userId&productCode` with `x-token` + `X-User-Id` headers) — the same
+ * API `hq-eda-ai`'s `getActiveSubscription` and `hq-edge`'s ERC quota proxy
+ * call.
+ *
+ * `baseUrl` is the origin the node half derives from the resolved
+ * subscription-balances endpoint (`HQ_AI_ENV`), so this call follows the
+ * selected environment and DSH Auth never hardcodes a production host. No
+ * configured origin → null (the UI shows「—」).
  *
  * Returns null when the fetch/unwrap fails (callers decide fail-open vs
  * fail-closed); a well-formed response always yields a `SubscriptionQuota`
@@ -142,7 +145,8 @@ export async function fetchSubscriptionQuota(options: {
   baseUrl?: string
   fetchImpl?: typeof fetch
 }): Promise<SubscriptionQuota | null> {
-  const { userId, token, productCode, baseUrl = 'https://www.eda.cn' } = options
+  const { userId, token, productCode, baseUrl } = options
+  if (!baseUrl) return null
   const fetchImpl = options.fetchImpl ?? fetch
   const url = `${baseUrl}${SUB_API_PREFIX}/subscriptions/active?${new URLSearchParams({
     userId: String(userId),
@@ -171,15 +175,21 @@ export async function fetchSubscriptionQuota(options: {
  * in the query, mirroring `hq-eda-ai`'s `UserMenu`
  * (`/account/profile?token=…&phone=…`).
  *
- * The token is always attached: eda.cn consumes it to establish the session
- * and strips it from the address bar / history itself, so there is nothing to
- * leak beyond the target site. `encodeURIComponent` is required (not cosmetic):
- * tokens are base64-ish and may contain `+`, `/` or `=`, and a raw `+` in a
- * query string decodes to a space, which would corrupt the credential.
+ * `profileUrl` comes from the node half (HQ Edge → `HQ_AI_ENV`); omitted in
+ * standalone DSH, which keeps the {@link PROFILE_URL} PROD fallback. The
+ * injected value is a FULL URL (path included), because PROD and TEST do not
+ * share it (`/account/profile` vs `/account`); any existing query string on it
+ * is preserved and `token`/`phone` are appended.
  */
-export function buildProfileUrl(options: { token: string; phone?: string | number }): string {
+export function buildProfileUrl(options: {
+  token: string
+  phone?: string | number
+  profileUrl?: string
+}): string {
   const phone = options.phone === undefined || options.phone === null ? '' : String(options.phone)
-  return `${PROFILE_URL}?token=${encodeURIComponent(options.token)}&phone=${encodeURIComponent(phone)}`
+  const base = options.profileUrl?.length ? options.profileUrl : PROFILE_URL
+  const sep = base.includes('?') ? '&' : '?'
+  return `${base}${sep}token=${encodeURIComponent(options.token)}&phone=${encodeURIComponent(phone)}`
 }
 
 /**

@@ -21,6 +21,7 @@ import { createAuthClient, type AuthClient } from './client.js'
 import { disposeAuth, registerAuth, registerAuthSync, registerHqEdgeGetter } from './auth-state.js'
 import { HuaqiuToolView } from './ui/needs-auth-toolview.jsx'
 import { HuaqiuAuthSidebarAction } from './ui/sidebar-action.jsx'
+import { HuaqiuTurnErrorSubscribeAction } from './ui/turn-error-cta.jsx'
 import { disposeUiEnv } from './ui-env.js'
 
 /**
@@ -75,13 +76,17 @@ export function apply(ctx: ClientContext): () => void {
     documentLike: document,
     // Host mode subscription dialog: the EDA host owns the UI. Open its
     // native window through the hqEdge service's DialogService.OpenUrl
-    // bridge (fire-and-forget); absent hqEdge → no-op, the caller's
-    // subscribe button stays usable and reports the limitation.
+    // bridge, which acknowledges once the dialog is launched.
     openHostDialog: async (url, options) => {
       const hqEdge = ctx.get?.<{
         openUrl?(url: string, opts?: Record<string, unknown>): Promise<unknown>
       } | undefined>('hqEdge')
-      if (!hqEdge || typeof hqEdge.openUrl !== 'function') return
+      if (!hqEdge || typeof hqEdge.openUrl !== 'function') {
+        // Without the EDA bridge no native dialog can ever appear. Reject so
+        // callers surface their fallback copy instead of reporting a launch
+        // that never happened.
+        throw new Error('hqEdge.openUrl is unavailable')
+      }
       await hqEdge.openUrl(url, {
         ...(options.title ? { title: options.title } : {}),
         ...(options.size ? { size: options.size } : {}),
@@ -170,6 +175,13 @@ export function apply(ctx: ClientContext): () => void {
         disposers.push(slots.inject('tool.call.toolview', () => slots.register({ name: 'tool.call.toolview', key: toolName }, HuaqiuToolView) as () => void))
       }
       disposers.push(slots.inject('sidebar.footer.action', () => slots.register({ name: 'sidebar.footer.action', id: 'huaqiu-auth' }, HuaqiuAuthSidebarAction) as () => void))
+      // The turn-error action slot only exists on harness versions that ship
+      // the seam; `inject` waits for its declaration, so an older harness
+      // simply never calls this and the shipped error card stays unchanged.
+      disposers.push(slots.inject('conversation.chat.turn-error.action', () => slots.register({
+        name: 'conversation.chat.turn-error.action',
+        id: 'huaqiu-turn-error-cta',
+      }, HuaqiuTurnErrorSubscribeAction) as () => void))
     }
   })
 

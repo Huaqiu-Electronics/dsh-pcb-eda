@@ -89,6 +89,36 @@ describe('createQuoteTools — quote_pcb', () => {
       includeRawResponse: false,
     })
   })
+
+  it('forwards the process overrides the board would otherwise supply', async () => {
+    const { calls, client } = stubClient()
+    const tools = toolsOf(client)
+    await toolByName(tools, 'quote_pcb').execute(
+      {
+        region: 'cn',
+        bheight: 1.6,
+        lineweight: 6,
+        vias: 0.15,
+        insidecopper: 0.5,
+        board_tg: 'tg150',
+      },
+      {},
+    )
+    // hq-edge snaps these onto the fabricator menus; the tool must not drop
+    // them (they are the price-relevant knobs a user asks to change).
+    expect(calls[0]!.payload).toEqual({
+      region: 'cn',
+      form: {
+        boardTg: 'tg150',
+        bheight: 1.6,
+        lineweight: 6,
+        vias: 0.15,
+        insidecopper: 0.5,
+      },
+      eda: undefined,
+      includeRawResponse: false,
+    })
+  })
 })
 
 describe('createQuoteTools — quote_smt', () => {

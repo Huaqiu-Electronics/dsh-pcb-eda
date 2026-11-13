@@ -145,16 +145,42 @@ describe('symbol-footprint tool bodies', () => {
   })
 
   it('generate_footprint_from_dimensions generates and stores the footprint', async () => {
+    const sentCommands: Array<Record<string, unknown>> = []
     const env = stubEnv({
       deps: {
         processEnv: {},
         random: () => 0.1234567,
-        socketFactory: emitOnOpen({ action: 'footprint_button', context: { params: '{"fileUrl":"https://x/SOIC8.kicad_mod"}' } }),
+        socketFactory: () => {
+          const socket: SocketLike = {
+            onopen: null,
+            onmessage: null,
+            onerror: null,
+            onclose: null,
+            send: (payload) => { sentCommands.push(JSON.parse(String(payload)) as Record<string, unknown>) },
+            close: () => {},
+          }
+          queueMicrotask(() => {
+            socket.onopen?.(null)
+            socket.onmessage?.({
+              data: JSON.stringify({
+                type: 6,
+                action: 'footprint_button',
+                context: { params: '{"fileUrl":"https://x/SOIC8.kicad_mod"}' },
+              }),
+            })
+          })
+          return socket
+        },
         fetchImpl: FETCH_OK,
       },
     })
     const result = await runGenerateFootprintFromDimensions(
-      { package_type: 'sop', dimensions: { W: 6.2, L: 5.0 }, file_name: 'SOIC-8' },
+      {
+        image: 'data:image/png;base64,AAAA',
+        package_type: 'sop',
+        dimensions: { W: 6.2, L: 5.0 },
+        file_name: 'SOIC-8',
+      },
       undefined,
       env,
     )
@@ -162,6 +188,8 @@ describe('symbol-footprint tool bodies', () => {
     expect(result.kind).toBe('footprint')
     expect(result.pkgType).toBe('sop')
     expect(result.artifact).toMatchObject({ type: 'footprint', filename: 'SOIC8.kicad_mod' })
+    expect((sentCommands[0]?.context as { chat?: { base64_images?: string[] } }).chat?.base64_images)
+      .toEqual(['data:image/png;base64,AAAA'])
   })
 
   it('renders the direct-footprint question in the configured HITL language', async () => {

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { HuaqiuAuthSidebarAction } from '../src/client/ui/sidebar-action.jsx'
+import { DARK_PALETTE, HuaqiuAuthSidebarAction, LIGHT_PALETTE } from '../src/client/ui/sidebar-action.jsx'
 import { disposeAuth, getAuthState, registerAuth, registerHqEdgeGetter } from '../src/client/auth-state.js'
 import { buildProfileUrl } from '../src/client/lib.js'
 import { DARK_ATTRIBUTE, disposeUiEnv, syncUiEnv } from '../src/client/ui-env.js'
@@ -34,6 +34,7 @@ function stubAuth(initial: StubInfo | null, hostMode = false, profile: { nicknam
       for (const l of listeners) l(null)
     }),
     getSubscriptionQuota: vi.fn(async () => null),
+    getProfileUrl: () => null,
     getAiTokenUsage: vi.fn(async () => null),
     onAuthStateChanged: (cb: (info: StubInfo | null) => void) => {
       listeners.add(cb)
@@ -206,17 +207,30 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     expect(menuItem('Log out')).toBeTruthy()
   })
 
-  it('themes the menu for the dark palette', async () => {
-    setHostEnv({ dark: true })
+  it('renders the prototype dark color schema on the popup', async () => {
+    setHostEnv({ dark: true, lang: 'zh-CN' })
     const container = await renderSettled()
     click(trigger(container))
-    const style = menu()?.style
-    // DSH token first, explicit dark fallback second — both must be dark-aware.
-    // The fallback surface follows the redesigned prototype (#1e1b24).
-    expect(style?.background).toBe('var(--dsw-alias-bg-overlay, #1e1b24)')
-    expect(style?.boxShadow).toContain('rgba(0, 0, 0')
+    const menuEl = menu()!
+    // jsdom serializes hex colors to rgb(). The surface is EXPLICIT, not the
+    // host's `--dsw-alias-bg-overlay` (rgb(97, 102, 107)) the prototype rejects
+    // as the muddy, low-contrast "before" state.
+    expect(menuEl.style.background).toBe('rgb(28, 30, 36)') // #1C1E24
+    expect(menuEl.style.boxShadow).toContain('rgba(0, 0, 0, 0.6)')
+    expect(menuEl.style.boxShadow).toContain('rgba(255, 255, 255, 0.08)')
 
-    // And light again.
+    // Every painted surface reads from the same dark palette: meter card, CTA,
+    // AI progress bar and track, plus the red-400 logout row.
+    const painted = [...menuEl.querySelectorAll<HTMLElement>('*')]
+      .map((el) => el.style.background)
+      .filter(Boolean)
+    expect(painted).toContain('rgb(37, 40, 49)') // #252831 meter card
+    expect(painted).toContain('linear-gradient(90deg, #FF4D4F, #ef4444)') // brand-dark CTA
+    expect(painted).toContain('linear-gradient(90deg, #06b6d4, #3b82f6)') // cyan → blue bar
+    expect(painted).toContain('rgb(51, 65, 85)') // #334155 track
+    expect(menuItem('退出登录').style.color).toBe('rgb(248, 113, 113)') // red-400
+
+    // And light again: the token-first scheme is unchanged.
     act(() => {
       setHostEnv({ dark: false })
     })
@@ -254,6 +268,46 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     expect(buildProfileUrl({ token: 'tok' })).toBe(
       'https://www.eda.cn/account/profile?token=tok&phone=',
     )
+  })
+
+  it('「Go to profile」uses the injected HQ_AI_ENV profile URL and keeps its path', () => {
+    // TEST resolves to a DIFFERENT path (/account), so the full URL — not just
+    // the origin — has to travel from the node half.
+    expect(
+      buildProfileUrl({
+        token: 'tok',
+        phone: '138',
+        profileUrl: 'http://www.fdatasheets.com/account',
+      }),
+    ).toBe('http://www.fdatasheets.com/account?token=tok&phone=138')
+  })
+
+  it('「Go to profile」preserves an existing query string when appending the token', () => {
+    expect(
+      buildProfileUrl({ token: 'tok', profileUrl: 'https://example.com/account?lang=zh' }),
+    ).toBe('https://example.com/account?lang=zh&token=tok&phone=')
+  })
+
+  it('the profile menu item opens the client-resolved profile URL', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    const auth = (await import('../src/client/auth-state.js')).getAuth() as unknown as {
+      getProfileUrl: () => string | null
+    }
+    const original = auth.getProfileUrl
+    auth.getProfileUrl = () => 'http://www.fdatasheets.com/account'
+    try {
+      const container = await renderSettled()
+      click(trigger(container))
+      await act(async () => {
+        click(menuItem('个人中心'))
+        await Promise.resolve()
+      })
+      expect(open.mock.calls[0]?.[0]).toBe(
+        'http://www.fdatasheets.com/account?token=tok&phone=13800000000',
+      )
+    } finally {
+      auth.getProfileUrl = original
+    }
   })
 
   it('「Log out」logs out and closes the menu', async () => {
@@ -295,7 +349,7 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     expect(menu()).toBeNull()
   })
 
-  it('renders the AI token usage metric (available/total points + percent bar) when the menu opens', async () => {
+  it('renders the upstream quotaRemainPercent unchanged (99.68 → 99.68%)', async () => {
     const container = await renderSettled()
     const auth = (await import('../src/client/auth-state.js')).getAuth() as unknown as {
       getSubscriptionQuota: ReturnType<typeof vi.fn>
@@ -307,14 +361,7 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
         ? { hasSubscription: true, packageName: 'Pro', currentQuota: 3, totalQuota: 10 }
         : { hasSubscription: false, packageName: '', currentQuota: 0, totalQuota: 0 },
     )
-    auth.getAiTokenUsage = vi.fn(async () => ({
-      availablePoints: 198735,
-      availableQuota: 9936735,
-      availableUsd: 19.87347,
-      usedPoints: 1265,
-      usedQuota: 63265,
-      usedUsd: 0.12653,
-    }))
+    auth.getAiTokenUsage = vi.fn(async () => ({ quotaRemainPercent: 99.68 }))
 
     click(trigger(container))
     // Flush the quota effect's Promise.all (and its setState).
@@ -324,25 +371,23 @@ describe('HuaqiuAuthSidebarAction (logged in)', () => {
     })
 
     const menuEl = menu()!
-    // AI label (zh) is present alongside GEN / ERC.
+    // AI label (zh) is present. The GEN/ERC metric cards were removed, but GEN
+    // still resolves in the same pass and supplies the plan badge — that is the
+    // sanity check that the shared quota fetch ran.
     expect(menuEl.textContent).toContain('AI 用量')
-    // GEN also resolved through the same pass (sanity).
-    expect(menuEl.textContent).toContain('3 / 10')
+    expect(menuEl.textContent).toContain('Pro')
 
-    // The AI metric card carries the available/total points and a percent hover.
-    // Pick the SHORTEST div containing the label: ancestors (the metrics
-    // container, the menu) also contain it, so length disambiguates the leaf.
+    // The AI metric card headlines the upstream remaining percentage, passed
+    // through without rounding. Pick the SHORTEST div containing the label:
+    // ancestors also contain it, so length picks the leaf.
     const aiCard = [...menuEl.querySelectorAll('div')]
       .filter((d) => (d.textContent ?? '').includes('AI 用量'))
       .sort((a, b) => (a.textContent?.length ?? 0) - (b.textContent?.length ?? 0))[0]
     expect(aiCard).toBeTruthy()
     const aiSpans = aiCard!.querySelectorAll('span')
     const aiValue = aiSpans[aiSpans.length - 1]!
-    // available / total points: 198735 / (1265 + 198735) = 198735 / 200000 点 —
-    // the REMAINING balance, the same convention as the GEN/ERC cards.
-    expect(aiValue.textContent).toContain('198735 / 200000')
-    // The hover detail reports the fractional remaining percent (99.4%).
-    expect(aiValue.getAttribute('title')).toContain('剩余 99.4%')
+    // The upstream value is 99.68; the card must NOT round it to 100%.
+    expect(aiValue.textContent).toBe('99.68%')
   })
 
   it('renders an empty AI metric (—) when the usage fetch yields nothing', async () => {
@@ -481,5 +526,43 @@ describe('HuaqiuAuthSidebarAction (logged in, no avatar)', () => {
     // The account menu still works without an avatar.
     click(trigger(container))
     expect(menuItem('个人中心')).toBeTruthy()
+  })
+})
+
+describe('avatar popup color schema', () => {
+  it('pins the prototype deep-slate dark palette and excludes the host overlay token', () => {
+    // docs/prototype/avatar_popup_redesign_prototype.html — "AFTER" card.
+    expect(DARK_PALETTE.surface).toBe('#1C1E24')
+    expect(DARK_PALETTE.border).toBe('rgba(255, 255, 255, 0.10)')
+    expect(DARK_PALETTE.heading).toBe('#ffffff')
+    expect(DARK_PALETTE.text).toBe('#e2e8f0')
+    expect(DARK_PALETTE.muted).toBe('#94a3b8')
+    expect(DARK_PALETTE.hover).toBe('rgba(255, 255, 255, 0.05)')
+    expect(DARK_PALETTE.shadow).toContain('0 16px 36px -4px rgba(0, 0, 0, 0.6)')
+    expect(DARK_PALETTE.card).toBe('transparent')
+    expect(DARK_PALETTE.metric).toBe('#252831')
+    // Alpha-tinted red badge + emerald "Online" pill (the two WCAG fixes).
+    expect(DARK_PALETTE.badgeBg).toBe('rgba(239, 68, 68, 0.20)')
+    expect(DARK_PALETTE.badgeText).toBe('#f87171')
+    expect(DARK_PALETTE.online).toBe('#34d399')
+    expect(DARK_PALETTE.onlineBg).toBe('rgba(16, 185, 129, 0.10)')
+    // Brighter brand red in dark mode; cyan → blue meter, slate track.
+    expect(DARK_PALETTE.primary).toBe('#FF4D4F')
+    expect(DARK_PALETTE.primaryHover).toBe('#FF6B6D')
+    expect(DARK_PALETTE.ctaEnd).toBe('#ef4444')
+    expect(DARK_PALETTE.track).toBe('#334155')
+    expect(DARK_PALETTE.aiIcon).toBe('#22d3ee')
+    expect(DARK_PALETTE.aiGradient).toBe('linear-gradient(90deg, #06b6d4, #3b82f6)')
+    expect(DARK_PALETTE.danger).toBe('#f87171')
+    expect(DARK_PALETTE.dangerHover).toBe('rgba(239, 68, 68, 0.10)')
+    // The muddy gray the prototype replaces must never come back via a token.
+    expect(DARK_PALETTE.surface).not.toContain('--dsw-alias-bg-overlay')
+  })
+
+  it('keeps the light palette token-first and visually unchanged', () => {
+    expect(LIGHT_PALETTE.surface).toBe('var(--dsw-alias-bg-overlay, #ffffff)')
+    expect(LIGHT_PALETTE.primary).toBe('#e62e2d')
+    expect(LIGHT_PALETTE.ctaEnd).toBe('#e11d48')
+    expect(LIGHT_PALETTE.aiGradient).toBe('linear-gradient(90deg, #10b981, #06b6d4)')
   })
 })

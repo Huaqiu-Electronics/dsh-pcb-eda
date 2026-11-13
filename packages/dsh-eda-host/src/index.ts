@@ -2,16 +2,19 @@
  * `@huaqiu/dsh-eda-host` — node plugin entry.
  *
  * Provides the `edaHost` service (semantic EDA-host capability) and registers
- * eight agent tools:
+ * eleven agent tools:
  *
- *   get_project_netlist      complete project netlist
- *   get_selection_netlist    currently selected components netlist
- *   get_active_page_netlist  active schematic page netlist
- *   get_pcb_selection        semantic PCB selection of the current PCB editor
- *   get_pcb_board            complete semantic PCB board snapshot
- *   get_eda_host_info        which EDA host, version, installation
- *   get_eda_host_capabilities  what the current host can actually do
- *   sync_schematic_to_pcb    ask the host to synchronize schematic → PCB
+ *   get_project_netlist                  complete project netlist
+ *   get_selection_netlist                currently selected components netlist
+ *   get_active_page_netlist              active schematic page netlist
+ *   get_pcb_selection                    semantic PCB selection of the current PCB editor
+ *   get_pcb_board                        complete semantic PCB board snapshot
+ *   get_eda_host_info                    which EDA host, version, installation
+ *   get_eda_host_capabilities            what the current host can actually do
+ *   sync_schematic_to_pcb                ask the host to synchronize schematic → PCB
+ *   get_schematic_render_capabilities   whether PNG render is supported plus dimensions
+ *   list_schematic_sheets                list all schematic sheets available for rendering
+ *   get_schematic_png_screenshot         render schematic sheet(s) to PNG images (base64)
  *
  * ── Architectural boundary (task: add-dsh-eda-host) ─────────────────────────
  * The ONLY production request path is DSH → dsh-eda-host → hq-edge → EDA host.
@@ -65,6 +68,7 @@ export type {
   EdaHostType,
   ElectricalNet,
   ElectricalType,
+  ListSchematicSheetsResult,
   NetlistErrorKind,
   PcbArc,
   PcbDimension,
@@ -82,8 +86,16 @@ export type {
   PcbZone,
   PinDefinition,
   PinReference,
+  RenderCapabilities,
+  RenderSchematicParams,
+  RenderSchematicResult,
+  RenderedSchematicImage,
   SchematicComponent,
+  SchematicDocumentRef,
+  SchematicImageFormat,
   SchematicNetlist,
+  SchematicSheetInstance,
+  SchematicSource,
 } from './types.js'
 export { NetlistError } from './types.js'
 export { parseNetlistBody } from './client.js'

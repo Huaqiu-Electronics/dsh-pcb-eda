@@ -29,6 +29,14 @@ const BEARER_IN_STRING = /\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}/i
 /** Strings at least this long that look like a single opaque credential blob. */
 const OPAQUE_SECRET = /^[A-Za-z0-9_-]{32,}$/
 
+/**
+ * UUIDs are identifiers, not secrets. Every record carries at least
+ * `installationId` / `edgeInstanceId` / `dshInstanceId`, all UUID-shaped, so
+ * without this exemption the shape-based rule would blank out exactly the
+ * fields that make a multi-process log attributable.
+ */
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 export const REDACTED = '[redacted]'
 
 /** Maximum object depth walked before the value is collapsed. Cycle-safe. */
@@ -88,6 +96,7 @@ function redactInner(value: unknown, depth: number, seen: WeakSet<object>): unkn
 /** Redact credentials embedded in an otherwise ordinary string. */
 function redactString(value: string): string {
   if (BEARER_IN_STRING.test(value)) return value.replace(BEARER_IN_STRING, '$1 ' + REDACTED)
+  if (UUID_SHAPE.test(value)) return value
   // A bare 32+ char opaque blob is almost always a credential. Project paths,
   // URLs and sentences all contain separators, so they survive this filter.
   if (OPAQUE_SECRET.test(value)) return REDACTED

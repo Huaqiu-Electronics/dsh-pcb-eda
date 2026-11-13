@@ -1,5 +1,6 @@
 /**
- * `@huaqiu/dsh-plugin-log` — one server-side log for every Huaqiu DSH plugin.
+ * `@huaqiu/dsh-plugin-log` — one shared, per-DSH-process log for every Huaqiu
+ * DSH plugin.
  *
  * ## Why this exists
  *
@@ -7,75 +8,85 @@
  * browser half logged to `console.*`, and the node half — the half that
  * actually owns credentials, HTTP routes and agent tools — logged nothing at
  * all outside the DSH process's stdout, which HQ Edge only captures as an
- * opaque text blob. When a `deepseek-harness` upgrade broke credential
- * propagation, the only way to see what the node half resolved was to add
- * temporary prints and re-run.
+ * opaque text blob.
  *
- * This package gives every plugin one shared, file-backed, cross-platform log
- * inside the current HQ Edge log tree:
+ * ## What changed (docs/tasks/dsh-plugin-log-isolation.md)
  *
- *   <HQ_EDGE_HOME>/logs/dsh-plugins/dsh-plugins.log      (current)
- *   <HQ_EDGE_HOME>/logs/dsh-plugins/dsh-plugins.1.log    (previous, after rotation)
+ * The package is shared by every plugin, but the logging RESOURCE belongs to
+ * the DSH process that loads them. So:
  *
- * ## HQ Edge home resolution
+ *   - one DSH process = one log directory = one active file;
+ *   - the directory is `<dsh-root>/<dsh_instance_id>/`, where `dsh-root` is the
+ *     parent HQ Edge instance's `dsh/` directory;
+ *   - `dsh_instance_id` is generated per DSH LAUNCH — a restart produces a new
+ *     directory, a plugin reload does not;
+ *   - plugins never configure a destination or a rotation; they only name
+ *     themselves (`pluginId`) and get a namespaced logger;
+ *   - the DSH process owns rotation, compression, retention and shutdown.
  *
- * The directory comes from the inlined `@hqedge/paths` resolution
- * (`src/paths.ts`): the same root every HQ Edge runtime uses, so plugin logs
- * land inside the current HQ Edge log tree:
+ * Layout:
  *
- *   <HQ_EDGE_HOME>/logs/dsh-plugins/dsh-plugins.log      (current)
- *   <HQ_EDGE_HOME>/logs/dsh-plugins/dsh-plugins.1.log    (previous, after rotation)
+ *   <HQ_EDGE_HOME>/logs/instances/<edge-instance-id>/dsh/
+ *     <dsh-instance-id>/
+ *       instance.json          ← identity of this DSH process
+ *       owner.lock             ← diagnostic only; existence ≠ ownership
+ *       dsh.2026-11-11.log     ← active log (owned by this process)
+ *       dsh.2026-11-11.log.gz  ← published archive
  *
- * Resolution honours the same overrides as the rest of HQ Edge:
+ * ## Guarantees
  *
- *   explicit `configure({ dir })`  >  $DSH_PLUGIN_LOG_DIR  >  $HQ_EDGE_LOG_DIR / $HQ_EDGE_HOME
- *
- * HQ Edge runs DSH with `HQ_EDGE_HOME` set to its own per-user data directory,
- * so plugin logs live next to the rest of that installation's state and never
- * in the user's default home.
- *
- * ## Cross-platform notes
- *
- *  - Pure `node:fs` / `node:os` / `node:path` — no native modules, no shelling
- *    out, nothing that differs between macOS, Linux and Windows but the path
- *    separators (handled by `node:path`).
- *  - Rotation uses unlink-then-rename, because Windows cannot rename over an
- *    existing file.
- *  - File names never embed `:` or other Windows-illegal characters.
- *  - If the log directory cannot be created (read-only install, locked-down
- *    profile) we fall back to the OS temp dir, and if that also fails we keep
- *    logging to the console. A logging failure must never take a plugin down.
- *
- * ## Safety
- *
- *  - Every field passes through `redact()`: credential-shaped keys and values
- *    are replaced with `[redacted]`, so the log is safe to share.
- *  - `getLogger()` never throws. Neither does any log call.
+ *  - `getLogger()` and every log call are synchronous, never throw, and never
+ *    fail plugin business logic because a destination failed;
+ *  - initialization is idempotent across duplicated package copies (the state
+ *    lives in a process-wide `globalThis` registry);
+ *  - a plugin's `fields` can never override identity or level fields;
+ *  - plugin unload/reload never creates a second transport and never closes
+ *    the shared one — only DSH shutdown flushes and closes.
  */
 
-import {
-  mkdirSync,
-  renameSync,
-  rmSync,
-  statSync,
-} from 'node:fs'
-import { appendFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { getHqEdgeHome, getLogDir } from './paths.js'
+import { existsSync, mkdirSync } from 'node:fs'
 
 import { isEnabled, parseLevel, type LogLevel } from './levels.js'
 import { redact } from './redact.js'
+import { getDshLogRoot, getLogBaseDir, getHqEdgeHome } from './paths.js'
+import { RESERVED_FIELDS } from './fields.js'
+import {
+  awaitRuntimeReady,
+  enqueueRecord,
+  flushRuntime,
+  getDshIdentity,
+  getRuntimeSnapshot,
+  initializeDshRuntime,
+  resetRuntime,
+  runRuntimeMaintenance,
+  shutdownRuntime,
+  type DshLogRuntimeConfig,
+  type DshRuntimeSnapshot,
+} from './runtime.js'
+import type { DshRotationFaults, LoggingHealth, LoggingHealthState } from './rotation.js'
 
 export type { LogLevel } from './levels.js'
 export { LOG_LEVELS, levelRank, parseLevel } from './levels.js'
 export { redact, REDACTED } from './redact.js'
+export type { DshRotationConfig, DshRotationFaults, LoggingHealth, LoggingHealthState } from './rotation.js'
+export { DSH_ROTATION, parseSize, todayString } from './rotation.js'
+export type { DshInstanceMetadata, DshLogContext } from './identity.js'
+export { INSTANCE_METADATA_FILENAME, OWNER_LOCK_FILENAME, RESERVED_FIELDS } from './identity.js'
+export type { DshOwnershipHandle } from './ownership.js'
+export { acquireDshOwnership, probeDshOwnership } from './ownership.js'
+export type { DshMaintenanceOptions, DshMaintenanceReport, LegacyPluginLogReport } from './recovery.js'
+export { cleanupExpiredDshInstances, recoverDshInstances, reportLegacyPluginLogs } from './recovery.js'
+export type { HostLogSink } from './runtime.js'
+export { installHostLogSink } from './runtime.js'
 
 /** Arbitrary structured context attached to a log record. */
 export type LogFields = Record<string, unknown>
 
 /** The logger surface every plugin codes against. */
 export interface PluginLogger {
+  /** Plugin that owns these records (`pluginId`, e.g. `dsh-auth`). */
+  readonly pluginId: string
+  /** @deprecated Legacy alias for `pluginId`; kept for existing call sites. */
   readonly component: string
   debug(message: string, fields?: LogFields): void
   info(message: string, fields?: LogFields): void
@@ -86,94 +97,81 @@ export interface PluginLogger {
 }
 
 export interface LoggingOptions {
-  /** Override the log directory (highest precedence, beats every env var). */
+  /**
+   * DSH log ROOT. The per-process instance directory is always appended, so a
+   * shared directory can never be written directly. Highest precedence, beats
+   * `$DSH_LOG_ROOT` and `$HQ_EDGE_INSTANCE_ID`.
+   */
   dir?: string
-  /** Base file name inside the directory. Default `dsh-plugins.log`. */
-  fileName?: string
+  /** Alias for {@link dir}, with a name that says what it is. */
+  dshLogRoot?: string
+  /** Test/host injection of `dsh_instance_id`. Production generates one. */
+  dshInstanceId?: string
   /** Minimum file level. Default from `$DSH_PLUGIN_LOG_LEVEL`, else `info`. */
   level?: LogLevel
   /**
-   * Minimum level mirrored to the console. HQ Edge captures DSH's stdout, so
+   * Minimum level mirrored to DSH's stdout. HQ Edge captures that stream, so
    * this is how a plugin surfaces a problem without anyone opening a file.
    * Default from `$DSH_PLUGIN_LOG_CONSOLE`, else `warn`.
    */
   consoleLevel?: LogLevel | 'off'
-  /** Rotate once the current file exceeds this many bytes. Default 5 MiB. */
+  /** Rotate once the active file exceeds this size. Default 10 MiB. */
+  maxSize?: string
+  /** @deprecated Use {@link maxSize}. Converted to a byte count. */
   maxBytes?: number
-  /** Number of files kept (current + rotated). Default 4. */
+  /** @deprecated Retained for source compatibility; superseded by date+size rotation. */
   maxFiles?: number
+  /** Days of compressed history to keep. Default 14. */
+  retentionDays?: number
+  /** Total bytes this instance directory may consume. Default 256 MiB. */
+  maxStorageBytes?: number
+  /** Gzip rotated files. Default true. */
+  compress?: boolean
+  /** Test-only fault injection for rotation. */
+  faults?: DshRotationFaults
+  /** Test-only: bypass the OS ownership lock. */
+  skipOwnership?: boolean
+  /** Clock override (tests). */
+  now?: () => Date
+  /** Internal diagnostic sink (tests). */
+  onDiagnostic?: (record: Record<string, unknown>) => void
 }
 
-const DEFAULT_FILE_NAME = 'dsh-plugins.log'
-const DEFAULT_MAX_BYTES = 5 * 1024 * 1024
-const DEFAULT_MAX_FILES = 4
 const DEFAULT_LEVEL: LogLevel = 'info'
 const DEFAULT_CONSOLE_LEVEL: LogLevel = 'warn'
 
 // ── configuration ───────────────────────────────────────────────────────────
 
 interface ResolvedConfig {
-  dir: string
-  fileName: string
+  dshLogRoot: string | undefined
+  dshInstanceId: string | undefined
   level: LogLevel
   consoleLevel: LogLevel | 'off'
-  maxBytes: number
-  maxFiles: number
+  maxSize: string
+  retentionDays: number
+  maxStorageBytes: number
+  compress: boolean
+  faults: DshRotationFaults | undefined
+  skipOwnership: boolean
+  now: (() => Date) | undefined
+  onDiagnostic: ((record: Record<string, unknown>) => void) | undefined
 }
 
+let override: LoggingOptions | null = null
+let resolved: ResolvedConfig | null = null
+let bootstrapped = false
 /**
- * Process-wide logger state, held on `globalThis`.
- *
- * Plugins are built independently, so each one gets its OWN bundled copy of
- * this module. Without a shared home, "one unified log" would degrade into one
- * sink (and one rotation counter) per plugin. Keying the state off a
- * `Symbol.for` on `globalThis` makes every copy — bundled, external, or
- * duplicated across installs — cooperate inside the same DSH process.
+ * Pending boot-banner emission. `flushLogs()` must await it: the banner is
+ * written once the destination is decided, so without this barrier a flush
+ * could return before the banner (and any rotation it triggers) had landed.
  */
-const STATE_KEY = Symbol.for('@huaqiu/dsh-plugin-log/state')
-
-interface LogState {
-  override: Partial<LoggingOptions> | null
-  resolved: ResolvedConfig | null
-  sink: FileSink | null
-  bootstrapped: boolean
-}
-
-function state(): LogState {
-  const g = globalThis as Record<symbol, unknown>
-  const existing = g[STATE_KEY] as LogState | undefined
-  if (existing) return existing
-  const fresh: LogState = { override: null, resolved: null, sink: null, bootstrapped: false }
-  g[STATE_KEY] = fresh
-  return fresh
-}
-
-const getOverride = (): Partial<LoggingOptions> | null => state().override
-const setOverride = (value: Partial<LoggingOptions> | null): void => { state().override = value }
-const getSink = (): FileSink | null => state().sink
-const setSink = (value: FileSink | null): void => { state().sink = value }
-
-/**
- * Programmatically configure logging. Call before the first `getLogger()`;
- * later calls take effect on the next `resetLogging()` (tests, host re-init).
- */
-export function configureLogging(options: LoggingOptions): void {
-  setOverride({ ...(getOverride() ?? {}), ...options })
-  state().resolved = null
-}
-
-/** Forget all configuration and cached loggers. Test/teardown helper. */
-export function resetLogging(): void {
-  const s = state()
-  s.override = null
-  s.resolved = null
-  s.sink = null
-  s.bootstrapped = false
-}
+let bootPromise: Promise<void> | null = null
 
 function env(name: string): string | undefined {
   const value = process.env[name]
-  return value !== undefined && value.trim().length > 0 ? value.trim() : undefined
+  if (value === undefined) return undefined
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : undefined
 }
 
 function readInt(value: string | undefined, fallback: number): number {
@@ -182,175 +180,131 @@ function readInt(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
 }
 
-/**
- * Pick the log directory, honouring every override in precedence order.
- * Falls back to the OS temp directory when the DSH home is not writable — a
- * plugin that cannot log to its preferred location still logs somewhere.
- */
-function resolveLogDir(explicit?: string): { dir: string; fallback: boolean } {
-  const candidates: string[] = []
-  if (explicit !== undefined && explicit.length > 0) candidates.push(explicit)
-  const fromEnv = env('DSH_PLUGIN_LOG_DIR')
-  if (fromEnv) candidates.push(fromEnv)
-  // Inside the current HQ Edge log tree (honours $HQ_EDGE_HOME / $HQ_EDGE_LOG_DIR
-  // through the inlined paths resolver), so plugin logs follow the host install.
-  candidates.push(getLogDir('dsh-plugins'))
-  candidates.push(join(tmpdir(), 'hq-dsh-plugins', 'logs'))
+function readBool(value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined) return fallback
+  const normalized = value.trim().toLowerCase()
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true
+  if (['0', 'false', 'no', 'off'].includes(normalized)) return false
+  return fallback
+}
 
-  for (let i = 0; i < candidates.length; i += 1) {
-    const dir = candidates[i]
-    if (!dir) continue
-    try {
-      mkdirSync(dir, { recursive: true })
-      return { dir, fallback: i > 0 }
-    } catch {
-      /* read-only or locked-down — try the next candidate */
-    }
-  }
-
-  // Nothing is writable. Report the last candidate; the sink degrades to
-  // console output rather than failing.
-  const last = candidates[candidates.length - 1]
-  return { dir: last ?? '.', fallback: true }
+function consoleLevelFrom(raw: string | undefined, explicit?: LogLevel | 'off'): LogLevel | 'off' {
+  if (explicit === 'off') return 'off'
+  if (explicit !== undefined) return explicit
+  if (raw === 'off' || raw === 'none' || raw === '0') return 'off'
+  if (raw === 'all' || raw === '1' || raw === 'true') return 'debug'
+  return parseLevel(raw, DEFAULT_CONSOLE_LEVEL)
 }
 
 function currentConfig(): ResolvedConfig {
-  const s = state()
-  if (s.resolved) return s.resolved
-  const o = s.override
-  const { dir } = resolveLogDir(o?.dir)
-  const consoleRaw = o?.consoleLevel ?? env('DSH_PLUGIN_LOG_CONSOLE')
-  s.resolved = {
-    dir,
-    fileName: o?.fileName ?? env('DSH_PLUGIN_LOG_FILE') ?? DEFAULT_FILE_NAME,
-    level: o?.level ?? parseLevel(env('DSH_PLUGIN_LOG_LEVEL'), DEFAULT_LEVEL),
-    consoleLevel:
-      o?.consoleLevel === 'off'
-        ? 'off'
-        : consoleRaw === 'off' || consoleRaw === 'none' || consoleRaw === '0'
-          ? 'off'
-          : consoleRaw === 'all' || consoleRaw === '1' || consoleRaw === 'true'
-            ? 'debug'
-            : parseLevel(consoleRaw, DEFAULT_CONSOLE_LEVEL),
-    maxBytes: o?.maxBytes ?? readInt(env('DSH_PLUGIN_LOG_MAX_BYTES'), DEFAULT_MAX_BYTES),
-    maxFiles: o?.maxFiles ?? readInt(env('DSH_PLUGIN_LOG_MAX_FILES'), DEFAULT_MAX_FILES),
+  if (resolved) return resolved
+  const o: LoggingOptions = override ?? {}
+  const rootFromOption = o.dshLogRoot ?? o.dir
+  const rootFromEnv = env('DSH_LOG_ROOT') ?? env('DSH_PLUGIN_LOG_DIR')
+  const maxSize =
+    o.maxSize ?? (o.maxBytes !== undefined ? `${Math.max(1, Math.floor(o.maxBytes / (1024 * 1024)))}m` : undefined)
+  resolved = {
+    dshLogRoot: rootFromOption ?? rootFromEnv,
+    dshInstanceId: o.dshInstanceId,
+    level: o.level ?? parseLevel(env('DSH_PLUGIN_LOG_LEVEL'), DEFAULT_LEVEL),
+    consoleLevel: consoleLevelFrom(env('DSH_PLUGIN_LOG_CONSOLE'), o.consoleLevel),
+    maxSize: maxSize ?? env('DSH_PLUGIN_LOG_MAX_BYTES_SIZE') ?? '10m',
+    retentionDays: o.retentionDays ?? readInt(env('DSH_PLUGIN_LOG_RETENTION_DAYS'), 14),
+    maxStorageBytes: o.maxStorageBytes ?? readInt(env('DSH_PLUGIN_LOG_MAX_STORAGE_BYTES'), 256 * 1024 * 1024),
+    compress: o.compress ?? readBool(env('DSH_PLUGIN_LOG_COMPRESS'), true),
+    faults: o.faults,
+    skipOwnership: o.skipOwnership === true,
+    now: o.now,
+    onDiagnostic: o.onDiagnostic,
   }
-  return s.resolved
+  return resolved
 }
 
-/** Absolute path of the current log file, or `null` before first use. */
-export function logFilePath(): string | null {
-  const s = getSink()
-  return s ? s.path : null
+function runtimeConfig(cfg: ResolvedConfig): DshLogRuntimeConfig {
+  return {
+    dshLogRoot: cfg.dshLogRoot,
+    dshInstanceId: cfg.dshInstanceId,
+    rotation: {
+      frequency: 'daily',
+      maxSize: cfg.maxSize,
+      retentionDays: cfg.retentionDays,
+      maxStorageBytes: cfg.maxStorageBytes,
+      compress: cfg.compress,
+    },
+    faults: cfg.faults,
+    skipOwnership: cfg.skipOwnership,
+    now: cfg.now,
+    onDiagnostic: cfg.onDiagnostic,
+  }
 }
-
-/** Absolute directory plugin logs are written to. */
-export function logDir(): string {
-  return currentConfig().dir
-}
-
-// ── file sink ───────────────────────────────────────────────────────────────
 
 /**
- * Serialized appender with size-based rotation.
- *
- * Writes are chained on a single promise so concurrent log calls from different
- * plugins in the same process can never interleave or race the rotation.
+ * Programmatically configure logging. Call before the first `getLogger()`;
+ * once the destination is established a later call only takes effect after
+ * {@link shutdownLogging} + {@link resetLogging} (tests, host re-init).
  */
-class FileSink {
-  readonly path: string
-  private queue: Promise<void> = Promise.resolve()
-  private bytes: number
-
-  constructor(
-    private readonly dir: string,
-    private readonly fileName: string,
-    private readonly maxBytes: number,
-    private readonly maxFiles: number,
-  ) {
-    this.path = join(dir, fileName)
-    this.bytes = this.currentSize()
-  }
-
-  private currentSize(): number {
-    try {
-      return statSync(this.path).size
-    } catch {
-      return 0
-    }
-  }
-
-  /** Rotate when appending `next` bytes would exceed the cap. */
-  private rotateIfNeeded(next: number): void {
-    if (this.maxBytes <= 0) return
-    if (this.bytes + next <= this.maxBytes) return
-    try {
-      // Shift: .2 -> .3, .1 -> .2, current -> .1 (oldest is dropped).
-      for (let i = this.maxFiles - 1; i >= 1; i -= 1) {
-        const from = i === 1 ? join(this.dir, this.fileName) : this.rotated(i - 1)
-        const to = this.rotated(i)
-        if (!exists(from)) continue
-        // Windows cannot rename over an existing file — remove the target first.
-        if (exists(to)) rmSync(to, { force: true })
-        renameSync(from, to)
-      }
-      this.bytes = this.currentSize()
-    } catch {
-      // Rotation is best-effort: never lose the write because of it.
-    }
-  }
-
-  private rotated(index: number): string {
-    const dot = this.fileName.lastIndexOf('.')
-    const stem = dot > 0 ? this.fileName.slice(0, dot) : this.fileName
-    const ext = dot > 0 ? this.fileName.slice(dot) : ''
-    return join(this.dir, `${stem}.${index}${ext}`)
-  }
-
-  /** Enqueue one already-serialized line. Never rejects. */
-  write(line: string): void {
-    const size = Buffer.byteLength(line, 'utf8')
-    this.bytes += size
-    this.queue = this.queue
-      .then(async () => {
-        this.rotateIfNeeded(size)
-        await appendFile(this.path, line, 'utf8')
-      })
-      .catch(() => {
-        /* a full or locked disk must never surface as a plugin failure */
-      })
-  }
-
-  /** Wait for everything enqueued so far to reach the file. */
-  flush(): Promise<void> {
-    return this.queue
+export function configureLogging(options: LoggingOptions): void {
+  override = { ...(override ?? {}), ...options }
+  resolved = null
+  if (getDshIdentity() !== null) {
+    // The destination is already established. Say so in the current log
+    // instead of silently pretending the new configuration applies.
+    enqueueRecord(
+      serialize({
+        time: Date.now(),
+        ts: new Date().toISOString(),
+        level: 'warn',
+        msg: 'configureLogging called after logging started; restart required for it to take effect',
+        pluginId: 'dsh-plugin-log',
+        component: 'dsh-plugin-log',
+        pid: process.pid,
+      }),
+    )
   }
 }
 
-function exists(path: string): boolean {
+/** Forgets all configuration and cached state. Test/teardown helper. */
+export async function resetLogging(): Promise<void> {
+  if (bootPromise) await bootPromise
+  await resetRuntime()
+  override = null
+  resolved = null
+  bootstrapped = false
+  bootPromise = null
+}
+
+// ── record building ─────────────────────────────────────────────────────────
+
+/** Drops reserved keys so a plugin cannot spoof identity or level. */
+function sanitize(fields: LogFields | undefined): LogFields {
+  if (!fields) return {}
+  const out: LogFields = {}
+  for (const [key, value] of Object.entries(fields)) {
+    if (RESERVED_FIELDS.has(key)) continue
+    out[key] = value
+  }
+  return out
+}
+
+/** JSON.stringify that can never throw (BigInt, cycles in exotic values). */
+function serialize(record: Record<string, unknown>): string {
   try {
-    statSync(path)
-    return true
+    return JSON.stringify(record)
   } catch {
-    return false
+    try {
+      return JSON.stringify({
+        time: Date.now(),
+        ts: new Date().toISOString(),
+        level: 'error',
+        msg: '[unserializable log record]',
+        pluginId: typeof record.pluginId === 'string' ? record.pluginId : 'unknown',
+        pid: process.pid,
+      })
+    } catch {
+      return '{"level":"error","msg":"[unserializable log record]"}'
+    }
   }
 }
-
-function currentSink(): FileSink {
-  const existing = getSink()
-  if (existing) return existing
-  const cfg = currentConfig()
-  const created = new FileSink(cfg.dir, cfg.fileName, cfg.maxBytes, cfg.maxFiles)
-  setSink(created)
-  return created
-}
-
-/** Wait for all pending writes to land (shutdown hooks, tests). */
-export async function flushLogs(): Promise<void> {
-  await getSink()?.flush()
-}
-
-// ── logger ──────────────────────────────────────────────────────────────────
 
 function consoleMethod(level: LogLevel): 'log' | 'info' | 'warn' | 'error' {
   if (level === 'error') return 'error'
@@ -359,92 +313,232 @@ function consoleMethod(level: LogLevel): 'log' | 'info' | 'warn' | 'error' {
   return 'log'
 }
 
-function createLogger(component: string, defaults: LogFields): PluginLogger {
-  const emit = (level: LogLevel, message: string, fields?: LogFields): void => {
-    try {
-      const cfg = currentConfig()
-      if (!isEnabled(level, cfg.level) && !(cfg.consoleLevel !== 'off' && isEnabled(level, cfg.consoleLevel))) {
-        return
-      }
+function emit(pluginId: string, defaults: LogFields, level: LogLevel, message: string, fields?: LogFields): void {
+  try {
+    const cfg = currentConfig()
+    const fileEnabled = isEnabled(level, cfg.level)
+    const consoleEnabled = cfg.consoleLevel !== 'off' && isEnabled(level, cfg.consoleLevel)
+    if (!fileEnabled && !consoleEnabled) return
 
-      const record: LogFields = {
-        ts: new Date().toISOString(),
-        level,
-        component,
-        pid: process.pid,
-        msg: message,
-      }
-      if (Object.keys(defaults).length > 0) Object.assign(record, defaults)
-      if (fields && Object.keys(fields).length > 0) Object.assign(record, fields)
+    ensureInitialized()
 
-      const safe = redact(record) as LogFields
-
-      if (isEnabled(level, cfg.level)) {
-        currentSink().write(`${JSON.stringify(safe)}\n`)
-      }
-      if (cfg.consoleLevel !== 'off' && isEnabled(level, cfg.consoleLevel)) {
-        const { msg, ...rest } = safe
-        // eslint-disable-next-line no-console
-        console[consoleMethod(level)](`[${component}] ${String(msg)}`, rest)
-      }
-    } catch {
-      /* logging must never throw */
+    const identity = getDshIdentity()
+    const record: LogFields = {
+      time: Date.now(),
+      // Legacy ISO timestamp; `time` is the canonical field.
+      ts: new Date().toISOString(),
+      level,
+      msg: message,
+      pluginId,
+      // Legacy alias, still emitted so existing `grep '"component"'` recipes
+      // keep working. Never settable by the caller (see RESERVED_FIELDS).
+      component: pluginId,
+      installationId: identity?.installationId ?? null,
+      hostType: identity?.hostType ?? null,
+      hostInstanceId: identity?.hostInstanceId ?? null,
+      edgeInstanceId: identity?.edgeInstanceId ?? null,
+      dshInstanceId: identity?.dshInstanceId ?? null,
+      pid: identity?.pid ?? process.pid,
     }
-  }
+    Object.assign(record, sanitize(defaults))
+    Object.assign(record, sanitize(fields))
 
+    const safe = redact(record) as LogFields
+
+    if (fileEnabled) {
+      enqueueRecord(`${serialize(safe)}\n`)
+    }
+    if (consoleEnabled) {
+      const { msg, ...rest } = safe
+      // eslint-disable-next-line no-console
+      console[consoleMethod(level)](`[${pluginId}] ${String(msg)}`, rest)
+    }
+  } catch {
+    /* logging must never throw into plugin business logic */
+  }
+}
+
+function createLoggerFor(pluginId: string, defaults: LogFields): PluginLogger {
   return {
-    component,
-    debug: (message, fields) => emit('debug', message, fields),
-    info: (message, fields) => emit('info', message, fields),
-    warn: (message, fields) => emit('warn', message, fields),
-    error: (message, fields) => emit('error', message, fields),
-    child: (fields) => createLogger(component, { ...defaults, ...fields }),
+    pluginId,
+    component: pluginId,
+    debug: (message, fields) => emit(pluginId, defaults, 'debug', message, fields),
+    info: (message, fields) => emit(pluginId, defaults, 'info', message, fields),
+    warn: (message, fields) => emit(pluginId, defaults, 'warn', message, fields),
+    error: (message, fields) => emit(pluginId, defaults, 'error', message, fields),
+    child: (fields) => createLoggerFor(pluginId, { ...defaults, ...fields }),
   }
 }
 
 /**
- * Get (or create) the logger for `component`.
+ * Gets (or creates) the logger for `pluginId`.
  *
- * `component` should be the short plugin name used everywhere else in its
- * output — `dsh-auth`, `dsh-artifacts`, `dsh-schematic-gen` — so the unified
- * file can be filtered with a single grep.
+ * `pluginId` should be the value used everywhere else in that plugin's output —
+ * `dsh-auth`, `dsh-artifacts`, `dsh-schematic-gen`, or the full package name
+ * (`@huaqiu/dsh-plugin-eda`) when that is less ambiguous. It is attached to
+ * every record, which is what makes per-plugin filtering possible without a
+ * file per plugin.
  */
-export function getLogger(component: string, defaults: LogFields = {}): PluginLogger {
+export function getLogger(pluginId: string, defaults: LogFields = {}): PluginLogger {
+  ensureInitialized()
   bootstrap()
-  return createLogger(component, defaults)
+  return createLoggerFor(pluginId, defaults)
 }
 
-// ── boot banner ─────────────────────────────────────────────────────────────
+/** Spec-shaped factory: `createLogger({ pluginId })`. Equivalent to `getLogger`. */
+export function createLogger(options: { pluginId: string }): PluginLogger {
+  return getLogger(options.pluginId)
+}
+
+// ── initialization / boot banner ────────────────────────────────────────────
+
+function ensureInitialized(): void {
+  if (getDshIdentity() !== null) return
+  initializeDshRuntime(runtimeConfig(currentConfig()))
+}
 
 /**
- * Write one record describing where this process is logging.
+ * One record describing where this process logs and which identities it
+ * carries. This is the line that makes the next "one editor logged, the other
+ * did not" investigation cheap.
  *
- * This is the line that makes the next "we upgraded deepseek-harness and
- * something stopped syncing" investigation cheap: it pins the DSH home, the
- * resolved log file, the platform and the DSH/plugin versions in use at the
- * moment the first plugin touched the log.
+ * Emitted AFTER the destination is decided, so `ownership` and `logFile` in the
+ * banner describe reality instead of the transient "pending" state. Records
+ * logged before then are buffered and appear before it in the file.
  */
 function bootstrap(): void {
-  const s = state()
-  if (s.bootstrapped) return
-  s.bootstrapped = true
-  const cfg = currentConfig()
-  const logger = createLogger('dsh-plugin-log', {})
+  if (bootstrapped) return
+  bootstrapped = true
+  bootPromise = awaitRuntimeReady().then(() => emitBootRecord())
+}
+
+function emitBootRecord(): void {
+  const snapshot = getRuntimeSnapshot()
+  const identity = getDshIdentity()
   let hqEdgeHome: string | null = null
   try {
     hqEdgeHome = getHqEdgeHome()
   } catch {
     hqEdgeHome = null
   }
-  logger.info('plugin log ready', {
-    logFile: join(cfg.dir, cfg.fileName),
-    logDir: cfg.dir,
+  emit('dsh-plugin-log', {}, 'info', 'dsh plugin log ready', {
+    logRoot: snapshot.logRoot,
+    instanceDir: snapshot.instanceDir,
+    logFile: snapshot.logFile,
+    ownership: snapshot.ownership,
+    degradedReason: snapshot.degradedReason,
+    version: identity?.version ?? null,
+    targetHost: identity?.targetHost ?? null,
+    dshHome: identity?.dshHome ?? null,
     hqEdgeHome,
-    level: cfg.level,
-    consoleLevel: cfg.consoleLevel,
-    pid: process.pid,
+    level: currentConfig().level,
+    consoleLevel: currentConfig().consoleLevel,
     node: process.version,
     platform: process.platform,
     arch: process.arch,
   })
+}
+
+// ── introspection ───────────────────────────────────────────────────────────
+
+/** Absolute directory this DSH process exclusively owns, or null before init. */
+export function logDir(): string | null {
+  ensureInitialized()
+  return getRuntimeSnapshot().instanceDir
+}
+
+/** Absolute path of the active log file, or null before it is open. */
+export function logFilePath(): string | null {
+  return getRuntimeSnapshot().logFile
+}
+
+/** Root that contains one directory per DSH instance. */
+export function logRoot(): string | null {
+  ensureInitialized()
+  return getRuntimeSnapshot().logRoot
+}
+
+/** Identity of this DSH process (null before initialization). */
+export function dshInstanceInfo(): DshRuntimeSnapshot {
+  return getRuntimeSnapshot()
+}
+
+export interface LoggingHealthReport extends LoggingHealth {
+  instanceDir: string | null
+  logFile: string | null
+  ownership: DshRuntimeSnapshot['ownership']
+  degradedReason: string | null
+}
+
+/** Destination health, for a diagnostics/health endpoint or a support bundle. */
+export function getLoggingHealth(): LoggingHealthReport {
+  const snapshot = getRuntimeSnapshot()
+  const health = snapshot.health
+  const state: LoggingHealthState = health
+    ? health.state
+    : snapshot.degradedReason !== null
+      ? 'unavailable'
+      : snapshot.ready
+        ? 'healthy'
+        : 'initializing'
+  return {
+    state,
+    reason: health?.reason ?? snapshot.degradedReason ?? (snapshot.ready ? 'destination open' : 'not initialized'),
+    droppedRecords: (health?.droppedRecords ?? 0) + snapshot.droppedBeforeReady,
+    rotationCount: health?.rotationCount ?? 0,
+    lastError: health?.lastError ?? null,
+    instanceDir: snapshot.instanceDir,
+    logFile: snapshot.logFile,
+    ownership: snapshot.ownership,
+    degradedReason: snapshot.degradedReason,
+  }
+}
+
+// ── lifecycle ───────────────────────────────────────────────────────────────
+
+/** Waits until the destination is decided. For tests and startup diagnostics. */
+export function ready(): Promise<boolean> {
+  ensureInitialized()
+  return awaitRuntimeReady()
+}
+
+/** Waits for all pending records (and any rotation they triggered) to land. */
+export async function flushLogs(): Promise<void> {
+  if (bootPromise) await bootPromise
+  await flushRuntime()
+}
+
+/**
+ * Final flush + close + ownership release.
+ *
+ * Owned by the DSH host. A plugin must NEVER call this: it would close the
+ * shared destination for every other plugin in the process.
+ */
+export async function shutdownLogging(): Promise<void> {
+  if (bootPromise) await bootPromise
+  await shutdownRuntime()
+}
+
+/** Runs historical recovery/retention now (tests, or a DSH maintenance hook). */
+export async function runMaintenance(
+  options: { timeBudgetMs?: number; retentionDays?: number; minAgeMs?: number } = {},
+): Promise<void> {
+  ensureInitialized()
+  await awaitRuntimeReady()
+  await runRuntimeMaintenance(options)
+}
+
+/**
+ * Creates the log root if it does not exist. Exposed for the DSH host's
+ * startup path, which may want to validate the destination before plugins load.
+ */
+export function ensureLogRoot(): string {
+  const cfg = currentConfig()
+  const root = cfg.dshLogRoot ?? getDshLogRoot(getDshIdentity()?.edgeInstanceId ?? null)
+  try {
+    if (!existsSync(root)) mkdirSync(root, { recursive: true })
+  } catch {
+    /* the runtime reports the failure with full context */
+  }
+  return root
 }

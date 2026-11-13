@@ -34,6 +34,7 @@ const zh = {
   'subscription.package': '套餐：{name}',
   'subscription.quota': '可用次数：{count}',
   'subscription.quotaCount': '{used} / {total}次',
+  'subscription.quotaPercent': '{percent}%',
   'subscription.noQuota': '无可用次数',
   'subscription.unsubscribed': '未订阅',
   'subscription.subscribe': '订阅 / 升级',
@@ -44,15 +45,16 @@ const zh = {
   'subscription.quotaHeader': '套餐与使用额度',
   'subscription.upgrade': '订阅 / 升级套餐',
   'subscription.online': '在线',
-  // AI token usage (`/user-rest/api/ai/usage`) — the third metric beside GEN
-  // and ERC. `aiUsageCount` is the available/total point balance (the same
-  // "what is left" convention as the GEN/ERC cards' `currentQuota`);
-  // `aiUsagePercent` is the hover detail, because the bar itself only shows
-  // the ratio visually.
+  // AI usage — the third metric beside GEN and ERC. The headline is the
+  // upstream `quotaRemainPercent`, passed through unchanged (`99.68%`).
   'subscription.ai': 'AI 用量',
-  'subscription.aiUsageCount': '{available} / {total} 点',
-  'subscription.aiUsagePercent': '剩余 {percent}%',
+  'subscription.aiUsagePercent': '{percent}%',
   'subscription.aiUsageUnknown': '暂无数据',
+  // Turn-error quota CTA (rendered inside the Chat turn-error card when the
+  // huaqiu gateway reports `insufficient_user_quota`).
+  'turnError.aiQuotaCta': '升级获取更多 AI 额度',
+  'turnError.aiQuotaSignIn': '登录后升级',
+  'turnError.aiQuotaOpenFailed': '无法打开订阅页面，请稍后重试。',
 
   'card.title': '华秋 EDA AI（eda.cn）登录',
   'card.desc': '工具「{tool}」需要登录华秋 EDA AI 账号才能继续。请在下方的登录框完成登录（或点击左侧「华秋EDA AI登录」按钮）；登录完成后，回复助手「已登录，请重试」，助手会自动重新调用该工具。',
@@ -87,6 +89,7 @@ const en: Record<AuthCopyKey, string> = {
   'subscription.package': 'Plan: {name}',
   'subscription.quota': 'Available: {count}',
   'subscription.quotaCount': '{used} / {total}',
+  'subscription.quotaPercent': '{percent}%',
   'subscription.noQuota': 'No quota left',
   'subscription.unsubscribed': 'Not subscribed',
   'subscription.subscribe': 'Subscribe / Upgrade',
@@ -97,15 +100,16 @@ const en: Record<AuthCopyKey, string> = {
   'subscription.quotaHeader': 'Plan & usage quota',
   'subscription.upgrade': 'Subscribe / Upgrade plan',
   'subscription.online': 'Online',
-  // AI token usage (`/user-rest/api/ai/usage`) — the third metric beside GEN
-  // and ERC. `aiUsageCount` is the available/total point balance (the same
-  // "what is left" convention as the GEN/ERC cards' `currentQuota`);
-  // `aiUsagePercent` is the hover detail, because the bar itself only shows
-  // the ratio visually.
+  // AI usage — the third metric beside GEN and ERC. The headline is the
+  // upstream `quotaRemainPercent`, passed through unchanged (`99.68%`).
   'subscription.ai': 'AI usage',
-  'subscription.aiUsageCount': '{available} / {total} pts',
-  'subscription.aiUsagePercent': '{percent}% remaining',
+  'subscription.aiUsagePercent': '{percent}%',
   'subscription.aiUsageUnknown': 'No data',
+  // Turn-error quota CTA (rendered inside the Chat turn-error card when the
+  // huaqiu gateway reports `insufficient_user_quota`).
+  'turnError.aiQuotaCta': 'Upgrade for more AI tokens',
+  'turnError.aiQuotaSignIn': 'Sign in to upgrade',
+  'turnError.aiQuotaOpenFailed': 'Could not open the subscription page. Please try again later.',
 
   'card.title': 'Huaqiu EDA AI (eda.cn) login',
   // The reply phrase used to be hardcoded to the Chinese "已登录，请重试" even

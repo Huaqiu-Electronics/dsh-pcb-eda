@@ -2,10 +2,17 @@
  * `@huaqiu/dsh-tool-plugin-update` — browser half.
  *
  * Mounts one sidebar toolbutton in the Huaqiu family block ("插件更新") with a
- * numeric badge equal to the actionable plugin-update count (spec §6.3/§7.1:
- * only compatible `update` + `install` items after host/HQ-Edge filtering and
- * after excluding the ignored offer; runtime updates are NOT counted). Click
- * opens the review/confirm/ignore modal.
+ * numeric badge equal to the number of updates still on offer:
+ *
+ *   - the actionable plugin items (spec §6.3/§7.1 — compatible `update` +
+ *     `install` after host/HQ-Edge filtering, minus the ignored offer and any
+ *     muted item), PLUS
+ *   - one for the HQ Edge runtime update when hq-edge reports one (a separate
+ *     deliverable with its own card, still a pending update — see `badge.ts`).
+ *
+ * The durable job history never contributes (a settled job is not an update);
+ * a job that is still running is the only non-offer allowed to show a count.
+ * Click opens the review/confirm/ignore modal.
  *
  * The authoritative state is the hq-edge report fetched through the plugin's
  * same-origin forwarding routes. A tiny in-memory store owns the latest report
@@ -23,16 +30,19 @@ import {
 } from '@huaqiu/dsh-sidebar-entry'
 import {
   checkUpdates,
+  fetchActivity,
   fetchJobStatus,
   fetchReport,
   TERMINAL_PHASES,
   type PluginUpdateReport,
+  type UpdateActivity,
   type UpdateJob,
   type UpdateJobStatus,
 } from './api.js'
 import { COPY } from './copy.js'
 import { PLUGIN_ICON } from './icons.js'
-import { openUpdateView, type UpdateStoreLike } from './update-view.js'
+import { openUpdateView, takeOverUpdateView, type UpdateStoreLike } from './update-view.js'
+import { badgeCountFor } from './badge.js'
 
 /** Stable data attributes identifying the injected entry row. */
 export const UPDATE_ENTRY_SELECTOR = '[data-hq-plugin-update-entry]'
@@ -185,7 +195,10 @@ const ENTRY_CSS_TEXT = `
  * publish is backfilled by {@link ensureDesignTokens} — see the note there.
  */
 const VIEW_CSS_TEXT = `
-/* ── Overlay + panel (ui-primitives Modal.module.css) ─────────────────── */
+/* ── Overlay + panel ─────────────────────────────────────────────────────
+ * A 360 px card, the width the prototype fixes: the panel is a decision
+ * surface inside the EDA workbench, not a page, and 360 is the width at which
+ * a card's title, version row and two actions still fit on one line each. */
 .hqpu-overlay {
   position: fixed;
   inset: 0;
@@ -200,454 +213,140 @@ const VIEW_CSS_TEXT = `
   position: absolute;
   /* Only paint excludes the native caption; the root still blocks clicks. */
   inset: var(--dsh-frame-chrome-top, 0px) 0 0;
-  background: var(--dsw-alias-bg-mask-1);
+  background: var(--dsw-alias-bg-mask-3, var(--dsw-alias-bg-mask-1));
   animation: hqpu-fade var(--ds-transition-duration, 0.2s) var(--ds-ease-in-out, ease);
 }
 .hqpu-panel {
   position: relative;
   z-index: 1;
-  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  width: min(920px, 100%);
-  max-height: 100%;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(86vh, 720px);
   overflow: hidden;
-  border: 0;
-  border-radius: var(--dsw-radius-panel);
-  background: var(--dsw-alias-bg-layer-2);
-  box-shadow: var(--dsw-elevation-prominent);
-  color: var(--dsw-alias-label-primary);
+  border: 0.5px solid var(--hq-border);
+  border-radius: 12px;
+  background: var(--hq-bg);
+  color: var(--hq-text);
+  box-shadow: var(--dsw-elevation-prominent, 0 16px 48px rgba(0, 0, 0, 0.24));
   animation: hqpu-panel-in var(--ds-transition-duration, 0.2s) var(--ds-ease-in-out, ease);
 }
 .hqpu-panel:focus {
   outline: none;
 }
+.hqpu-panel *,
+.hqpu-panel *::before,
+.hqpu-panel *::after {
+  box-sizing: border-box;
+}
+/* 'hidden' is the one display switch this sheet uses for drawers, so it has to
+ * beat the layout rules below it. */
+.hqpu-panel [hidden] {
+  display: none !important;
+}
+
+/* The palette, expressed once. Every rule below reads these aliases, so a
+ * theme switch (or the HuaQiu brand override) needs no rule to change. */
+.hqpu-panel,
+.hqpu-panel * {
+  --hq-bg: var(--dsw-alias-bg-layer-1);
+  --hq-card: var(--dsw-alias-bg-layer-2);
+  --hq-card-soft: var(--dsw-alias-bg-overlay);
+  --hq-border: var(--dsw-alias-border-l2);
+  --hq-border-strong: var(--dsw-alias-border-l3);
+  --hq-hover: var(--dsw-alias-interactive-bg-hover);
+  --hq-text: var(--dsw-alias-label-primary);
+  --hq-muted: var(--dsw-alias-label-secondary);
+  --hq-faint: var(--dsw-alias-label-tertiary);
+  --hq-brand: var(--dsw-alias-brand-primary);
+  --hq-brand-soft: var(--dsw-alias-button-primary-hover);
+  --hq-brand-dim: var(--dsw-alias-button-primary-dimmed);
+  --hq-emerald: var(--dsw-alias-state-success-primary);
+  --hq-amber: var(--dsw-alias-state-warn-primary);
+  --hq-amber-ink: var(--dsw-alias-state-warn-label, var(--dsw-alias-state-warn-primary));
+  /* Ink on an amber fill. Fixed rather than themed: warn-primary is a bright
+   * amber in both themes, so the readable ink is the same warm near-black. */
+  --hq-on-amber: #2b1a00;
+  --hq-rose: var(--dsw-alias-state-error-primary);
+  /* Ink on a saturated fill. 'toast-label' is white in both themes and is
+   * backfilled by ensureDesignTokens when the shell omits it. */
+  --hq-on-accent: var(--dsw-alias-brand-primary-invert, var(--dsw-alias-toast-label, #fff));
+  --hq-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* One type scale: 9.5 / 10.5 / 11.5 / 12 / 13. Nothing inline, nothing
+   * inherited from the shell's 20 px body default. */
+  --hq-fs-micro: 9.5px;
+  --hq-fs-meta: 10.5px;
+  --hq-fs-body: 11.5px;
+  --hq-fs-title: 13px;
+}
+
 @keyframes hqpu-fade {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 @keyframes hqpu-panel-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-/* ── Head row (ui-primitives Modal .header) ─────────────────────────────── */
-.hqpu-head {
-  display: flex;
-  flex: none;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  box-sizing: border-box;
-  /* The official Title row: 22/14/12/24 — the toolbar sits 10px further right
-   * than the body content on purpose, matching the shell's own close button. */
-  padding: 22px 14px 12px 24px;
-}
-.hqpu-head-main {
-  min-width: 0;
-  max-width: 100%;
-}
-.hqpu-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 500;
-  line-height: 28px;
-  color: var(--dsw-alias-label-primary);
-}
-.hqpu-intro {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 4px 0 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-info {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 20px;
-  height: 20px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--dsw-radius-sm);
-  background: transparent;
-  color: var(--dsw-alias-label-caption);
-  cursor: pointer;
-}
-.hqpu-info:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-info:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 1px;
-}
-.hqpu-toolbar {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 16px;
-}
-
-/* ── Scrolling body: the page's centred column ────────────────────────── */
-.hqpu-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  box-sizing: border-box;
-  /* The panel's 20px gap already separates this from the head and footer. */
-  padding: 0 clamp(16px, 3vw, 32px) 4px;
-  /* Anything that scrolls inside the panel draws the l2 thumb. */
-  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
-  --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
-}
-.hqpu-column {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-  width: 100%;
-  max-width: 880px;
-  margin: 0 auto;
-}
-/* A stack of groups (or the single toast host) inside the column. */
-.hqpu-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-.hqpu-toast-host:empty {
-  display: none;
-}
-
-/* ── Groups (PluginManagerPage .group) ────────────────────────────────── */
-.hqpu-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.hqpu-group-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.hqpu-group-title {
-  flex: 1;
-  min-width: 0;
-  margin: 0;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 22px;
-  color: var(--dsw-alias-label-primary);
-}
-.hqpu-group-count {
-  flex: none;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-/* ── Cards (PluginManagerPage .card) ──────────────────────────────────── */
-.hqpu-cards {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.hqpu-card {
-  min-width: 0;
-  /* The hover surface reaches 8px past the content on both sides. */
-  margin: 0 -8px;
-  border-radius: var(--dsw-radius-xl);
-}
-.hqpu-card:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-.hqpu-card-head {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 8px;
-}
-.hqpu-card-icon {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border: 0.5px solid var(--dsw-alias-border-l3);
-  border-radius: var(--dsw-radius-lg);
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-card-icon svg {
-  display: block;
-  width: 24px;
-  height: 24px;
-}
-.hqpu-card-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.hqpu-title-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-width: 0;
-}
-.hqpu-card-title {
-  min-width: 0;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 20px;
-  color: var(--dsw-alias-label-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hqpu-card-desc {
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-tertiary);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 1;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-.hqpu-card-end {
-  position: relative;
-  z-index: 1;
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 8px;
-}
-.hqpu-card-reason {
-  margin: 0;
-  padding: 0 8px 8px 70px;
-  font-size: 12px;
-  line-height: 18px;
-  color: var(--dsw-alias-state-error-primary);
-  overflow-wrap: anywhere;
-}
-
-/* ── Tags (ui-primitives Tag.module.css) ──────────────────────────────── */
-.hqpu-tag {
-  display: inline-flex;
-  align-items: center;
-  flex: none;
-  border-radius: 999px;
-  corner-shape: round;
-  padding: 1px 8px;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 17px;
-  white-space: nowrap;
-}
-.hqpu-tag[data-tone='success'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-primary) 10%, transparent);
-  color: var(--dsw-alias-state-success-primary);
-}
-.hqpu-tag[data-tone='info'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-business-primary) 10%, transparent);
-  color: var(--dsw-alias-state-business-primary);
-}
-.hqpu-tag[data-tone='warning'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 12%, transparent);
-  color: var(--dsw-alias-state-warn-primary);
-}
-.hqpu-tag[data-tone='danger'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 10%, transparent);
-  color: var(--dsw-alias-state-error-primary);
-}
-.hqpu-tag[data-tone='neutral'] {
-  background: var(--dsw-alias-bg-module-platform);
-  color: var(--dsw-alias-label-secondary);
-}
-
-/* ── Fact rows (PluginManagerPage .facts / .rows) ─────────────────────── */
-.hqpu-facts {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-}
-.hqpu-facts > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  min-height: 44px;
-  padding: 8px 2px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
-}
-.hqpu-facts > div:last-child {
-  border-bottom: 0;
-}
-.hqpu-facts dt {
-  flex: none;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-facts dd {
-  min-width: 0;
-  margin: 0;
-  font-size: 13px;
-  line-height: 20px;
-  text-align: end;
-  overflow-wrap: anywhere;
-  color: var(--dsw-alias-label-primary);
-}
-.hqpu-facts code {
-  padding: 2px 6px;
-  border-radius: var(--dsw-radius-xs);
-  background: var(--dsw-alias-bg-module-platform);
-  font-family: var(--dsw-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 12px;
-}
-
-/* ── Banner (PluginManagerPage .installSafety) ────────────────────────── */
-.hqpu-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-state-warn-tertiary);
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-banner > svg {
-  flex: none;
-  margin-top: 2px;
-  color: var(--dsw-alias-state-warn-primary);
-}
-
-/* ── Status, empty, failure (PluginManagerPage .status / .empty / .failure) */
-.hqpu-status {
-  margin: 0;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-tertiary);
-}
-.hqpu-status--dot {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.hqpu-failure {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--dsw-alias-state-error-primary);
-}
-.hqpu-empty {
-  padding: 32px 0;
-  text-align: center;
-  font-size: 13px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-/* ── State dot + spinner (ui-primitives StateDot.module.css) ──────────── */
-.hqpu-dot {
-  position: relative;
-  display: inline-block;
-  flex: none;
-  width: 10px;
-  height: 10px;
-}
-.hqpu-dot::after {
-  content: '';
-  position: absolute;
-  inset: 20%;
-  border-radius: 50%;
-  corner-shape: round;
-  background: currentColor;
-}
-.hqpu-dot[data-state='done'] { color: var(--dsw-alias-state-success-primary); }
-.hqpu-dot[data-state='warning'] { color: var(--dsw-alias-state-warn-primary); }
-.hqpu-dot[data-state='error'] { color: var(--dsw-alias-state-error-primary); }
-.hqpu-dot[data-state='idle'] { color: var(--dsw-alias-state-idle-primary); }
-.hqpu-spinner {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1.5px solid color-mix(in srgb, currentColor 25%, transparent);
-  border-top-color: currentColor;
-  animation: hqpu-spin 1.5s linear infinite;
-}
-@keyframes hqpu-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* ── Skeleton (PluginManagerPage .skeleton*) ──────────────────────────── */
-.hqpu-skeleton-fill {
-  background: var(--dsw-alias-bg-skeleton);
-  animation: hqpu-skeleton 2s cubic-bezier(0.36, 0, 0.64, 1) infinite;
-}
-.hqpu-skeleton-text {
-  display: flex;
-  align-items: center;
-  height: 1lh;
-}
-.hqpu-skeleton-bar {
-  width: 100%;
-  height: 12px;
-  border-radius: var(--dsw-radius-xs);
-}
-.hqpu-skeleton-heading { width: 96px; }
-.hqpu-skeleton-title { width: min(144px, 60%); }
-.hqpu-skeleton-desc { width: min(280px, 85%); }
-.hqpu-skeleton-icon { border-color: transparent; }
-@keyframes hqpu-skeleton {
-  0% { opacity: 1; }
-  40% { opacity: 0.6; }
-  80%, 100% { opacity: 1; }
-}
-
-/* ── Toast (ui-primitives Toast.module.css, held inside the panel) ────── */
-.hqpu-toast {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
-  border-radius: var(--dsw-radius-lg);
-  background: var(--dsw-alias-toast-bg);
-  color: var(--dsw-alias-toast-label);
-  font-size: 14px;
-  line-height: 22px;
-  box-shadow: var(--dsw-shadow-lv3);
-  animation: hqpu-toast-in 160ms ease-out;
-}
-.hqpu-toast-icon {
-  display: grid;
-  place-items: center;
-  flex: none;
-  color: var(--dsw-alias-state-warn-label);
-}
-.hqpu-toast-icon[data-tone='success'] { color: var(--dsw-alias-state-success-primary); }
-.hqpu-toast-text { min-width: 0; }
-@keyframes hqpu-toast-in {
-  from { opacity: 0; transform: translateY(-6px); }
+  from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: none; }
 }
 
-/* ── Buttons (PluginManagerPage .addButton / .iconButton) ─────────────── */
+/* ── Header ──────────────────────────────────────────────────────────────
+ * Title + the set version / check time, then four icon actions in the order
+ * the prototype fixes: refresh · sources · job log · close. */
+.hqpu-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--hq-border);
+  background: var(--hq-bg);
+}
+.hqpu-head-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.hqpu-brand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--hq-brand) 12%, transparent);
+  color: var(--hq-brand-soft);
+}
+.hqpu-brand-icon svg {
+  display: block;
+}
+.hqpu-title-block {
+  min-width: 0;
+}
+.hqpu-title {
+  margin: 0;
+  font-size: var(--hq-fs-title);
+  font-weight: 600;
+  line-height: 17px;
+  color: var(--hq-text);
+}
+.hqpu-sub {
+  margin: 1px 0 0;
+  font-size: var(--hq-fs-meta);
+  line-height: 14px;
+  color: var(--hq-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hqpu-toolbar {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 1px;
+}
 .hqpu-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -657,374 +356,47 @@ const VIEW_CSS_TEXT = `
   height: 28px;
   padding: 0;
   border: 0;
-  border-radius: var(--dsw-radius-sm);
+  border-radius: 8px;
   background: transparent;
-  color: var(--dsw-alias-label-caption);
-  cursor: pointer;
-}
-.hqpu-icon-btn svg { display: block; }
-.hqpu-icon-btn:hover:not(:disabled) {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-icon-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.hqpu-icon-btn:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 1px;
-}
-.hqpu-btn {
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 13px;
-  line-height: 20px;
-  cursor: pointer;
-}
-.hqpu-btn svg { display: block; }
-.hqpu-btn:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover-solid); }
-.hqpu-btn:disabled { opacity: 0.5; cursor: default; }
-.hqpu-btn:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 1px;
-}
-.hqpu-btn--primary {
-  background: var(--dsw-alias-button-primary-fill);
-  color: var(--dsw-alias-label-primary-foreground);
-}
-.hqpu-btn--primary:hover:not(:disabled) { background: var(--dsw-alias-button-primary-hover); }
-.hqpu-btn--outline {
-  background: transparent;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-btn--outline:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
-.hqpu-btn--ghost { background: transparent; color: var(--dsw-alias-label-secondary); }
-.hqpu-btn--ghost:hover:not(:disabled) { background: var(--dsw-alias-interactive-bg-hover); }
-.hqpu-btn--danger { color: var(--dsw-alias-state-error-primary); }
-.hqpu-btn--sm { height: 28px; padding: 0 10px; font-size: 12.5px; }
-.hqpu-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-/* ── Runtime update action row (arm → confirm step) ───────────────────── */
-.hqpu-runtime-actions {
-  margin-top: 12px;
-}
-.hqpu-runtime-confirm {
-  flex: 1 1 100%;
-  margin: 0;
-}
-
-/* ── Runtime update source (fact row + editable URL field) ────────────── */
-.hqpu-source-line {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  max-width: 100%;
-}
-.hqpu-source-url {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hqpu-source-editor {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-/* The plugin-source editor sits inside its own group right under the fact
- * row, so it needs less air than the runtime one under the facts block. */
-.hqpu-source-editor--plugin {
-  margin-top: 4px;
-}
-.hqpu-source-hint {
-  flex: 1 1 100%;
-  margin: 0;
-}
-.hqpu-source-controls {
-  flex: 1 1 100%;
-}
-.hqpu-source-input {
-  flex: 1 1 240px;
-  min-width: 0;
-  height: 28px;
-  box-sizing: border-box;
-  padding: 0 10px;
-  border: 0.5px solid var(--dsw-alias-border-l4);
-  border-radius: var(--dsw-radius-md);
-  background: var(--dsw-alias-bg-layer-3);
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 12.5px;
-}
-.hqpu-source-input:disabled {
-  opacity: 0.5;
-}
-.hqpu-source-input:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: 1px;
-}
-
-/* ── Footer action row (ui-primitives Modal .footer) ───────────────────── */
-.hqpu-footer {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 0 24px 20px;
-}
-
-/* ── Durable job (active / result) ────────────────────────────────────── */
-.hqpu-job {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px;
-  border: 0.5px solid var(--dsw-alias-border-l2);
-  border-radius: var(--dsw-radius-lg);
-  background: var(--dsw-alias-bg-layer-3);
-}
-.hqpu-job-meta {
-  font-variant-numeric: tabular-nums;
-}
-.hqpu-progress {
-  height: 6px;
-  border-radius: 999px;
-  background: var(--dsw-alias-bg-module-platform);
-  overflow: hidden;
-}
-.hqpu-progress-fill {
-  height: 100%;
-  border-radius: 999px;
-  background: var(--dsw-alias-state-business-primary);
-  transition: width var(--ds-transition-duration, 0.2s) ease;
-}
-.hqpu-job-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.hqpu-steps {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.hqpu-step {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  line-height: 18px;
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-step--skipped,
-.hqpu-step--pending { opacity: 0.6; }
-
-/* ── Per-plugin change list + release notes ────────────────────────────── */
-.hqpu-changes {
-  padding: 0 8px 8px 70px;
-}
-.hqpu-changes-list,
-.hqpu-release-notes {
-  margin: 4px 0 0;
-  padding-left: 18px;
-  font-size: 12.5px;
-  line-height: 19px;
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-release-link {
-  align-self: flex-start;
-}
-
-/* ── Advanced disclosure (source editors) ───────────────────────────────── */
-.hqpu-advanced > summary {
-  cursor: pointer;
-  font-size: 12.5px;
-  line-height: 20px;
-  color: var(--dsw-alias-label-tertiary);
-  list-style: none;
-  padding: 2px 0;
-}
-.hqpu-advanced > summary::-webkit-details-marker { display: none; }
-.hqpu-advanced > summary::before {
-  content: '▸ ';
-}
-.hqpu-advanced[open] > summary::before {
-  content: '▾ ';
-}
-
-/* Danger-toned banner (check failure, breaking changes) */
-.hqpu-banner[data-tone='danger'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, transparent);
-  color: var(--dsw-alias-label-secondary);
-}
-.hqpu-banner[data-tone='danger'] > svg {
-  color: var(--dsw-alias-state-error-primary);
-}
-
-.hqpu-visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-  border: 0;
-}
-
-/* ── Reduced motion: drop every decorative animation ──────────────────── */
-@media (prefers-reduced-motion: reduce) {
-  .hqpu-scrim,
-  .hqpu-panel,
-  .hqpu-skeleton-fill,
-  .hqpu-spinner,
-  .hqpu-toast,
-  .hqpu-pulse-ring,
-  .hqpu-job-step--active {
-    animation: none;
-  }
-}
-
-/* ════════════════════════════════════════════════════════════════════════
- * Refactored dock (interactive_refactored_ui_mockup.html) — a fluid
- * update-center column. These rules cascade over the shell-token base: the
- * panel takes the available width (up to 720px), every colour is a
- * --dsw-alias-* token so light/dark follow the shell's
- * body[data-ds-dark-theme] and the brand follows the HuaQiu theme overrides,
- * with a sticky header / scroll body / sticky footer. No Tailwind, no
- * dependencies.
- * ════════════════════════════════════════════════════════════════════════ */
-.hqpu-panel,
-.hqpu-panel * {
-  /* Every colour rides a shell theme token, so light/dark follow
-   * body[data-ds-dark-theme] automatically. The brand tokens are exactly the
-   * ones @huaqiu/dsh-ui-theme-huaqiu overrides (light #C7000B / dark #FF6B74),
-   * so the dock honours the HuaQiu brand scheme in both themes without knowing
-   * which theme is active. */
-  --hq-bg: var(--dsw-alias-bg-layer-1);
-  --hq-card: var(--dsw-alias-bg-layer-2);
-  --hq-card-soft: var(--dsw-alias-bg-overlay);
-  --hq-border: var(--dsw-alias-border-l2);
-  --hq-border-strong: var(--dsw-alias-border-l3);
-  --hq-hover: var(--dsw-alias-interactive-bg-hover);
-  --hq-text: var(--dsw-alias-label-primary);
-  --hq-text-strong: var(--dsw-alias-label-primary);
-  --hq-text-code: var(--dsw-alias-label-secondary);
-  --hq-muted: var(--dsw-alias-label-secondary);
-  --hq-faint: var(--dsw-alias-label-tertiary);
-  --hq-brand: var(--dsw-alias-brand-primary);
-  --hq-brand-soft: var(--dsw-alias-button-primary-hover);
-  --hq-brand-dim: var(--dsw-alias-button-primary-dimmed);
-  --hq-brand-fg: var(--dsw-alias-brand-primary-invert);
-  --hq-emerald: var(--dsw-alias-state-success-primary);
-  --hq-amber: var(--dsw-alias-state-warn-primary);
-  --hq-rose: var(--dsw-alias-state-error-primary);
-}
-.hqpu-panel {
-  width: min(360px, calc(100vw - 32px));
-  max-height: min(86vh, 720px);
-  background: var(--hq-bg);
-  color: var(--hq-text);
-  border: 0.5px solid var(--hq-border);
-  border-radius: 12px;
-  gap: 0;
-  overflow: hidden;
-}
-.hqpu-scrim {
-  background: var(--dsw-alias-bg-mask-3);
-}
-
-/* Sticky header */
-.hqpu-head {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 0.5px solid var(--hq-border);
-  background: color-mix(in srgb, var(--hq-bg) 95%, transparent);
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-.hqpu-head-main {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  margin: 0;
-}
-.hqpu-brand-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--hq-brand) 20%, transparent);
-  color: var(--hq-brand-soft);
-}
-.hqpu-brand-icon svg { width: 14px; height: 14px; display: block; }
-.hqpu-title-block { min-width: 0; }
-.hqpu-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 16px;
-  color: var(--hq-text);
-}
-.hqpu-sub {
-  margin: 2px 0 0;
-  font-size: 10px;
-  line-height: 14px;
   color: var(--hq-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.hqpu-toolbar { gap: 2px; }
-.hqpu-icon-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  color: var(--hq-muted);
+.hqpu-icon-btn svg {
+  display: block;
 }
 .hqpu-icon-btn:hover:not(:disabled) {
   background: var(--hq-hover);
   color: var(--hq-text);
 }
-.hqpu-icon-btn svg { width: 14px; height: 14px; }
+.hqpu-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* A toggled toolbar button (sources, job log) reads as "on", not just hovered —
+ * the pressed state is the only hint that a drawer is open behind the body. */
+.hqpu-icon-btn[aria-pressed='true'] {
+  background: var(--hq-hover);
+  color: var(--hq-text);
+}
+.hqpu-icon-btn--close {
+  margin-left: 4px;
+  color: var(--hq-faint);
+}
+.hqpu-icon-btn--sm {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+}
 
-/* Collapsible settings panel */
+/* ── Settings strip (gear) ───────────────────────────────────────────────
+ * Above the body, never inside it: opening the source editor must not reflow
+ * the list the person was reading. */
 .hqpu-settings {
   flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 12px;
   border-bottom: 0.5px solid var(--hq-border);
   background: var(--hq-card-soft);
@@ -1034,81 +406,741 @@ const VIEW_CSS_TEXT = `
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 8px;
 }
 .hqpu-settings-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--hq-text-code);
+  font-size: var(--hq-fs-meta);
+  font-weight: 600;
+  color: var(--hq-muted);
 }
 .hqpu-origin-badge {
-  font-size: 9px;
+  flex: none;
   padding: 1px 6px;
-  border-radius: 4px;
   border: 0.5px solid;
+  border-radius: 4px;
+  font-size: var(--hq-fs-micro);
 }
 .hqpu-origin-badge[data-origin='config'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary) 55%, transparent);
   color: var(--hq-emerald);
   border-color: color-mix(in srgb, var(--hq-emerald) 40%, transparent);
+  background: color-mix(in srgb, var(--hq-emerald) 10%, transparent);
 }
 .hqpu-origin-badge[data-origin='override'] {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-tertiary) 55%, transparent);
-  color: var(--hq-amber);
+  color: var(--hq-amber-ink);
   border-color: color-mix(in srgb, var(--hq-amber) 40%, transparent);
+  background: color-mix(in srgb, var(--hq-amber) 10%, transparent);
 }
-.hqpu-settings label {
-  display: block;
-  font-size: 10px;
+.hqpu-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.hqpu-field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hqpu-field label {
+  font-size: var(--hq-fs-micro);
   color: var(--hq-muted);
-  margin: 6px 0 3px;
 }
 .hqpu-source-input {
   width: 100%;
   height: 26px;
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: var(--hq-bg);
-  border: 0.5px solid var(--hq-border);
-  border-radius: 5px;
-  color: var(--hq-text-code);
   padding: 0 8px;
-  box-sizing: border-box;
+  border: 0.5px solid var(--hq-border-strong);
+  border-radius: 6px;
+  background: var(--hq-bg);
+  color: var(--hq-muted);
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
 }
-.hqpu-source-input:focus-visible {
-  outline: none;
-  border-color: var(--hq-brand-soft);
+.hqpu-source-input:disabled {
+  opacity: 0.6;
 }
 .hqpu-settings-actions {
   display: flex;
   justify-content: flex-end;
   gap: 6px;
-  margin-top: 8px;
+  padding-top: 2px;
 }
 
-/* Scroll body */
+/* ── Body: scroll + sticky footer + the log drawer over both ─────────────
+ * '.hqpu-main' is the positioning box; the drawer covers the body AND the
+ * footer, so an open log cannot be clicked through. */
+.hqpu-main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+/* While the job-log drawer is open it covers this whole box; on a short body
+ * the box would collapse to nothing, so give it a floor. Set/cleared from
+ * update-view.ts (the drawer is absolutely positioned and cannot size it). */
+.hqpu-main[data-log-open='1'] {
+  min-height: 340px;
+}
 .hqpu-scroll {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: 12px;
   background: var(--hq-bg);
+  /* Anything that scrolls inside the panel draws the l2 thumb. */
   --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 .hqpu-column {
-  max-width: none;
-  margin: 0;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
-.hqpu-stack { gap: 10px; }
+/* A stack of groups (or the single toast host) inside the column. */
+.hqpu-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hqpu-stack:empty {
+  display: none;
+}
 
-/* ── Active-job banner ─────────────────────────────────────────────────── */
-.hqpu-active {
-  position: relative;
-  padding: 12px;
+/* ── Decision band ───────────────────────────────────────────────────────
+ * The one row that answers "is there anything for me to do", before any list. */
+.hqpu-decision {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
   border-radius: 8px;
-  border: 0.5px solid color-mix(in srgb, var(--hq-brand-soft) 30%, transparent);
-  background: var(--hq-bg);
-  box-shadow: var(--dsw-elevation-prominent);
+  background: var(--hq-card-soft);
+  font-size: var(--hq-fs-meta);
+}
+.hqpu-decision-main {
+  font-weight: 600;
+  color: var(--hq-text);
+}
+.hqpu-decision-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--hq-faint);
+}
+.hqpu-decision-sub {
+  color: var(--hq-muted);
+}
+
+/* ── Section head ────────────────────────────────────────────────────────── */
+.hqpu-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px 2px;
+}
+.hqpu-sec-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--hq-fs-body);
+  font-weight: 600;
+  color: var(--hq-text);
+}
+.hqpu-count-pill {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--hq-brand) 14%, transparent);
+  color: var(--hq-brand-soft);
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
+  font-weight: 700;
+}
+
+/* ── Text links ──────────────────────────────────────────────────────────── */
+.hqpu-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hq-muted);
+  font: inherit;
+  font-size: var(--hq-fs-meta);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.hqpu-link:hover {
+  color: var(--hq-text);
+}
+.hqpu-link--tiny {
+  font-size: var(--hq-fs-micro);
+}
+.hqpu-link--icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.hqpu-link--icon svg {
+  display: block;
+}
+
+/* ── Plugin cards ────────────────────────────────────────────────────────── */
+.hqpu-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hqpu-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 0.5px solid var(--hq-border);
+  border-radius: 8px;
+  background: var(--hq-card);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.hqpu-card:hover {
+  border-color: var(--hq-border-strong);
+}
+.hqpu-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hqpu-card-id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.hqpu-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 7px;
+  background: var(--hq-card-soft);
+  color: var(--hq-muted);
+  font-size: var(--hq-fs-micro);
+  font-weight: 700;
+}
+.hqpu-card-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+}
+.hqpu-card-title {
+  font-size: var(--hq-fs-body);
+  font-weight: 600;
+  line-height: 15px;
+  color: var(--hq-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hqpu-card-sub {
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
+  line-height: 12px;
+  color: var(--hq-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hqpu-card-end {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 2px;
+}
+/* The card's own action: tinted, not filled — the filled brand fill belongs to
+ * the one set-level CTA in the footer. */
+.hqpu-card-action {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--hq-brand) 12%, transparent);
+  color: var(--hq-brand-soft);
+  font: inherit;
+  font-size: var(--hq-fs-meta);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.hqpu-card-action:hover:not(:disabled) {
+  background: var(--hq-brand);
+  color: var(--hq-on-accent);
+}
+.hqpu-card-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.hqpu-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hqpu-version-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-meta);
+  color: var(--hq-muted);
+}
+.hqpu-ver-old {
+  color: var(--hq-muted);
+}
+.hqpu-ver-arrow {
+  color: var(--hq-border-strong);
+}
+.hqpu-ver-new {
+  color: var(--hq-emerald);
+  font-weight: 600;
+}
+.hqpu-ver-new--lg {
+  font-size: var(--hq-fs-body);
+}
+.hqpu-ver-size {
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-faint);
+}
+.hqpu-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hq-faint);
+  font: inherit;
+  font-size: var(--hq-fs-micro);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.hqpu-toggle:hover {
+  color: var(--hq-text);
+}
+.hqpu-toggle-chevron {
+  display: inline-flex;
+  transition: transform 0.15s ease;
+}
+.hqpu-toggle[data-open='true'] .hqpu-toggle-chevron {
+  transform: rotate(90deg);
+}
+.hqpu-changes {
+  padding-top: 8px;
+  border-top: 0.5px solid var(--hq-border);
+  font-size: var(--hq-fs-meta);
+  color: var(--hq-muted);
+}
+.hqpu-changes-title {
+  margin: 0 0 4px;
+  font-size: var(--hq-fs-micro);
+  font-weight: 600;
+  color: var(--hq-muted);
+}
+.hqpu-changes ul {
+  margin: 0;
+  padding-left: 16px;
+  font-size: var(--hq-fs-micro);
+  line-height: 16px;
+}
+
+/* ── Collapsed groups (已忽略 / 已是最新 / 版本说明) ─────────────────────── */
+.hqpu-disc {
+  padding-top: 6px;
+  border-top: 0.5px solid var(--hq-border);
+}
+.hqpu-disc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--hq-muted);
+  font: inherit;
+  cursor: pointer;
+}
+.hqpu-disc-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.hqpu-disc-chevron {
+  display: inline-flex;
+  flex: none;
+  color: var(--hq-faint);
+  transition: transform 0.15s ease;
+}
+.hqpu-disc-head[aria-expanded='true'] .hqpu-disc-chevron {
+  transform: rotate(90deg);
+}
+.hqpu-disc-title {
+  font-size: var(--hq-fs-body);
+  font-weight: 600;
+  color: var(--hq-text);
+}
+.hqpu-disc-count {
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-meta);
+  color: var(--hq-faint);
+}
+.hqpu-disc-note {
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hqpu-disc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+}
+.hqpu-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hqpu-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--hq-card-soft);
+  font-size: var(--hq-fs-meta);
+}
+.hqpu-row-name {
+  font-weight: 500;
+  color: var(--hq-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hqpu-row-end {
+  display: flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+}
+.hqpu-row-meta {
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-faint);
+}
+
+/* ── Runtime card (amber: a swap is not a plugin install) ───────────────── */
+.hqpu-engine {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 0.5px solid color-mix(in srgb, var(--hq-amber) 32%, transparent);
+  border-radius: 10px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--hq-amber) 10%, var(--hq-card)) 0%,
+    var(--hq-card) 60%,
+    var(--hq-card-soft) 100%
+  );
+}
+.hqpu-engine-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hqpu-engine-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--hq-fs-body);
+  font-weight: 600;
+  color: var(--hq-text);
+}
+.hqpu-engine-bolt {
+  display: inline-flex;
+  color: var(--hq-amber);
+}
+.hqpu-chip {
+  flex: none;
+  padding: 1px 6px;
+  border: 0.5px solid var(--hq-border-strong);
+  border-radius: 4px;
+  background: var(--hq-card);
+  color: var(--hq-muted);
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
+}
+.hqpu-engine-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.hqpu-engine-info {
+  min-width: 0;
+}
+.hqpu-engine-new {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hqpu-engine-size {
+  margin: 2px 0 0;
+  font-size: var(--hq-fs-micro);
+  line-height: 14px;
+  color: var(--hq-muted);
+}
+.hqpu-engine-state {
+  flex: none;
+  max-width: 45%;
+  font-size: var(--hq-fs-micro);
+  line-height: 14px;
+  color: var(--hq-muted);
+  text-align: right;
+}
+.hqpu-engine-error {
+  margin: 0;
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-rose);
+}
+.hqpu-tag--brand {
+  flex: none;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--hq-amber) 14%, transparent);
+  color: var(--hq-amber-ink);
+  font-size: var(--hq-fs-micro);
+  font-weight: 500;
+}
+.hqpu-btn--engine {
+  flex: none;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--hq-amber);
+  color: var(--hq-on-amber);
+  font: inherit;
+  font-size: var(--hq-fs-meta);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.hqpu-btn--engine:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--hq-amber) 85%, #000);
+}
+.hqpu-btn--engine:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.hqpu-engine-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 0.5px solid color-mix(in srgb, var(--hq-amber) 24%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--hq-amber) 10%, transparent);
+}
+.hqpu-engine-confirm-text {
+  margin: 0;
+  font-size: var(--hq-fs-meta);
+  line-height: 16px;
+  color: var(--hq-amber-ink);
+}
+.hqpu-engine-confirm-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.hqpu-engine-note {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-faint);
+}
+.hqpu-engine-note svg {
+  flex: none;
+  color: var(--hq-amber);
+}
+
+/* ── Error / result banners ──────────────────────────────────────────────── */
+.hqpu-error {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 0.5px solid;
+  border-radius: 8px;
+}
+.hqpu-error[data-tone='danger'] {
+  border-color: color-mix(in srgb, var(--hq-rose) 35%, transparent);
+  background: color-mix(in srgb, var(--hq-rose) 8%, transparent);
+}
+.hqpu-error[data-tone='warning'] {
+  border-color: color-mix(in srgb, var(--hq-amber) 35%, transparent);
+  background: color-mix(in srgb, var(--hq-amber) 8%, transparent);
+}
+.hqpu-error-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.hqpu-error-icon {
+  display: inline-flex;
+  flex: none;
+  margin-top: 1px;
+  color: var(--hq-rose);
+}
+.hqpu-error[data-tone='warning'] .hqpu-error-icon {
+  color: var(--hq-amber);
+}
+.hqpu-error-text {
+  min-width: 0;
+}
+.hqpu-error-title {
+  margin: 0;
+  font-size: var(--hq-fs-body);
+  font-weight: 600;
+  line-height: 15px;
+  color: var(--hq-rose);
+}
+.hqpu-error[data-tone='warning'] .hqpu-error-title {
+  color: var(--hq-amber-ink);
+}
+.hqpu-error-body {
+  margin: 2px 0 0;
+  font-size: var(--hq-fs-micro);
+  line-height: 14px;
+  color: var(--hq-muted);
+  overflow-wrap: anywhere;
+}
+.hqpu-error-code {
+  display: inline-block;
+  margin-top: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--hq-rose) 12%, transparent);
+  color: var(--hq-rose);
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
+}
+.hqpu-error[data-tone='warning'] .hqpu-error-code {
+  background: color-mix(in srgb, var(--hq-amber) 14%, transparent);
+  color: var(--hq-amber-ink);
+}
+.hqpu-error-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 0.5px solid color-mix(in srgb, currentColor 12%, transparent);
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-muted);
+}
+.hqpu-error-actions {
+  display: flex;
+  flex: none;
+  gap: 10px;
+}
+
+.hqpu-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 8px;
+}
+.hqpu-alert--amber {
+  border: 0.5px solid color-mix(in srgb, var(--hq-amber) 32%, transparent);
+  background: color-mix(in srgb, var(--hq-amber) 10%, transparent);
+}
+.hqpu-alert-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--hq-amber);
+}
+.hqpu-alert-main {
+  min-width: 0;
+}
+.hqpu-alert-title {
+  font-size: var(--hq-fs-meta);
+  font-weight: 600;
+  color: var(--hq-amber-ink);
+}
+.hqpu-alert-body {
+  margin: 2px 0 0;
+  font-size: var(--hq-fs-micro);
+  line-height: 14px;
+  color: var(--hq-muted);
+}
+.hqpu-alert-body code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--hq-amber) 16%, transparent);
+  font-family: var(--hq-mono);
+}
+.hqpu-alert-actions {
+  margin-top: 4px;
+}
+.hqpu-alert-dismiss {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--hq-amber-ink);
+  font: inherit;
+  font-size: var(--hq-fs-micro);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.hqpu-alert-green {
+  margin: 0;
+  padding: 6px 10px;
+  border: 0.5px solid color-mix(in srgb, var(--hq-emerald) 30%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--hq-emerald) 8%, transparent);
+  color: var(--hq-emerald);
+  font-size: var(--hq-fs-micro);
+}
+
+/* ── Active job ──────────────────────────────────────────────────────────── */
+.hqpu-active {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 0.5px solid color-mix(in srgb, var(--hq-brand) 40%, transparent);
+  border-radius: 8px;
+  background: var(--hq-card);
 }
 .hqpu-active-top {
   display: flex;
@@ -1121,9 +1153,14 @@ const VIEW_CSS_TEXT = `
   align-items: center;
   gap: 6px;
   min-width: 0;
-  font-size: 11px;
+  font-size: var(--hq-fs-body);
   font-weight: 600;
-  color: var(--hq-text-strong);
+  color: var(--hq-text);
+}
+.hqpu-active-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .hqpu-pulse-dot {
   position: relative;
@@ -1136,435 +1173,587 @@ const VIEW_CSS_TEXT = `
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: var(--hq-brand-soft);
+  background: var(--hq-brand);
 }
 .hqpu-pulse-ring {
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: var(--hq-brand-soft);
+  background: var(--hq-brand);
   opacity: 0.6;
   animation: hqpu-ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;
 }
 @keyframes hqpu-ping {
-  75%, 100% { transform: scale(2.2); opacity: 0; }
+  75%, 100% { transform: scale(2.4); opacity: 0; }
 }
 .hqpu-active-percent {
   flex: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 500;
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-body);
+  font-weight: 700;
   color: var(--hq-brand-soft);
 }
 .hqpu-progress {
   height: 6px;
-  margin-top: 10px;
   border-radius: 999px;
-  background: var(--hq-card);
+  background: var(--hq-border);
   overflow: hidden;
 }
 .hqpu-progress-fill {
-  background: linear-gradient(to right, var(--hq-brand), var(--hq-brand-soft));
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--hq-brand), var(--hq-brand-soft));
   transition: width 0.3s ease;
 }
 .hqpu-active-meta {
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  margin-top: 4px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
+  font-size: var(--hq-fs-micro);
+  line-height: 14px;
   color: var(--hq-muted);
 }
-/* 4-step indicator row */
+.hqpu-num {
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
+}
+.hqpu-active-versions {
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-muted);
+}
+.hqpu-active-note {
+  margin: 0;
+  font-size: var(--hq-fs-micro);
+  line-height: 14px;
+  color: var(--hq-faint);
+}
+/* A stalled job: the card keeps its shape but stops claiming progress. The
+ * pulse stops, the bar dims, and the note line carries the retry. */
+.hqpu-active[data-stalled='1'] .hqpu-pulse-ring {
+  animation: none;
+  opacity: 0;
+}
+.hqpu-active[data-stalled='1'] .hqpu-pulse-dot::before {
+  background: var(--hq-amber);
+}
+.hqpu-active[data-stalled='1'] .hqpu-active-percent {
+  color: var(--hq-amber-ink);
+}
+.hqpu-active[data-stalled='1'] .hqpu-progress-fill {
+  background: color-mix(in srgb, var(--hq-amber) 55%, var(--hq-border));
+  transition: none;
+}
+/* The active step stops blinking too: nothing is advancing. */
+.hqpu-active[data-stalled='1'] .hqpu-job-step--active {
+  color: var(--hq-amber-ink);
+  animation: none;
+}
+.hqpu-active-stalled {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--hq-amber) 10%, transparent);
+  font-size: var(--hq-fs-micro);
+  line-height: 14px;
+  color: var(--hq-amber-ink);
+}
+.hqpu-active-stalled .hqpu-link {
+  flex: none;
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-amber-ink);
+  text-decoration: underline;
+}
 .hqpu-job-steps4 {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  margin-top: 10px;
+  gap: 2px;
   padding-top: 8px;
   border-top: 0.5px solid var(--hq-border);
   text-align: center;
-  font-size: 9px;
+  font-size: var(--hq-fs-micro);
   font-weight: 500;
 }
-.hqpu-job-step--done { color: var(--hq-emerald); }
+.hqpu-job-step--done {
+  color: var(--hq-emerald);
+}
 .hqpu-job-step--active {
   color: var(--hq-brand-soft);
   animation: hqpu-step-pulse 1.2s ease-in-out infinite;
 }
-.hqpu-job-step--todo { color: var(--hq-muted); }
+.hqpu-job-step--todo {
+  color: var(--hq-faint);
+}
 @keyframes hqpu-step-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.45; }
 }
 
-/* ── Result / rollback alert (amber) vs green success ──────────────────── */
-.hqpu-alert {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 10px;
-  border-radius: 8px;
-}
-.hqpu-alert--amber {
-  background: color-mix(in srgb, var(--dsw-alias-state-warn-tertiary) 60%, transparent);
-  border: 0.5px solid color-mix(in srgb, var(--hq-amber) 35%, transparent);
-}
-.hqpu-alert--amber svg { color: var(--hq-amber); flex: none; margin-top: 1px; }
-.hqpu-alert-green {
-  background: color-mix(in srgb, var(--dsw-alias-state-success-tertiary) 55%, transparent);
-  border: 0.5px solid color-mix(in srgb, var(--hq-emerald) 35%, transparent);
-  color: var(--hq-emerald);
-  font-size: 11px;
-}
-.hqpu-alert-title {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--dsw-alias-state-warn-label);
-}
-.hqpu-alert-body {
-  margin: 2px 0 0;
-  font-size: 10px;
-  line-height: 15px;
-  color: color-mix(in srgb, var(--dsw-alias-state-warn-label) 85%, transparent);
-}
-.hqpu-alert-body code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  background: color-mix(in srgb, var(--hq-amber) 18%, transparent);
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-.hqpu-alert-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 6px;
-}
-.hqpu-alert-dismiss {
-  background: none;
-  border: 0;
-  padding: 0;
-  font-size: 10px;
-  color: var(--dsw-alias-state-warn-label);
-  cursor: pointer;
-  text-decoration: underline;
-}
-
-/* ── Runtime engine card ────────────────────────────────────────────────── */
-.hqpu-engine {
-  padding: 12px;
-  border-radius: 8px;
-  border: 0.5px solid var(--hq-border);
-  background: var(--hq-card);
-}
-.hqpu-engine-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.hqpu-engine-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--hq-text-strong);
-}
-.hqpu-engine-title svg { width: 14px; height: 14px; color: var(--hq-muted); }
-.hqpu-chip {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  background: var(--hq-card);
-  border: 0.5px solid var(--hq-border-strong);
-  color: var(--hq-text-code);
-}
-.hqpu-engine-update-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-top: 10px;
-  padding: 8px;
-  border-radius: 6px;
-  border: 0.5px solid color-mix(in srgb, var(--hq-border) 70%, transparent);
-  background: color-mix(in srgb, var(--hq-card) 60%, transparent);
-}
-.hqpu-engine-new-line {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--hq-text-code);
-}
-.hqpu-tag--brand {
-  font-size: 9px;
-  padding: 1px 4px;
-  border-radius: 3px;
-  color: var(--hq-brand-soft);
-  background: color-mix(in srgb, var(--hq-brand-dim) 60%, transparent);
-  border: 0.5px solid color-mix(in srgb, var(--hq-brand) 45%, transparent);
-}
-.hqpu-engine-size {
-  margin: 3px 0 0;
-  font-size: 10px;
-  color: var(--hq-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.hqpu-btn--engine {
-  flex: none;
-  height: auto;
-  padding: 6px 10px;
-  font-size: 10px;
-  background: var(--hq-card);
-  border: 0.5px solid var(--hq-border-strong);
-  color: var(--hq-text-strong);
-  border-radius: 5px;
-}
-.hqpu-btn--engine:hover:not(:disabled) { background: var(--hq-border); }
-.hqpu-engine-note {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 8px 0 0;
-  font-size: 9px;
-  color: var(--hq-muted);
-}
-.hqpu-engine-note svg { width: 10px; height: 10px; color: var(--hq-amber); flex: none; }
-
-/* ── Plugin cards ───────────────────────────────────────────────────────── */
-.hqpu-section-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0 2px;
-}
-.hqpu-section-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--hq-text-strong);
-}
-.hqpu-count-pill {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--hq-brand) 20%, transparent);
-  color: var(--hq-brand-soft);
-}
-.hqpu-all-changelog {
-  background: none;
-  border: 0;
-  padding: 0;
-  font-size: 10px;
-  color: var(--hq-muted);
-  cursor: pointer;
-}
-.hqpu-all-changelog:hover { color: var(--hq-text); }
-
-.hqpu-cards {
-  gap: 8px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  align-items: start;
-}
-.hqpu-card {
-  margin: 0;
-  padding: 10px;
-  border-radius: 8px;
-  border: 0.5px solid var(--hq-border);
-  background: var(--hq-card);
-  transition: border-color 0.15s ease;
-}
-.hqpu-card:hover { border-color: var(--hq-border-strong); }
-.hqpu-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 0;
-}
-.hqpu-card-head > * { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.hqpu-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  border: 0.5px solid var(--hq-border-strong);
-  background: var(--hq-card);
-  color: var(--hq-text-code);
-  font-size: 10px;
-  font-weight: 700;
-}
-.hqpu-card-title {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--hq-text-strong);
-}
-.hqpu-card-sub {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
-  color: var(--hq-faint);
-}
-.hqpu-version-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 2px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 10px;
-}
-.hqpu-ver-old { color: var(--hq-muted); }
-.hqpu-ver-arrow { color: var(--hq-border-strong); }
-.hqpu-ver-new { color: var(--hq-emerald); font-weight: 700; }
-.hqpu-log-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  background: none;
-  border: 0;
-  padding: 4px;
-  font-size: 10px;
-  color: var(--hq-muted);
-  cursor: pointer;
-}
-.hqpu-log-toggle:hover { color: var(--hq-text); }
-.hqpu-log-toggle svg { width: 12px; height: 12px; transition: transform 0.15s ease; }
-.hqpu-log-toggle[data-open='true'] svg { transform: rotate(180deg); }
-.hqpu-changelog-drawer {
-  margin-top: 8px;
-  padding: 8px;
-  border-radius: 6px;
-  border: 0.5px solid var(--hq-border);
-  background: color-mix(in srgb, var(--hq-card) 80%, transparent);
-  font-size: 10px;
-}
-.hqpu-changelog-drawer-title {
-  font-size: 9px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--hq-muted);
-}
-.hqpu-changelog-drawer ul {
-  margin: 4px 0 0;
-  padding-left: 16px;
-  color: var(--hq-text-code);
-  line-height: 16px;
-}
-
-/* Blocked / incompatible card: dimmed, rose badge, no install button */
-.hqpu-card--blocked {
-  opacity: 0.8;
-  background: color-mix(in srgb, var(--hq-card) 60%, transparent);
-  border-color: var(--hq-border);
-}
-.hqpu-card--blocked .hqpu-avatar {
-  background: color-mix(in srgb, var(--hq-card) 50%, transparent);
-  border-color: var(--hq-border);
-  color: var(--hq-faint);
-}
-.hqpu-card--blocked .hqpu-card-title { color: var(--hq-muted); }
-.hqpu-blocked-badge {
-  font-size: 9px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  color: var(--hq-rose);
-  background: color-mix(in srgb, var(--hq-rose) 18%, transparent);
-  border: 0.5px solid color-mix(in srgb, var(--hq-rose) 40%, transparent);
-}
-.hqpu-reason-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
-  margin: 8px 0 0;
-  padding: 6px;
-  border-radius: 5px;
-  border: 0.5px solid color-mix(in srgb, var(--hq-rose) 20%, transparent);
-  background: color-mix(in srgb, var(--hq-rose) 8%, transparent);
-  font-size: 10px;
-  color: var(--hq-rose);
-}
-.hqpu-reason-line svg { width: 12px; height: 12px; flex: none; margin-top: 1px; }
-
-/* Sticky footer */
+/* ── Footer ──────────────────────────────────────────────────────────────── */
 .hqpu-footer {
   flex: none;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 8px;
+  gap: 6px;
   padding: 10px 12px 12px;
   border-top: 0.5px solid var(--hq-border);
-  background: color-mix(in srgb, var(--hq-bg) 95%, transparent);
+  background: var(--hq-bg);
+}
+.hqpu-btn--block {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--hq-brand);
+  color: var(--hq-on-accent);
+  font: inherit;
+  font-size: var(--hq-fs-body);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--hq-brand) 35%, transparent);
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+}
+.hqpu-btn--block:hover:not(:disabled) {
+  background: var(--hq-brand-soft);
+}
+/* The disabled CTA states the reason in its own label, so it must stay legible
+ * (a 40 %-opacity red button reads as "broken", not as "nothing to do"). */
+.hqpu-btn--block:disabled {
+  background: var(--hq-card-soft);
+  color: var(--hq-faint);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.hqpu-cta-spinner {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  animation: hqpu-spin 0.9s linear infinite;
+}
+@keyframes hqpu-spin {
+  to { transform: rotate(360deg); }
 }
 .hqpu-foot-meta {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 10px;
-  color: var(--hq-muted);
+  min-height: 14px;
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-faint);
 }
-.hqpu-foot-set {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-.hqpu-foot-actions {
-  display: flex;
-  gap: 8px;
-}
-.hqpu-btn--block {
-  flex: 1;
-  height: 32px;
-  background: var(--hq-brand);
-  color: var(--hq-brand-fg);
-  font-size: 11px;
-  font-weight: 500;
-  border-radius: 6px;
-  box-shadow: 0 4px 12px color-mix(in srgb, var(--hq-brand) 40%, transparent);
-}
-.hqpu-btn--block:hover:not(:disabled) { background: var(--hq-brand-soft); }
-.hqpu-btn--block:disabled { opacity: 0.5; box-shadow: none; }
-.hqpu-btn--ignore {
-  height: 32px;
-  padding: 0 10px;
-  background: var(--hq-card);
-  border: 0.5px solid var(--hq-border);
-  color: var(--hq-muted);
-  font-size: 10px;
-  border-radius: 6px;
-}
-.hqpu-btn--ignore:hover:not(:disabled) { background: var(--hq-hover); color: var(--hq-text); }
 .hqpu-footnote {
   margin: 0;
-  font-size: 9px;
+  font-size: var(--hq-fs-micro);
+  line-height: 13px;
   text-align: center;
-  color: var(--hq-muted);
+  color: var(--hq-faint);
 }
 
-/* Shared bits on the new palette */
-.hqpu-status { color: var(--hq-muted); font-size: 11px; }
-.hqpu-empty { color: var(--hq-muted); font-size: 11px; padding: 16px 0; }
-.hqpu-toast { background: var(--hq-card); border: 0.5px solid var(--hq-border); color: var(--hq-text); font-size: 12px; }
-.hqpu-skeleton-fill { background: var(--hq-border); }
-.hqpu-job { background: var(--hq-card); border-color: var(--hq-border); }
-.hqpu-job-meta { color: var(--hq-muted); }
-.hqpu-release-notes { color: var(--hq-muted); font-size: 11px; }
-.hqpu-advanced > summary { color: var(--hq-muted); }
-.hqpu-recent-jobs li { color: var(--hq-muted); font-size: 10px; }
+/* ── Job log drawer ──────────────────────────────────────────────────────
+ * Covers the body and the footer, never the header: the log button and the
+ * close button stay in place while it is open. */
+.hqpu-log {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--hq-bg);
+}
+.hqpu-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 0.5px solid var(--hq-border);
+}
+.hqpu-log-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.hqpu-log-name {
+  font-size: var(--hq-fs-body);
+  font-weight: 600;
+  color: var(--hq-text);
+  white-space: nowrap;
+}
+.hqpu-log-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+  --dsh-scrollbar-thumb: var(--dsw-alias-scrollbar-bg-l2);
+}
+.hqpu-log-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--hq-card-soft);
+  font-family: var(--hq-mono);
+  font-size: var(--hq-fs-micro);
+}
+.hqpu-log-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 0.5px solid var(--hq-border);
+  color: var(--hq-faint);
+  overflow-wrap: anywhere;
+}
+.hqpu-log-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--hq-muted);
+  line-height: 15px;
+}
+.hqpu-log-line--empty {
+  color: var(--hq-faint);
+}
+.hqpu-log-line-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.hqpu-log-dot {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--hq-border-strong);
+}
+.hqpu-log-dot[data-state='done'] { background: var(--hq-emerald); }
+.hqpu-log-dot[data-state='error'] { background: var(--hq-rose); }
+.hqpu-log-dot[data-state='warning'] { background: var(--hq-amber); }
+.hqpu-log-dot[data-state='idle'] { background: var(--hq-border-strong); }
+.hqpu-log-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px;
+  border: 0.5px solid var(--hq-border);
+  border-radius: 8px;
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-muted);
+}
+.hqpu-log-detail p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.hqpu-log-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.hqpu-log-recent-title {
+  margin: 0 0 2px;
+  font-size: var(--hq-fs-micro);
+  font-weight: 600;
+  color: var(--hq-muted);
+}
+.hqpu-log-recent-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 5px;
+  background: var(--hq-card-soft);
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-muted);
+}
+.hqpu-log-recent-meta {
+  flex: none;
+  font-family: var(--hq-mono);
+  color: var(--hq-faint);
+}
+.hqpu-log-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 8px;
+  border-top: 0.5px solid var(--hq-border);
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+.hqpu-toast-host {
+  position: absolute;
+  top: 8px;
+  left: 12px;
+  right: 12px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+.hqpu-toast-host:empty {
+  display: none;
+}
+.hqpu-toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--dsw-alias-toast-bg, var(--hq-card));
+  color: var(--dsw-alias-toast-label, var(--hq-text));
+  font-size: var(--hq-fs-meta);
+  box-shadow: var(--dsw-shadow-lv3, 0 8px 24px rgba(0, 0, 0, 0.2));
+  pointer-events: auto;
+  animation: hqpu-toast-in 160ms ease-out;
+}
+.hqpu-toast-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--hq-amber);
+}
+.hqpu-toast-icon[data-tone='success'] {
+  color: var(--hq-emerald);
+}
+.hqpu-toast-icon[data-tone='error'] {
+  color: var(--hq-rose);
+}
+.hqpu-toast-text {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.hqpu-toast-close {
+  display: inline-flex;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+}
+.hqpu-toast-close:hover {
+  opacity: 1;
+}
+@keyframes hqpu-toast-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Badges, banners, misc shared bits ──────────────────────────────────── */
+.hqpu-tag {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: var(--hq-fs-micro);
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.hqpu-tag[data-tone='success'] {
+  background: color-mix(in srgb, var(--hq-emerald) 12%, transparent);
+  color: var(--hq-emerald);
+}
+.hqpu-tag[data-tone='warning'] {
+  background: color-mix(in srgb, var(--hq-amber) 14%, transparent);
+  color: var(--hq-amber-ink);
+}
+.hqpu-tag[data-tone='danger'] {
+  background: color-mix(in srgb, var(--hq-rose) 12%, transparent);
+  color: var(--hq-rose);
+}
+.hqpu-tag[data-tone='info'] {
+  background: color-mix(in srgb, var(--dsw-alias-state-business-primary, var(--hq-brand)) 12%, transparent);
+  color: var(--dsw-alias-state-business-primary, var(--hq-brand));
+}
+.hqpu-tag[data-tone='neutral'] {
+  background: var(--hq-card-soft);
+  color: var(--hq-muted);
+}
+.hqpu-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: var(--hq-fs-micro);
+  line-height: 15px;
+  color: var(--hq-muted);
+}
+.hqpu-banner[data-tone='danger'] {
+  background: color-mix(in srgb, var(--hq-rose) 8%, transparent);
+}
+.hqpu-banner[data-tone='danger'] span {
+  color: var(--hq-rose);
+}
+.hqpu-release-summary {
+  margin: 0;
+  font-size: var(--hq-fs-meta);
+  line-height: 16px;
+  color: var(--hq-muted);
+}
+.hqpu-release-notes {
+  margin: 0;
+  padding-left: 16px;
+  font-size: var(--hq-fs-micro);
+  line-height: 16px;
+  color: var(--hq-muted);
+}
+.hqpu-release-meta {
+  margin: 0;
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-faint);
+}
+.hqpu-release-link {
+  font-size: var(--hq-fs-micro);
+  color: var(--hq-brand-soft);
+  text-decoration: none;
+}
+.hqpu-release-link:hover {
+  text-decoration: underline;
+}
+.hqpu-status {
+  margin: 0;
+  font-size: var(--hq-fs-meta);
+  line-height: 15px;
+  color: var(--hq-muted);
+}
+.hqpu-empty {
+  padding: 24px 0;
+  text-align: center;
+  font-size: var(--hq-fs-meta);
+  color: var(--hq-faint);
+}
+
+/* ── Buttons (settings / log drawer) ─────────────────────────────────────── */
+.hqpu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--hq-card-soft);
+  color: var(--hq-text);
+  font: inherit;
+  font-size: var(--hq-fs-meta);
+  cursor: pointer;
+}
+.hqpu-btn svg {
+  display: block;
+}
+.hqpu-btn:hover:not(:disabled) {
+  background: var(--hq-hover);
+}
+.hqpu-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.hqpu-btn--sm {
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--hq-fs-micro);
+}
+.hqpu-btn--ghost {
+  background: transparent;
+  color: var(--hq-muted);
+}
+.hqpu-btn--brand {
+  background: var(--hq-brand);
+  color: var(--hq-on-accent);
+}
+.hqpu-btn--brand:hover:not(:disabled) {
+  background: var(--hq-brand-soft);
+}
+/* The runtime confirm is the same amber as the card it lives in (the
+ * prototype's treatment): red is the plugin-set path, amber the runtime path.
+ * Ink is a warm near-black because amber stays bright in both themes — white
+ * on amber-500 sits near 2:1 and reads as a disabled button. */
+.hqpu-btn--engine-solid {
+  height: 28px;
+  padding: 0 12px;
+  background: var(--hq-amber);
+  color: var(--hq-on-amber);
+  font-size: var(--hq-fs-meta);
+  font-weight: 600;
+}
+.hqpu-btn--engine-solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--hq-amber) 85%, #000);
+}
+
+/* ── Skeleton ────────────────────────────────────────────────────────────── */
+.hqpu-skeleton-fill {
+  background: var(--hq-border);
+  animation: hqpu-skeleton 2s cubic-bezier(0.36, 0, 0.64, 1) infinite;
+}
+.hqpu-skeleton-title {
+  width: 60%;
+  height: 10px;
+  border-radius: 3px;
+}
+.hqpu-skeleton-sub {
+  width: 40%;
+  height: 8px;
+  border-radius: 3px;
+}
+.hqpu-card .hqpu-avatar.hqpu-skeleton-fill {
+  background: var(--hq-border);
+}
+@keyframes hqpu-skeleton {
+  0% { opacity: 1; }
+  40% { opacity: 0.55; }
+  80%, 100% { opacity: 1; }
+}
+
+/* ── Focus + reduced motion ──────────────────────────────────────────────── */
+.hqpu-panel button:focus-visible,
+.hqpu-panel a:focus-visible,
+.hqpu-panel input:focus-visible {
+  outline: var(--dsw-focus-ring-width, 2px) solid
+    var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: 1px;
+}
+.hqpu-panel input:focus-visible {
+  outline: none;
+  border-color: var(--hq-brand-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hqpu-scrim,
+  .hqpu-panel,
+  .hqpu-skeleton-fill,
+  .hqpu-cta-spinner,
+  .hqpu-toast,
+  .hqpu-pulse-ring,
+  .hqpu-job-step--active {
+    animation: none;
+  }
+}
+
 `
 
 const STYLE_TAG_ID = 'data-plugin-css="huaqiu-plugin-update"'
@@ -1701,8 +1890,24 @@ export interface ClientContext {
   effect?(fn: () => (() => void) | void, label?: string): void
 }
 
-/** In-memory update-report store shared by the badge and the modal. */
-class UpdateStore implements UpdateStoreLike {
+/**
+ * A transient "installing" flag with no live job behind it is stale. An install
+ * of this plugin's own package restarts DSH, so the last `/activity` read can
+ * be lost; `schedulePoll()` then stops (no active job) while the 60 s report
+ * refresh keeps running — the footer would say "更新中" forever. A real install
+ * always has a non-terminal active job, so after this window without one we
+ * stop claiming progress rather than waiting for a read that will never come.
+ */
+const STALE_INSTALL_MS = 120_000
+
+/**
+ * In-memory update-report store shared by the badge and the modal.
+ *
+ * Exported for tests: the re-attach logic (watch a job by id, notice that the
+ * server was replaced, stop claiming progress) is the part that cannot be
+ * exercised through the view alone.
+ */
+export class UpdateStore implements UpdateStoreLike {
   private current: PluginUpdateReport | null = null
   private installingFlag = false
   /** The durable job the server currently reports as active (resumed across
@@ -1714,6 +1919,17 @@ class UpdateStore implements UpdateStoreLike {
   private pollTimer: number | null = null
   private pollBackoffMs = 1_000
   private pollInFlight = false
+  /** The job this panel started (or adopted) and is following by id. */
+  private watchedJobId: string | null = null
+  /** True between `setInstalling(true)` and the install response landing: a
+   *  state read in that window has no job yet, and must not clear the flag. */
+  private installPending = false
+  /** When the transient installing flag was raised (stale-install watchdog). */
+  private installingSinceMs = 0
+  /** hq-edge process identity from the last `/activity` read. */
+  private activityBootId: string | null = null
+  private stalledFlag = false
+  private phaseAgeMsValue = 0
 
   report(): PluginUpdateReport | null {
     return this.current
@@ -1731,6 +1947,30 @@ class UpdateStore implements UpdateStoreLike {
     return [...this.recent]
   }
 
+  /** True when the server says the active job stopped advancing. */
+  stalled(): boolean {
+    return this.stalledFlag
+  }
+
+  /** Milliseconds since the active job last advanced (server clock). */
+  phaseAgeMs(): number {
+    return this.phaseAgeMsValue
+  }
+
+  /**
+   * Follow a job by id. The panel calls this with the `jobId` an accept
+   * response handed back, so every later read asks about THAT job — the only
+   * way to learn its outcome when the install replaced this very plugin (the
+   * page comes back to a server that has no "active job" left to report).
+   */
+  watchJob(id: string | null): void {
+    // The install response has landed: from here on a state read is allowed to
+    // judge whether the flag is stale (see settleStaleInstall).
+    this.installPending = false
+    this.watchedJobId = id
+    if (id !== null) this.schedulePoll()
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener)
     return () => {
@@ -1739,27 +1979,14 @@ class UpdateStore implements UpdateStoreLike {
   }
 
   /**
-   * Badge: counts actionable plugin updates AND an available runtime update AND
-   * (while a job runs) an attention pill. A recent failed/rolled-back job with
-   * nothing actionable left also keeps a dot, so the outcome is never silently
-   * forgotten after the panel closes.
+   * Sidebar badge: how many updates are still on offer — actionable plugin
+   * items plus (once) the HQ Edge runtime update.
+   *
+   * The whole rule lives in {@link badgeCountFor}; in particular the job
+   * history never contributes, which is what used to pin this at 1 forever.
    */
   badgeCount(): number {
-    const job = this.active
-    if (job !== null && !TERMINAL_PHASES.has(job.phase)) return 1
-    const report = this.current
-    if (report === null) return 0
-    let count = report.items.filter(
-      (item) => item.state === 'update' || item.state === 'install',
-    ).length
-    if (report.runtime?.updateAvailable) count += 1
-    if (count === 0) {
-      const latest = this.recent[0]
-      if (latest !== undefined && (latest.phase === 'failed' || latest.phase === 'rolled-back')) {
-        count = 1
-      }
-    }
-    return count
+    return badgeCountFor(this.current, this.active)
   }
 
   private emit(): void {
@@ -1777,29 +2004,167 @@ class UpdateStore implements UpdateStoreLike {
     const wasActive = this.active !== null
     this.active = status.activeJob
     this.recent = status.recentJobs
-    if (wasActive && this.active === null) {
-      // The active job settled (moved to recent/terminal) — the installing
-      // footer state must clear on its own, without the panel's closure.
-      this.installingFlag = false
-    }
+    if (this.active !== null) this.watchedJobId = this.active.id
+    // `/status` is the fallback for an older hq-edge with no `/activity`. It
+    // has no `job` field, but a settled watched job is still in recentJobs —
+    // the same answer the re-attach read would have given us.
+    const watchedSettled =
+      this.watchedJobId !== null &&
+      status.recentJobs.some(
+        (entry) => entry.id === this.watchedJobId && TERMINAL_PHASES.has(entry.phase),
+      )
+    if ((wasActive && this.active === null) || watchedSettled) this.observeSettled()
+    else this.settleStaleInstall()
     this.emit()
     this.schedulePoll()
   }
 
   /**
-   * Fetch the durable job status. Called on mount, on panel open (BEFORE
+   * Adopt a `/activity` snapshot.
+   *
+   * Three things only this read can tell us:
+   *
+   *   - `bootId` changed → hq-edge was recreated underneath the page. That is
+   *     what an install of this plugin's own package looks like from here: the
+   *     DSH process serving this route was replaced. Nothing in memory can be
+   *     trusted, so the installing flag is cleared and the report re-read.
+   *   - `stalled` → the active job has stopped advancing. The progress bar must
+   *     stop pretending; the panel shows a "confirming" note with a retry.
+   *   - `job` → the durable record of the job we followed by id. It is the ONLY
+   *     evidence left when that job settled while DSH was restarting: the
+   *     active slot is already empty on this page's first read back, so there
+   *     is no active → null transition to notice. Without this check the
+   *     installing flag survives the restart and the panel stays "更新中".
+   */
+  private applyActivity(activity: UpdateActivity): void {
+    const rebooted = this.activityBootId !== null && this.activityBootId !== activity.bootId
+    this.activityBootId = activity.bootId
+    this.stalledFlag = activity.stalled
+    this.phaseAgeMsValue = activity.phaseAgeMs
+
+    const wasActive = this.active !== null
+    this.active = activity.activeJob
+    if (activity.job !== null) this.upsertRecent(activity.job)
+
+    // Settle on EITHER signal: the active slot emptied, or our own job (the one
+    // `watchJob` made every read ask about) reached a terminal phase. The id
+    // comparison matters — `job` may be any job in the ledger.
+    const watchedSettled =
+      this.watchedJobId !== null &&
+      activity.job !== null &&
+      activity.job.id === this.watchedJobId &&
+      TERMINAL_PHASES.has(activity.job.phase)
+    const settled = (wasActive && this.active === null) || watchedSettled
+
+    if (rebooted) {
+      this.installingFlag = false
+      this.stalledFlag = false
+      this.phaseAgeMsValue = 0
+      // observeSettled() refreshes too — avoid two identical report reads.
+      if (!settled) void this.refresh()
+    }
+    if (settled) this.observeSettled()
+    else this.settleStaleInstall()
+    this.emit()
+    this.schedulePoll()
+  }
+
+  /**
+   * The job we were following reached a terminal phase (or vanished from the
+   * active slot). Clear the transient flags and re-read the report — it still
+   * names the versions that job installed.
+   */
+  private observeSettled(): void {
+    this.installingFlag = false
+    this.installPending = false
+    this.installingSinceMs = 0
+    this.stalledFlag = false
+    this.phaseAgeMsValue = 0
+    this.watchedJobId = null
+    void this.refresh()
+  }
+
+  /**
+   * Last-resort reset for the restart case: the page is back, the transient
+   * installing flag is still set, but no job is running and no re-attach read
+   * is coming (the poll loop stops without an active job). Called on mount,
+   * on every successful state read and on each idle refresh, so the footer
+   * cannot stay "更新中" forever. A failed read is not evidence of anything, so
+   * it never clears the flag. A live job, or an install request in flight, always
+   * wins — this only clears a flag with nothing behind it.
+   */
+  settleStaleInstall(): void {
+    if (!this.installingFlag || this.installPending) return
+    const liveJob = this.active !== null && !TERMINAL_PHASES.has(this.active.phase)
+    if (liveJob) return
+    // A watched id means /activity may still answer; give it the watchdog
+    // window before declaring the re-attach lost. No watched id means the
+    // panel has nothing left to ask about, so reset on the first state read.
+    const timedOut = Date.now() - this.installingSinceMs >= STALE_INSTALL_MS
+    if (this.watchedJobId !== null && !timedOut) return
+    this.observeSettled()
+  }
+
+  /** Keep one job fresh in the local history without duplicating it. */
+  private upsertRecent(job: UpdateJob): void {
+    const rest = this.recent.filter((entry) => entry.id !== job.id)
+    this.recent = [job, ...rest].slice(0, 20)
+  }
+
+  /**
+   * Fetch the durable job state. Called on mount, on panel open (BEFORE
    * discovery) and by the poll loop. A failure (older hq-edge with no
    * `/status`, or a transient HTTP error) is swallowed: the last known job is
    * kept and the poller backs off and retries.
    */
   async fetchStatus(): Promise<void> {
     try {
-      const status = await fetchJobStatus()
+      await this.pollOnce()
       this.pollBackoffMs = 1_000
-      this.applyStatus(status)
     } catch {
       this.schedulePoll()
     }
+  }
+
+  /**
+   * Re-attach after this plugin's own bundle was swapped mid-install.
+   *
+   * The freshly re-mounted panel starts with no state at all. If the restarted
+   * DSH is not answering yet, one failed read leaves it on its skeleton until
+   * the next 60 s idle tick — indistinguishable from "the page never updated".
+   * Retry the durable-job read and the report a few times; both emit, so the
+   * panel converges as soon as the server is back.
+   */
+  async resync(attempts = 6, delayMs = 1_000): Promise<void> {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await this.fetchStatus()
+      await this.refresh()
+      if (this.current !== null) return
+      if (attempt + 1 < attempts) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, delayMs)
+        })
+      }
+    }
+  }
+
+  /**
+   * One read. While a job is being followed, ask `/activity` about THAT job
+   * (survives the restart an update of this plugin causes); otherwise fall back
+   * to the plain `/status` list. An older hq-edge without `/activity` 404s and
+   * the status read still answers.
+   */
+  private async pollOnce(): Promise<void> {
+    const watched = this.watchedJobId ?? this.active?.id ?? null
+    if (watched !== null) {
+      try {
+        this.applyActivity(await fetchActivity(watched))
+        return
+      } catch {
+        /* fall through to /status: an older hq-edge has no /activity */
+      }
+    }
+    this.applyStatus(await fetchJobStatus())
   }
 
   /** ~1 s poll while a job is active; stop on terminal; back off on error
@@ -1810,7 +2175,16 @@ class UpdateStore implements UpdateStoreLike {
       this.pollTimer = null
     }
     const job = this.active
-    if (job === null || TERMINAL_PHASES.has(job.phase)) {
+    const jobActive = job !== null && !TERMINAL_PHASES.has(job.phase)
+    // Re-attach window: the install replaced this plugin's own process, so the
+    // active slot can be empty for a while even though the job has not been
+    // confirmed settled. Keep asking about the watched id (bounded by the
+    // stale-install watchdog) instead of letting one lost read end the poll.
+    const awaitingReattach =
+      this.installingFlag &&
+      this.watchedJobId !== null &&
+      Date.now() - this.installingSinceMs < STALE_INSTALL_MS
+    if (!jobActive && !awaitingReattach) {
       this.pollBackoffMs = 1_000
       return
     }
@@ -1826,9 +2200,8 @@ class UpdateStore implements UpdateStoreLike {
     }
     this.pollInFlight = true
     try {
-      const status = await fetchJobStatus()
+      await this.pollOnce()
       this.pollBackoffMs = 1_000
-      this.applyStatus(status)
     } catch {
       this.pollBackoffMs = Math.min(5_000, Math.max(1_000, this.pollBackoffMs * 2))
       this.schedulePoll()
@@ -1861,14 +2234,20 @@ class UpdateStore implements UpdateStoreLike {
 
   /** Mark the set as installing (set by the modal before the restart). */
   setInstalling(flag: boolean): void {
+    if (flag && !this.installingFlag) this.installingSinceMs = Date.now()
     this.installingFlag = flag
+    this.installPending = flag
+    if (!flag) this.installingSinceMs = 0
     this.emit()
   }
 
-  /** Idle refresh while mounted (60 s) — no overlapping poll loop. */
+  /** Idle refresh while mounted (60 s) — no overlapping poll loop. This is
+   *  also the only timer that still runs after a re-attach read was lost, so
+   *  it carries the stale-install fallback as well. */
   startIdleRefresh(): void {
     if (this.refreshTimer !== null) return
     this.refreshTimer = window.setInterval(() => {
+      this.settleStaleInstall()
       void this.refresh()
     }, 60_000) as unknown as number
   }
@@ -1994,9 +2373,28 @@ export function apply(ctx: ClientContext): () => void {
     }
   })
 
+  // Mount path: a page that came back from the DSH restart must not inherit a
+  // transient "installing" state with no job to follow.
+  store.settleStaleInstall()
   store.startIdleRefresh()
-  void store.refresh()
-  void store.fetchStatus()
+
+  // A self-update (this plugin standalone, or the whole set including it)
+  // replaces THIS client bundle mid-install. The host disposes the old module
+  // — stopping its store and clearing its subscriptions — and applies a fresh
+  // one, but the open review panel's DOM survives. Left alone it stays frozen
+  // at "Updating…" forever, subscribed to the dead store. Re-create it against
+  // this instance's store so it re-reads the settled job and the report from
+  // the restarted DSH and shows the final state. When no panel was open (a
+  // normal boot) just do the usual mount reads.
+  if (takeOverUpdateView()) {
+    openView()
+    // The restarted DSH may not answer the first read; keep re-reading until
+    // it does rather than waiting for the 60 s idle tick (see resync()).
+    void store.resync()
+  } else {
+    void store.refresh()
+    void store.fetchStatus()
+  }
 
   const dispose = (): void => {
     try {

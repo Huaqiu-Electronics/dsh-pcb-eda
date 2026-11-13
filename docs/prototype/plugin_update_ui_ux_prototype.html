@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="zh-CN" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>插件更新中心 - UI/UX Baseline Prototype</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#fef2f2',
+                            100: '#ffe1e1',
+                            500: '#e1251b', // Huaqiu Red
+                            600: '#c81e15',
+                            700: '#a3150f',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbars & smooth transitions */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(156, 163, 175, 0.3);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(156, 163, 175, 0.5);
+        }
+        .animate-pulse-subtle {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans antialiased flex flex-col md:flex-row justify-center items-center p-2 sm:p-6 transition-colors duration-200">
+
+    <!-- Interactive Prototype Controls Bar -->
+    <div class="fixed top-3 left-3 right-3 md:top-4 md:left-auto md:right-4 z-50 bg-slate-800/90 dark:bg-slate-800/90 backdrop-blur-md border border-slate-700/80 rounded-xl p-2.5 px-4 shadow-xl flex flex-wrap items-center justify-between gap-3 text-xs max-w-xl">
+        <div class="flex items-center gap-2 font-medium">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+            <span class="text-slate-300">UX 原型模拟器</span>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+            <button onclick="toggleTheme()" class="px-2.5 py-1 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors flex items-center gap-1.5 text-slate-200">
+                <svg id="theme-icon-sun" class="w-3.5 h-3.5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
+                <svg id="theme-icon-moon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path></svg>
+                <span id="theme-text">切换明亮主题</span>
+            </button>
+            
+            <!-- State Switcher Dropdown -->
+            <select id="state-selector" onchange="switchScenario(this.value)" class="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-brand-500">
+                <option value="default">状态 1: 待更新 (3项插件+1项运行时)</option>
+                <option value="installing">状态 2: 正在更新中 (42% 下载)</option>
+                <option value="checkFailed">状态 3: 检查失败 (数据过期)</option>
+                <option value="upToDate">状态 4: 已是最新版本</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- MAIN MODAL CONTAINER (Exact 360px target width constraint) -->
+    <div id="modal-container" class="w-full max-w-[360px] h-[720px] max-h-[92vh] bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden relative transition-all duration-300 my-auto">
+        
+        <!-- HEADER (Sticky) -->
+        <header class="sticky top-0 z-20 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border-b border-slate-100 dark:border-slate-800/80 px-4 py-3 flex items-center justify-between shrink-0">
+            <div class="flex items-center gap-2.5">
+                <div class="w-7 h-7 rounded-lg bg-brand-500/10 text-brand-500 flex items-center justify-center font-bold text-sm">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </div>
+                <div>
+                    <h1 class="text-sm font-semibold text-slate-900 dark:text-slate-100 leading-tight">更新中心</h1>
+                    <div class="flex items-center gap-1.5 text-[11px] text-slate-400 dark:text-slate-500">
+                        <span>版本集 v0.6.14</span>
+                        <span>•</span>
+                        <span id="last-check-time">14 分钟前</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Header Toolbar Controls -->
+            <div class="flex items-center gap-1">
+                <button onclick="triggerCheck()" title="重新检查更新" class="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    <svg id="refresh-spinner" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                </button>
+                <button onclick="toggleSettings()" id="settings-btn" title="更新源配置" class="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                </button>
+                <button onclick="toggleJobLogDrawer()" id="joblog-btn" title="查看任务日志" class="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                </button>
+                <button onclick="closeModal()" title="关闭" class="w-7 h-7 rounded-lg flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors ml-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- SETTINGS STRIP (Collapsible Drawer Overlay) -->
+        <div id="settings-drawer" class="hidden bg-slate-100 dark:bg-slate-950/80 border-b border-slate-200 dark:border-slate-800 px-4 py-3 text-xs space-y-3 transition-all duration-200">
+            <div class="flex items-center justify-between font-medium text-slate-700 dark:text-slate-300">
+                <span>更新源配置 (高级)</span>
+                <span class="px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-mono">默认源</span>
+            </div>
+            <div class="space-y-2">
+                <div>
+                    <label class="text-[11px] text-slate-500 dark:text-slate-400 block mb-1">插件 Manifest URL</label>
+                    <input type="text" value="https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/plugins-release-manifest.json" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500">
+                </div>
+                <div>
+                    <label class="text-[11px] text-slate-500 dark:text-slate-400 block mb-1">运行时 Manifest URL</label>
+                    <input type="text" value="https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/edge-headless-release-manifest.json" class="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg px-2.5 py-1.5 text-[11px] font-mono text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-1 focus:ring-brand-500">
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 pt-1">
+                <button onclick="toggleSettings()" class="px-2.5 py-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300">取消</button>
+                <button onclick="saveSettings()" class="px-3 py-1 bg-brand-500 hover:bg-brand-600 text-white rounded-lg font-medium transition-colors">保存并刷新</button>
+            </div>
+        </div>
+
+        <!-- JOB LOG OVERLAY (Drawer) -->
+        <div id="joblog-drawer" class="hidden absolute inset-x-0 top-[53px] bottom-0 z-30 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-4 flex flex-col space-y-3 transition-all duration-200">
+            <div class="flex items-center justify-between pb-2 border-b border-slate-200 dark:border-slate-800">
+                <div class="flex items-center gap-2">
+                    <span class="font-semibold text-xs text-slate-800 dark:text-slate-200">安装日志与记录</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">更新已完成</span>
+                </div>
+                <button onclick="toggleJobLogDrawer()" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+            <div class="bg-slate-100 dark:bg-slate-950 rounded-xl p-3 font-mono text-[11px] text-slate-600 dark:text-slate-400 space-y-1.5 overflow-y-auto flex-1">
+                <div class="text-slate-400 dark:text-slate-500 flex justify-between text-[10px] pb-1 border-b border-slate-200 dark:border-slate-800/80">
+                    <span>JOB_ID: uj_1793255677245</span>
+                    <span>10/29/2026, 2:34 PM</span>
+                </div>
+                <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> @huaqiu/dsh-plugin-1@0.6.14</div>
+                <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> @huaqiu/dsh-plugin-2@0.6.14</div>
+                <div class="flex items-center gap-2 text-emerald-600 dark:text-emerald-400"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> @huaqiu/dsh-plugin-3@0.6.14</div>
+                <div class="flex items-center gap-2 text-slate-400 dark:text-slate-500"><span class="w-1.5 h-1.5 rounded-full bg-slate-400 dark:bg-slate-600"></span> @huaqiu/dsh-plugin-4@0.6.14 (已跳过)</div>
+            </div>
+            <div class="flex items-center justify-between pt-1">
+                <button onclick="copyLogId()" class="text-[11px] text-brand-500 hover:text-brand-600 dark:hover:text-brand-400 flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path></svg>
+                    复制日志 ID
+                </button>
+                <button onclick="toggleJobLogDrawer()" class="px-3 py-1 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-lg text-xs font-medium hover:bg-slate-300 dark:hover:bg-slate-700">关闭</button>
+            </div>
+        </div>
+
+        <!-- MAIN SCROLLABLE BODY (Decision-First Hierarchy) -->
+        <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+
+            <!-- ERROR ALERT BANNER (Shown when check fails) -->
+            <div id="check-failed-banner" class="hidden p-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/60 rounded-xl space-y-2 text-xs">
+                <div class="flex items-start gap-2 text-red-700 dark:text-red-400">
+                    <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <div>
+                        <p class="font-semibold leading-tight">检查更新失败</p>
+                        <p class="text-[11px] text-red-600/90 dark:text-red-400/80 mt-0.5">manifest fetch failed: 502 Bad Gateway</p>
+                    </div>
+                </div>
+                <div class="flex items-center justify-between pt-1 border-t border-red-200/60 dark:border-red-900/40 text-[11px]">
+                    <span class="text-red-600/80 dark:text-red-400/70">以下为上次成功检查的结果（可能已过期）</span>
+                    <button onclick="triggerCheck()" class="font-medium text-red-700 dark:text-red-300 hover:underline">重新尝试</button>
+                </div>
+            </div>
+
+            <!-- ACTIVE JOB CARD (Fixes Baseline Defect #1 Title Missing & Defect #2 Font Scale) -->
+            <div id="active-job-card" class="hidden bg-slate-50 dark:bg-slate-850 border border-brand-500/40 rounded-xl p-3.5 space-y-3 relative overflow-hidden shadow-sm">
+                <!-- Title Row (Fixed Defect #1) -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-brand-500 animate-ping"></span>
+                        <span class="text-xs font-semibold text-slate-800 dark:text-slate-100">正在升级插件集 (v0.6.14)</span>
+                    </div>
+                    <span id="active-job-percentage" class="text-xs font-mono font-bold text-brand-500">42%</span>
+                </div>
+
+                <!-- Progress Bar -->
+                <div class="w-full h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                    <div id="active-job-bar" class="h-full bg-brand-500 rounded-full transition-all duration-300" style="width: 42%"></div>
+                </div>
+
+                <!-- Sub-meta Info (Fixed Defect #2 - standardized text size) -->
+                <div class="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    <div class="flex justify-between font-mono">
+                        <span>下载中 (3.1 MB/s)</span>
+                        <span>286.0 MB / 450.0 MB</span>
+                    </div>
+                    <!-- Close warning properly styled -->
+                    <p class="text-[11px] text-slate-400 dark:text-slate-500 pt-1">关闭此面板不会取消更新，完成后将自动重启。</p>
+                </div>
+
+                <!-- Step Pipeline Indicator -->
+                <div class="grid grid-cols-4 gap-1 pt-1 text-[10px] text-center border-t border-slate-200/60 dark:border-slate-800">
+                    <span class="text-brand-500 font-medium">1. 下载</span>
+                    <span class="text-slate-400 dark:text-slate-600">2. 校验</span>
+                    <span class="text-slate-400 dark:text-slate-600">3. 暂存</span>
+                    <span class="text-slate-400 dark:text-slate-600">4. 重启</span>
+                </div>
+            </div>
+
+            <!-- DECISION BAND / SUMMARY HEADER -->
+            <div id="decision-band" class="flex items-center justify-between bg-slate-100 dark:bg-slate-800/60 rounded-xl p-2.5 px-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-semibold text-slate-800 dark:text-slate-200" id="actionable-summary-text">3 项插件可更新</span>
+                    <span class="w-1.5 h-1.5 rounded-full bg-brand-500"></span>
+                    <span class="text-xs text-slate-500 dark:text-slate-400" id="runtime-summary-text">1 项运行时可升级</span>
+                </div>
+            </div>
+
+            <!-- SECTION 1: ACTIONABLE PLUGINS (待处理) -->
+            <div id="actionable-section" class="space-y-2">
+                <div class="flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium px-1">
+                    <div class="flex items-center gap-1.5">
+                        <span>待处理更新</span>
+                        <span id="actionable-badge-count" class="px-1.5 py-0.2 rounded-full bg-brand-500/10 text-brand-500 text-[10px] font-bold">3</span>
+                    </div>
+                    <button onclick="toggleAllChangelogs()" class="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+                        <span id="changelog-toggle-text">展开版本日志</span>
+                    </button>
+                </div>
+
+                <!-- PLUGIN CARD 1 -->
+                <div class="plugin-card bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 transition-all space-y-2">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-xs text-slate-600 dark:text-slate-300 shrink-0">
+                                Ki
+                            </div>
+                            <div>
+                                <h3 class="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug">KiCad 集成</h3>
+                                <p class="text-[10px] font-mono text-slate-400 dark:text-slate-500">kicad</p>
+                            </div>
+                        </div>
+
+                        <!-- Card Action Buttons (Promoted from Drawer - Addresses Baseline §6.3) -->
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button onclick="installSinglePlugin('KiCad 集成')" class="px-2.5 py-1 bg-brand-500/10 hover:bg-brand-500 text-brand-600 dark:text-brand-400 hover:text-white rounded-lg text-[11px] font-medium transition-colors">
+                                单独更新
+                            </button>
+                            <button onclick="ignorePlugin(this)" title="忽略此插件" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a10.002 10.002 0 0110.058 5.918c-.085.244-.188.482-.307.712M15 12a3 3 0 11-6 0 3 3 0 016 0zM3 3l18 18"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400 pt-0.5">
+                        <div class="flex items-center gap-1.5">
+                            <span>0.6.9</span>
+                            <span class="text-slate-300 dark:text-slate-600">→</span>
+                            <span class="text-emerald-600 dark:text-emerald-400 font-semibold">0.6.14</span>
+                            <span class="text-slate-400 text-[10px]">(2.3 MB)</span>
+                        </div>
+                        <button onclick="toggleCardChangelog(this)" class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-0.5">
+                            <span>更新内容</span>
+                            <svg class="w-3 h-3 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                    </div>
+
+                    <!-- Collapsible Card Changelog -->
+                    <div class="changelog-drawer hidden pt-2 text-[11px] text-slate-600 dark:text-slate-400 border-t border-slate-200/60 dark:border-slate-800/60 space-y-1">
+                        <p class="font-medium text-slate-700 dark:text-slate-300">v0.6.14 变更明细：</p>
+                        <ul class="list-disc list-inside space-y-0.5 text-[10.5px]">
+                            <li>修复 KiCad 7.0 导出原理图时的兼容性崩溃</li>
+                            <li>优化 netlist 同步性能</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- PLUGIN CARD 2 -->
+                <div class="plugin-card bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 transition-all space-y-2">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-xs text-slate-600 dark:text-slate-300 shrink-0">
+                                PC
+                            </div>
+                            <div>
+                                <h3 class="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug">PCB 预览</h3>
+                                <p class="text-[10px] font-mono text-slate-400 dark:text-slate-500">tool-pcb-viewer</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button onclick="installSinglePlugin('PCB 预览')" class="px-2.5 py-1 bg-brand-500/10 hover:bg-brand-500 text-brand-600 dark:text-brand-400 hover:text-white rounded-lg text-[11px] font-medium transition-colors">
+                                单独更新
+                            </button>
+                            <button onclick="ignorePlugin(this)" title="忽略此插件" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a10.002 10.002 0 0110.058 5.918c-.085.244-.188.482-.307.712M15 12a3 3 0 11-6 0 3 3 0 016 0zM3 3l18 18"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400 pt-0.5">
+                        <div class="flex items-center gap-1.5">
+                            <span>0.6.9</span>
+                            <span class="text-slate-300 dark:text-slate-600">→</span>
+                            <span class="text-emerald-600 dark:text-emerald-400 font-semibold">0.6.14</span>
+                            <span class="text-slate-400 text-[10px]">(1.8 MB)</span>
+                        </div>
+                        <button onclick="toggleCardChangelog(this)" class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-0.5">
+                            <span>更新内容</span>
+                            <svg class="w-3 h-3 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                    </div>
+                    <div class="changelog-drawer hidden pt-2 text-[11px] text-slate-600 dark:text-slate-400 border-t border-slate-200/60 dark:border-slate-800/60 space-y-1">
+                        <p class="font-medium text-slate-700 dark:text-slate-300">v0.6.14 变更明细：</p>
+                        <ul class="list-disc list-inside space-y-0.5 text-[10.5px]">
+                            <li>新增 3D 渲染多层叠加显示</li>
+                            <li>修复 Gerber 导出缩放偏差</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- PLUGIN CARD 3 -->
+                <div class="plugin-card bg-slate-50 dark:bg-slate-800/40 hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-slate-200/80 dark:border-slate-800 rounded-xl p-3 transition-all space-y-2">
+                    <div class="flex items-start justify-between gap-2">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-slate-200 dark:bg-slate-700 flex items-center justify-center font-bold text-xs text-slate-600 dark:text-slate-300 shrink-0">
+                                报价
+                            </div>
+                            <div>
+                                <h3 class="text-xs font-semibold text-slate-800 dark:text-slate-100 leading-snug">报价工具</h3>
+                                <p class="text-[10px] font-mono text-slate-400 dark:text-slate-500">tool-quote</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5 shrink-0">
+                            <button onclick="installSinglePlugin('报价工具')" class="px-2.5 py-1 bg-brand-500/10 hover:bg-brand-500 text-brand-600 dark:text-brand-400 hover:text-white rounded-lg text-[11px] font-medium transition-colors">
+                                单独更新
+                            </button>
+                            <button onclick="ignorePlugin(this)" title="忽略此插件" class="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858-5.908a10.002 10.002 0 0110.058 5.918c-.085.244-.188.482-.307.712M15 12a3 3 0 11-6 0 3 3 0 016 0zM3 3l18 18"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-between text-[11px] font-mono text-slate-500 dark:text-slate-400 pt-0.5">
+                        <div class="flex items-center gap-1.5">
+                            <span>0.6.10</span>
+                            <span class="text-slate-300 dark:text-slate-600">→</span>
+                            <span class="text-emerald-600 dark:text-emerald-400 font-semibold">0.6.14</span>
+                            <span class="text-slate-400 text-[10px]">(3.1 MB)</span>
+                        </div>
+                        <button onclick="toggleCardChangelog(this)" class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 flex items-center gap-0.5">
+                            <span>更新内容</span>
+                            <svg class="w-3 h-3 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                    </div>
+                    <div class="changelog-drawer hidden pt-2 text-[11px] text-slate-600 dark:text-slate-400 border-t border-slate-200/60 dark:border-slate-800/60 space-y-1">
+                        <p class="font-medium text-slate-700 dark:text-slate-300">v0.6.14 变更明细：</p>
+                        <ul class="list-disc list-inside space-y-0.5 text-[10.5px]">
+                            <li>更新华秋 SMT 实时计价引擎 API</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 2: RUNTIME OFFER (Moved Up so counted items are visible above fold - Fixes Baseline Defect #10) -->
+            <div id="runtime-section" class="bg-gradient-to-br from-amber-500/5 via-slate-50 to-slate-100 dark:from-amber-500/10 dark:via-slate-800/40 dark:to-slate-800/60 border border-amber-500/30 rounded-xl p-3 space-y-2.5">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <span class="text-xs font-semibold text-slate-800 dark:text-slate-200">HQ Edge 核心运行时</span>
+                    </div>
+                    <span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] font-mono">v0.3.16 当前</span>
+                </div>
+
+                <div class="flex items-start justify-between gap-3 text-xs">
+                    <div class="space-y-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-emerald-600 dark:text-emerald-400 font-semibold font-mono">v0.3.18 可用</span>
+                            <span class="text-[10px] px-1.5 py-0.2 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded font-medium">关键修复</span>
+                        </div>
+                        <p class="text-[11px] text-slate-500 dark:text-slate-400">体积 96.0 MB • 包含内存泄露修复与并发提升</p>
+                    </div>
+
+                    <!-- Two-stage Runtime Upgrade Action -->
+                    <div id="runtime-action-container">
+                        <button onclick="armRuntimeUpgrade()" id="runtime-upgrade-btn" class="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-medium transition-colors shrink-0 shadow-sm">
+                            升级核心
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Two-step Confirmation Prompt (Refactored layout to prevent cramped 150px wrap - Fixes Baseline §6.3) -->
+                <div id="runtime-confirm-box" class="hidden p-2.5 bg-amber-500/10 rounded-lg border border-amber-500/20 text-xs space-y-2">
+                    <p class="text-amber-800 dark:text-amber-300 text-[11px] leading-relaxed">
+                        确认升级 HQ Edge 运行时至 v0.3.18？升级将自动关闭后台服务并完成替换，随后重启。
+                    </p>
+                    <div class="flex items-center justify-end gap-2">
+                        <button onclick="cancelRuntimeUpgrade()" class="px-2.5 py-1 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 text-[11px]">取消</button>
+                        <button onclick="confirmRuntimeUpgrade()" class="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[11px] font-medium transition-colors">确认升级并重启</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 3: COLLAPSIBLE UP-TO-DATE PLUGINS (De-cluttered Baseline Defect #9) -->
+            <div id="uptodate-section" class="border-t border-slate-200 dark:border-slate-800/80 pt-3">
+                <button onclick="toggleUpToDateGroup()" class="w-full flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium py-1">
+                    <div class="flex items-center gap-1.5">
+                        <svg id="uptodate-chevron" class="w-3.5 h-3.5 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        <span>已是最新</span>
+                        <span id="uptodate-count" class="text-[11px] text-slate-400 dark:text-slate-500 font-mono">(2)</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 dark:text-slate-500">全部正常运行</span>
+                </button>
+
+                <div id="uptodate-list" class="hidden space-y-1.5 pt-2">
+                    <div class="flex items-center justify-between p-2 px-3 bg-slate-50/50 dark:bg-slate-800/20 rounded-lg text-[11px]">
+                        <span class="font-medium text-slate-700 dark:text-slate-300">账号登录</span>
+                        <span class="font-mono text-slate-400">0.6.14 • 已是最新</span>
+                    </div>
+                    <div class="flex items-center justify-between p-2 px-3 bg-slate-50/50 dark:bg-slate-800/20 rounded-lg text-[11px]">
+                        <span class="font-medium text-slate-700 dark:text-slate-300">统计分析</span>
+                        <span class="font-mono text-slate-400">0.6.14 • 已是最新</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECTION 4: RELEASE NOTES (Collapsed by default to keep decisions first) -->
+            <div id="releasenotes-section" class="border-t border-slate-200 dark:border-slate-800/80 pt-3">
+                <button onclick="toggleReleaseNotes()" class="w-full flex items-center justify-between text-xs text-slate-500 dark:text-slate-400 font-medium py-1">
+                    <div class="flex items-center gap-1.5">
+                        <svg id="releasenotes-chevron" class="w-3.5 h-3.5 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                        <span>版本说明 (Release Notes)</span>
+                    </div>
+                    <span class="text-[10px] font-mono text-slate-400">v0.6.14</span>
+                </button>
+
+                <div id="releasenotes-body" class="hidden space-y-2 pt-2 text-[11px] text-slate-600 dark:text-slate-400 bg-slate-50/50 dark:bg-slate-800/20 rounded-xl p-3">
+                    <p class="font-medium text-slate-700 dark:text-slate-300">插件集 v0.6.14 发布概要：</p>
+                    <ul class="list-disc list-inside space-y-1 text-[10.5px]">
+                        <li>修复 DRC 报告导出的若干崩溃缺陷</li>
+                        <li>叠层管理器新增快捷键映射支持</li>
+                        <li>增强与华秋 EDA 原理图的数据双向同步</li>
+                    </ul>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- FOOTER (Sticky & Dynamic - Fixes Baseline Defect #3, #4 & #8) -->
+        <footer class="sticky bottom-0 z-20 bg-white dark:bg-slate-900 border-t border-slate-100 dark:border-slate-800 p-3 px-4 shrink-0 space-y-2">
+            
+            <div id="footer-dynamic-content" class="space-y-2">
+                <!-- PRIMARY CTA BUTTON -->
+                <button id="primary-install-btn" onclick="triggerInstall()" class="w-full h-9 bg-brand-500 hover:bg-brand-600 disabled:bg-slate-300 dark:disabled:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-600 disabled:cursor-not-allowed text-white rounded-xl font-medium text-xs transition-all flex items-center justify-center gap-2 shadow-sm">
+                    <span id="primary-btn-icon" class="w-4 h-4 hidden animate-spin border-2 border-white border-t-transparent rounded-full"></span>
+                    <span id="primary-btn-label">一键更新选中的 3 项插件</span>
+                </button>
+
+                <!-- FOOTER META & SECONDARY IGNORE ACTION -->
+                <div id="footer-meta-row" class="flex items-center justify-between text-[11px] text-slate-400 dark:text-slate-500">
+                    <span id="footer-meta-text">准备安装 3 项兼容插件</span>
+                    <button id="ignore-release-btn" onclick="toggleIgnoreRelease()" class="hover:text-slate-600 dark:hover:text-slate-300 transition-colors">
+                        忽略此版本
+                    </button>
+                </div>
+            </div>
+
+            <p class="text-[10px] text-center text-slate-400 dark:text-slate-500 leading-tight">
+                更新将自动应用并重启 DSH 视图，不影响正在编辑的 EDA 图纸
+            </p>
+        </footer>
+
+        <!-- TOAST CONTAINER -->
+        <div id="toast" class="hidden absolute top-14 left-4 right-4 z-40 bg-slate-900/95 dark:bg-white/95 text-white dark:text-slate-900 px-3 py-2 rounded-xl text-xs shadow-xl flex items-center justify-between gap-2 backdrop-blur-md transition-all duration-300">
+            <span id="toast-message">操作已成功完成</span>
+            <button onclick="hideToast()" class="text-slate-400 hover:text-white dark:hover:text-slate-900">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+        </div>
+
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        // State tracking
+        let currentScenario = 'default';
+        let isDarkMode = true;
+        let isIgnoredRelease = false;
+
+        // Elements
+        const primaryBtn = document.getElementById('primary-install-btn');
+        const primaryBtnLabel = document.getElementById('primary-btn-label');
+        const primaryBtnIcon = document.getElementById('primary-btn-icon');
+        const footerMetaText = document.getElementById('footer-meta-text');
+        const ignoreReleaseBtn = document.getElementById('ignore-release-btn');
+        const activeJobCard = document.getElementById('active-job-card');
+        const checkFailedBanner = document.getElementById('check-failed-banner');
+        const actionableSection = document.getElementById('actionable-section');
+        const runtimeSection = document.getElementById('runtime-section');
+        const decisionBand = document.getElementById('decision-band');
+
+        // Theme Switcher
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            const html = document.documentElement;
+            const sunIcon = document.getElementById('theme-icon-sun');
+            const moonIcon = document.getElementById('theme-icon-moon');
+            const themeText = document.getElementById('theme-text');
+
+            if (isDarkMode) {
+                html.classList.add('dark');
+                sunIcon.classList.add('hidden');
+                moonIcon.classList.remove('hidden');
+                themeText.innerText = "切换明亮主题";
+            } else {
+                html.classList.remove('dark');
+                sunIcon.classList.remove('hidden');
+                moonIcon.classList.add('hidden');
+                themeText.innerText = "切换暗黑主题";
+            }
+        }
+
+        // Scenario Switcher (Demonstrates fixing all findings in baseline §6.2)
+        function switchScenario(scenario) {
+            currentScenario = scenario;
+            
+            // Reset common views
+            activeJobCard.classList.add('hidden');
+            checkFailedBanner.classList.add('hidden');
+            actionableSection.classList.remove('hidden');
+            runtimeSection.classList.remove('hidden');
+            decisionBand.classList.remove('hidden');
+            primaryBtn.disabled = false;
+            primaryBtnIcon.classList.add('hidden');
+            ignoreReleaseBtn.classList.remove('hidden');
+
+            if (scenario === 'default') {
+                primaryBtnLabel.innerText = "一键更新选中的 3 项插件";
+                footerMetaText.innerText = "准备安装 3 项兼容插件";
+                document.getElementById('actionable-summary-text').innerText = "3 项插件可更新";
+                document.getElementById('runtime-summary-text').innerText = "1 项运行时可升级";
+            } 
+            else if (scenario === 'installing') {
+                // Active installing state (Fixes Defect #3: Installing button state)
+                activeJobCard.classList.remove('hidden');
+                primaryBtn.disabled = true;
+                primaryBtnIcon.classList.remove('hidden');
+                primaryBtnLabel.innerText = "正在更新插件集中…";
+                footerMetaText.innerText = "后台处理中，请勿关闭 DSH";
+            } 
+            else if (scenario === 'checkFailed') {
+                // Check failed state (Fixes Defect #4: Stale data disables CTA)
+                checkFailedBanner.classList.remove('hidden');
+                primaryBtn.disabled = true;
+                primaryBtnLabel.innerText = "检查更新失败，请重试";
+                footerMetaText.innerText = "无法确认插件版本兼容性";
+            } 
+            else if (scenario === 'upToDate') {
+                // Up to date state (Fixes Defect #8 & #9: Responsive footer & clean list)
+                actionableSection.classList.add('hidden');
+                runtimeSection.classList.add('hidden');
+                decisionBand.classList.add('hidden');
+                
+                primaryBtn.disabled = true;
+                primaryBtnLabel.innerText = "已是最新版本";
+                footerMetaText.innerText = "所有插件与运行时均正常";
+                ignoreReleaseBtn.classList.add('hidden');
+                
+                // Expand up to date group automatically
+                document.getElementById('uptodate-list').classList.remove('hidden');
+                document.getElementById('uptodate-chevron').classList.add('rotate-90');
+            }
+        }
+
+        // Trigger Install Action
+        function triggerInstall() {
+            if (primaryBtn.disabled) return;
+            switchScenario('installing');
+            showToast("更新请求已受理，正在下载资源…");
+            
+            // Simulate completion after 4 seconds
+            setTimeout(() => {
+                switchScenario('upToDate');
+                showToast("插件集已更新完成，正在重启 DSH");
+            }, 4000);
+        }
+
+        // Single Plugin Install (Addresses Defect #5)
+        function installSinglePlugin(name) {
+            showToast(`正在单独更新 ${name}…`);
+        }
+
+        // Ignore Single Plugin
+        function ignorePlugin(btn) {
+            const card = btn.closest('.plugin-card');
+            card.style.opacity = '0.4';
+            showToast("已忽略该插件更新");
+        }
+
+        // Toggle Ignore Release
+        function toggleIgnoreRelease() {
+            isIgnoredRelease = !isIgnoredRelease;
+            if (isIgnoredRelease) {
+                ignoreReleaseBtn.innerText = "恢复版本提醒";
+                showToast("已忽略当前版本集 notification");
+            } else {
+                ignoreReleaseBtn.innerText = "忽略此版本";
+                showToast("已恢复版本提醒");
+            }
+        }
+
+        // Runtime Two-Step Upgrade Trigger
+        function armRuntimeUpgrade() {
+            document.getElementById('runtime-confirm-box').classList.remove('hidden');
+            document.getElementById('runtime-action-container').classList.add('hidden');
+        }
+
+        function cancelRuntimeUpgrade() {
+            document.getElementById('runtime-confirm-box').classList.add('hidden');
+            document.getElementById('runtime-action-container').classList.remove('hidden');
+        }
+
+        function confirmRuntimeUpgrade() {
+            cancelRuntimeUpgrade();
+            showToast("已请求运行时更新，HQ Edge 即将重启");
+        }
+
+        // UI Helpers
+        function toggleCardChangelog(btn) {
+            const drawer = btn.closest('.plugin-card').querySelector('.changelog-drawer');
+            const svg = btn.querySelector('svg');
+            drawer.classList.toggle('hidden');
+            svg.classList.toggle('rotate-180');
+        }
+
+        function toggleAllChangelogs() {
+            const drawers = document.querySelectorAll('.changelog-drawer');
+            const isAnyHidden = Array.from(drawers).some(d => d.classList.contains('hidden'));
+            drawers.forEach(d => {
+                if (isAnyHidden) d.classList.remove('hidden');
+                else d.classList.add('hidden');
+            });
+            document.getElementById('changelog-toggle-text').innerText = isAnyHidden ? "折叠版本日志" : "展开版本日志";
+        }
+
+        function toggleUpToDateGroup() {
+            const list = document.getElementById('uptodate-list');
+            const chevron = document.getElementById('uptodate-chevron');
+            list.classList.toggle('hidden');
+            chevron.classList.toggle('rotate-90');
+        }
+
+        function toggleReleaseNotes() {
+            const body = document.getElementById('releasenotes-body');
+            const chevron = document.getElementById('releasenotes-chevron');
+            body.classList.toggle('hidden');
+            chevron.classList.toggle('rotate-90');
+        }
+
+        function toggleSettings() {
+            const drawer = document.getElementById('settings-drawer');
+            drawer.classList.toggle('hidden');
+        }
+
+        function saveSettings() {
+            toggleSettings();
+            triggerCheck();
+            showToast("更新源配置已保存并重载");
+        }
+
+        function toggleJobLogDrawer() {
+            const drawer = document.getElementById('joblog-drawer');
+            drawer.classList.toggle('hidden');
+        }
+
+        function triggerCheck() {
+            const spinner = document.getElementById('refresh-spinner');
+            spinner.classList.add('animate-spin');
+            showToast("正在检查最新的插件清单…");
+            setTimeout(() => {
+                spinner.classList.remove('animate-spin');
+                document.getElementById('last-check-time').innerText = "刚刚";
+                showToast("已获取最新的版本清单");
+            }, 1200);
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-message').innerText = msg;
+            toast.classList.remove('hidden');
+            setTimeout(() => {
+                hideToast();
+            }, 3500);
+        }
+
+        function hideToast() {
+            document.getElementById('toast').classList.add('hidden');
+        }
+
+        function copyLogId() {
+            showToast("日志 ID (uj_1793255677245) 已复制到剪贴板");
+        }
+
+        function closeModal() {
+            showToast("可以通过左侧边栏 '插件更新' 随时重新打开");
+        }
+    </script>
+</body>
+</html>

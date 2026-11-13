@@ -262,6 +262,7 @@ export type EdaHostCapability =
   | 'EDA_HOST_CAPABILITY_DRC'
   | 'EDA_HOST_CAPABILITY_BOM'
   | 'EDA_HOST_CAPABILITY_PLACEMENT'
+  | 'EDA_HOST_CAPABILITY_SCHEMATIC_RENDER'
 
 /** A host-provided command line tool. */
 export interface EdaHostExecutable {
@@ -302,4 +303,103 @@ export interface EdaHostIdentity {
 export interface EdaHostInfo {
   identity: EdaHostIdentity
   installation: EdaHostInstallation
+}
+
+// ---------------------------------------------------------------------------
+// Schematic render — structural mirror of `hq.services.v1.SchematicRenderService`
+// ---------------------------------------------------------------------------
+
+/** Mirror of protobuf `SchematicSource` enum. */
+export type SchematicSource =
+  | 'SCHEMATIC_SOURCE_UNSPECIFIED'
+  | 'SCHEMATIC_SOURCE_ACTIVE_DOCUMENT'
+  | 'SCHEMATIC_SOURCE_DOCUMENT_ID'
+
+/** Mirror of protobuf `SchematicImageFormat` enum. */
+export type SchematicImageFormat =
+  | 'SCHEMATIC_IMAGE_FORMAT_UNSPECIFIED'
+  | 'SCHEMATIC_IMAGE_FORMAT_PNG'
+
+/**
+ * Mirror of protobuf `SchematicDocumentRef`. Identifies which schematic
+ * document to render. When `source` is `ACTIVE_DOCUMENT`, `documentId` is
+ * ignored; when `source` is `DOCUMENT_ID`, `documentId` must be provided.
+ */
+export interface SchematicDocumentRef {
+  source: SchematicSource
+  documentId?: string
+}
+
+/** Mirror of protobuf `GetRenderCapabilitiesResponse`. */
+export interface RenderCapabilities {
+  supportsActiveDocument: boolean
+  supportsDocumentId: boolean
+  supportsHierarchy: boolean
+  supportsSheetInstance: boolean
+  supportsPng: boolean
+  supportsSvg: boolean
+  supportsRegionRender: boolean
+  maxWidth: number
+  maxHeight: number
+}
+
+/** Mirror of protobuf `SchematicSheetInstance`. */
+export interface SchematicSheetInstance {
+  instancePath: string
+  sheetName: string
+  sourcePath: string
+  sheetUuid: string
+}
+
+/** Mirror of protobuf `ListSchematicSheetsResponse`. */
+export interface ListSchematicSheetsResult {
+  documentId: string
+  documentRevision: string
+  sheets: SchematicSheetInstance[]
+}
+
+/**
+ * Input parameters for `RenderSchematicRequest`. The tool layer supplies
+ * defaults (PNG format, active document); all fields are optional here so
+ * the tool call can be minimal.
+ */
+export interface RenderSchematicParams {
+  document?: SchematicDocumentRef
+  /** Empty means render all sheets (when `activeDocument` is false). */
+  sheetInstancePaths?: string[]
+  /** Numeric enum value (1 = PNG) or its enum-name alias. */
+  format?: SchematicImageFormat | number
+  maxWidth?: number
+  maxHeight?: number
+  scale?: number
+  transparentBackground?: boolean
+  expectedRevision?: string
+  /**
+   * `true` (default): render only the currently-active sheet in frame.
+   * `false`: render according to `sheetInstancePaths` (empty → all sheets).
+   */
+  activeDocument?: boolean
+}
+
+/**
+ * Mirror of protobuf `RenderedSchematicImage`. The `imageData` field is
+ * protobuf `bytes` → proto3 JSON base64 string. Artifact large-image fallback
+ * is intentionally NOT handled yet; clients must handle empty `imageData`
+ * gracefully when that fallback is implemented upstream.
+ */
+export interface RenderedSchematicImage {
+  sheetInstancePath: string
+  format: SchematicImageFormat
+  width: number
+  height: number
+  /** protobuf `bytes image_data` → proto3 JSON base64 string. */
+  imageData: string
+  contentHash?: string
+}
+
+/** Mirror of protobuf `RenderSchematicResponse`. */
+export interface RenderSchematicResult {
+  documentId: string
+  documentRevision: string
+  images: RenderedSchematicImage[]
 }

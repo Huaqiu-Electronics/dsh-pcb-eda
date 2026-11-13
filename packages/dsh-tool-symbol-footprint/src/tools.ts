@@ -371,6 +371,10 @@ export async function runGenerateFootprintFromDimensions(
       'Run generate_footprint_from_image first to extract them from a package drawing.')
   }
 
+  const image = typeof args.image === 'string' && args.image.length > 0
+    ? await resolveImageDataUrl(args, env.deps)
+    : null
+
   const endpoint = resolveEndpoint(env.deps?.processEnv)
   const token = await resolveToken(env.auth)
   if (token === null) return needsAuth('footprint')
@@ -382,7 +386,10 @@ export async function runGenerateFootprintFromDimensions(
   }
   const response = await callComponentAgent({
     url,
-    command: buildCommand(commandTypes.FOOTPRINT_GENERATE, { extra }),
+    command: buildCommand(commandTypes.FOOTPRINT_GENERATE, {
+      images: image === null ? undefined : [image],
+      extra,
+    }),
     awaitActions: [agentActions.FOOTPRINT_BUTTON],
     signal: exec?.signal,
     socketFactory: env.deps?.socketFactory,

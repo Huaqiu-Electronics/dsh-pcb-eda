@@ -171,6 +171,41 @@ describe('plugin-update forwarding routes', () => {
     expect(bad.status).toBe(405)
   })
 
+  /**
+   * `/activity` is the re-attach read: it must reach hq-edge AND carry the
+   * caller's `?job=`, which is the only thing that identifies the job after the
+   * server that started it was replaced. No other route passes a query through.
+   */
+  it('forwards GET activity → GET /api/v1/plugin-updates/activity with ?job=', async () => {
+    const forwarder = createUpdateForwarder(() => baseUrl)
+    await startDshSide(forwarder)
+    const { status, json } = await driveRequest(
+      'GET',
+      `${UPDATE_ROUTE_PREFIX}/activity?job=uj_1793255677245_2fi1x0dltt`,
+    )
+    expect(status).toBe(200)
+    expect(json).toMatchObject({
+      echoed: true,
+      method: 'GET',
+      url: '/api/v1/plugin-updates/activity?job=uj_1793255677245_2fi1x0dltt',
+    })
+    expect(seen[0]).toMatchObject({
+      method: 'GET',
+      url: '/api/v1/plugin-updates/activity?job=uj_1793255677245_2fi1x0dltt',
+    })
+  })
+
+  it('forwards GET activity without a query, and rejects a write on it', async () => {
+    const forwarder = createUpdateForwarder(() => baseUrl)
+    await startDshSide(forwarder)
+    const bare = await driveRequest('GET', `${UPDATE_ROUTE_PREFIX}/activity`)
+    expect(bare.status).toBe(200)
+    expect(seen[0]).toMatchObject({ url: '/api/v1/plugin-updates/activity' })
+
+    const post = await driveRequest('POST', `${UPDATE_ROUTE_PREFIX}/activity`, '{}')
+    expect(post.status).toBe(405)
+  })
+
   it('forwards POST runtime-request → POST /api/v1/runtime-update/request', async () => {
     const forwarder = createUpdateForwarder(() => baseUrl)
     await startDshSide(forwarder)
@@ -291,6 +326,42 @@ describe('plugin-update forwarding routes', () => {
       '/api/v1/plugin-updates/unignore',
       '/api/v1/runtime-update',
     ])
+  })
+
+  it('forwards the per-plugin ignore routes the card action calls', async () => {
+    const forwarder = createUpdateForwarder(() => baseUrl)
+    await startDshSide(forwarder)
+    // The browser half calls `/plugin-ignore` / `/plugin-unignore`; the
+    // forwarder used to answer 404 for both, and the caller swallowed it, so
+    // 忽略 on a card wrote nothing and the sidebar count never moved.
+    const ignored = await driveRequest(
+      'POST',
+      `${UPDATE_ROUTE_PREFIX}/plugin-ignore`,
+      '{"setVersion":"0.6.10","name":"@huaqiu/dsh-analytics"}',
+    )
+    const restored = await driveRequest(
+      'POST',
+      `${UPDATE_ROUTE_PREFIX}/plugin-unignore`,
+      '{"setVersion":"0.6.10","name":"@huaqiu/dsh-analytics"}',
+    )
+    expect(ignored.status).toBe(200)
+    expect(restored.status).toBe(200)
+    expect(seen.map((s) => s.url)).toEqual([
+      '/api/v1/plugin-updates/plugin-ignore',
+      '/api/v1/plugin-updates/plugin-unignore',
+    ])
+    expect(seen[0]).toMatchObject({
+      method: 'POST',
+      body: JSON.stringify({ setVersion: '0.6.10', name: '@huaqiu/dsh-analytics' }),
+    })
+  })
+
+  it('answers 405 (not 404) for GET /plugin-ignore — a known POST-only route', async () => {
+    const forwarder = createUpdateForwarder(() => baseUrl)
+    await startDshSide(forwarder)
+    const bad = await driveRequest('GET', `${UPDATE_ROUTE_PREFIX}/plugin-ignore`)
+    expect(bad.status).toBe(405)
+    expect(seen).toHaveLength(0)
   })
 
   it('returns 502 when the upstream is unreachable', async () => {

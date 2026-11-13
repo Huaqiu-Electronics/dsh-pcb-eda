@@ -7,7 +7,7 @@
  * These tests drive `apply()` with a Cordis-shaped fake context, because the
  * plugin only ever touches two services: `skills` and `tools`.
  */
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -157,6 +157,20 @@ describe('apply() — plugin loading', () => {
 })
 
 describe('apply() — bundled skill discovery (§15)', () => {
+  it('registers copper pouring with its packaged body and resolvable case reference', () => {
+    const { ctx, skills } = fakeCtx()
+    const dispose = apply(ctx as never)
+    try {
+      const skill = skills.find((entry) => entry.name === 'pcb-copper-pour')!
+      expect(skill).toBeDefined()
+      expect(skill.source).toBe('runtime')
+      expect(skill.content).toBe(readFileSync(join(skill.resourceBase.path, 'SKILL.md'), 'utf8'))
+      expect(existsSync(join(skill.resourceBase.path, 'references', 'common-cases.md'))).toBe(true)
+    } finally {
+      dispose()
+    }
+  })
+
   it('registers each skill under its bundled id, with a valid DSH skill source', () => {
     const { ctx, skills } = fakeCtx()
     apply(ctx as never)

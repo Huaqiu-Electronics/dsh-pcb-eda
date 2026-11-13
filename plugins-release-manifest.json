@@ -1,15 +1,15 @@
 {
   "schemaVersion": 2,
-  "pluginSetVersion": "0.6.10",
+  "pluginSetVersion": "0.6.28",
   "release": {
-    "publishedAt": "2026-10-21T09:00:00Z",
+    "publishedAt": "2026-11-13T03:28:56.260Z",
     "channel": "stable",
     "requiresRestart": true,
-    "summary": "EDA 主机拖拽放置稳定性修复，零件搜索与报价插件体验优化，以及插件更新面板的进度与发布说明展示。",
-    "notesUrl": "https://example.invalid/releases/dsh-plugin-set-0.6.10",
+    "summary": "EDA 主机拖拽放置稳定性修复，器件搜索与报价插件体验优化，以及插件更新面板的进度与发布说明展示。",
+    "notesUrl": "https://example.invalid/releases/dsh-plugin-set-0.6.14",
     "notes": [
       "修复 EDA 主机在拖拽放置元件时偶发的画布错位问题",
-      "零件搜索支持按封装类型筛选",
+      "器件搜索支持按封装类型筛选",
       "报价插件支持新区域税率计算",
       "插件更新面板新增下载进度、阶段说明与发布说明展示"
     ],
@@ -17,7 +17,7 @@
   },
   "plugins": {
     "@huaqiu/dsh-analytics": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -33,7 +33,7 @@
       ]
     },
     "@huaqiu/dsh-artifacts": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -49,23 +49,23 @@
       ]
     },
     "@huaqiu/dsh-auth": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
       "requiresHqEdge": false,
-      "minHqEdge": null,
+      "minHqEdge": ">=0.4.1",
       "maxHqEdge": null,
       "minDsh": null,
       "displayName": "账号登录",
       "description": "登录与账号授权",
       "sizeBytes": 284110,
       "changes": [
-        "令牌刷新逻辑稳定性修复"
+        "用户登录之后自动配置华秋 AI 网关"
       ]
     },
     "@huaqiu/dsh-eda-host": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -82,7 +82,7 @@
       ]
     },
     "@huaqiu/dsh-eda-selection": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -98,7 +98,7 @@
       ]
     },
     "@huaqiu/dsh-hqsch": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "hq-eda"
       ],
@@ -114,7 +114,7 @@
       ]
     },
     "@huaqiu/dsh-huaqiu-about": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -130,7 +130,7 @@
       ]
     },
     "@huaqiu/dsh-kicad": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "kicad"
       ],
@@ -146,7 +146,7 @@
       ]
     },
     "@huaqiu/dsh-kicad-drc": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "kicad"
       ],
@@ -162,7 +162,7 @@
       ]
     },
     "@huaqiu/dsh-tool-freerouting": {
-      "version": "0.6.12",
+      "version": "0.6.15",
       "hosts": [
         "all"
       ],
@@ -178,7 +178,7 @@
       ]
     },
     "@huaqiu/dsh-tool-kicad-schematic-gen": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -194,7 +194,7 @@
       ]
     },
     "@huaqiu/dsh-tool-part-search": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -202,7 +202,7 @@
       "minHqEdge": null,
       "maxHqEdge": null,
       "minDsh": null,
-      "displayName": "零件搜索",
+      "displayName": "器件搜索",
       "description": "元件库检索与选型",
       "sizeBytes": 601433,
       "changes": [
@@ -211,7 +211,7 @@
       ]
     },
     "@huaqiu/dsh-tool-pcb-viewer": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -227,7 +227,7 @@
       ]
     },
     "@huaqiu/dsh-tool-plugin-update": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -244,7 +244,7 @@
       ]
     },
     "@huaqiu/dsh-tool-quote": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
@@ -260,12 +260,12 @@
       ]
     },
     "@huaqiu/dsh-tool-symbol-footprint": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
       "requiresHqEdge": false,
-      "minHqEdge": null,
+      "minHqEdge": ">=0.4.1",
       "maxHqEdge": null,
       "minDsh": null,
       "displayName": "符号封装",
@@ -276,7 +276,7 @@
       ]
     },
     "@huaqiu/dsh-ui-theme-huaqiu": {
-      "version": "0.6.10",
+      "version": "0.6.28",
       "hosts": [
         "all"
       ],
