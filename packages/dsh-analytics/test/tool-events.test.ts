@@ -56,7 +56,7 @@ describe('isTrackedTool', () => {
   })
 
   it('includes in-repo tools declared as direct tool definitions', () => {
-    expect(isTrackedTool('analyze_kicad_module')).toBe(true)
+    expect(isTrackedTool('download_eda_module_schematic')).toBe(true)
   })
 
   it('includes defineTool names declared by same-file constants', () => {

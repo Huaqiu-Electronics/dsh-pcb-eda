@@ -6,9 +6,9 @@
 
 创建 sources/ 后调用 `download_eda_module_schematic({moduleId,targetDir:<design>/sources})`。保留返回的真实 schematicPath、moduleId 与可选 sourceProject.path。来源 .source.kicad_pro 仅供参考，正式工程使用本 Skill 的 templates/project.kicad_pro。
 
-下载不自动分析；需要器件或关键网络时按 [模块分析](module-analysis.md) 查询，失败只重试分析。需要层次端口才调用 get_kicad_module_ports，需要布局或图纸说明才调用 render_kicad_module_preview。按返回的 rootImagePath/pages[].pngPath 读图并核对版本和页面；端口列表不覆盖连接器及普通/全局标签。
+下载有随包封装的模块后，直接读 analysis.ports，并按需读取 analysis.files 中的器件、BOM 或网表，见 [模块分析](module-analysis.md)。需要完整层次端口时调用 list_kicad_hierarchical_ports，需要布局或图纸说明时调用 render_kicad_module_preview。按返回的 rootImagePath/pages[].pngPath 读图并核对版本和页面；端口列表不覆盖连接器及普通/全局标签。
 
-以真实电路判断用途、输入输出、电压、电平、极性、必需外围和负载。手册按精确型号查必要章节；缺失章节、图片 URL 和截断文本不算证据。分析工具与局部编辑的选择遵循主技能；不为完整性遍历全图、读取完整网表或重复核对已知网络。
+以真实电路判断用途、输入输出、电压、电平、极性、必需外围和负载。手册按精确型号查必要章节；缺失章节、图片 URL 和截断文本不算证据。分析文件与局部编辑的使用遵循主技能；不为完整性遍历全图、读取完整网表或重复核对已知网络。
 
 记录简短模块表：功能、来源、已确认接口、复用/修改/从零决定、修改内容、待确认条件。层次连接表记录子页端口到根网络；平铺连接表记录模块源网络到最终网络及实际接点。相同名称不自动意味着可接，input/output 类型不作为生成阻断条件。
 

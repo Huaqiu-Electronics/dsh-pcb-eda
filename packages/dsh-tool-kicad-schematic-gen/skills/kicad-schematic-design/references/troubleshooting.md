@@ -21,8 +21,8 @@
 | missing / invalid / unsupported_units / PIN_PAD_MISMATCH | 根据sourceUrl、结构及nextAction换合格模型，不原样重试确定性失败；器件更换同步方案 |
 | 导入部分写入/库表冲突 | 检查错误给出的项目文件，再修具体冲突，不清空工程或另写下载器 |
 | POWER_PLACEMENT_UNAVAILABLE / POWER_SYMBOLS_REQUIRED / POWER_LABEL_INVALID | 按全部接点扩框、补标签/转换或用本轮catalog；保留符号要求。精确操作见 [电源符号](power-symbols.md) |
-| 封装未解析 | 单独localize_kicad_module_footprints(action:check)检查实际候选；映射准备与实际引用检查分开。只改库不重画 |
-| CLI_START_FAILED | 复用get_eda_host_info中kicad-cli绝对路径；原分析查询加kicadCliPath、refresh:true，不重新下载 |
+| 封装未解析 | 检查下载结果和随包封装索引。遇到 MODULE_FOOTPRINTS_UNAVAILABLE，按报告的位号和原封装 ID 改选有完整随包封装的模块。 |
+| CLI_START_FAILED | 复用get_eda_host_info中kicad-cli绝对路径；原模块下载参数加 kicadCliPath 和 refreshAnalysis:true，复用当前进程的近期下载 |
 | 模型TRANSPORT重试 | 属Harness/模型链路，不通过改原理图或技能资源路径修复 |
 
 ## 渲染和交付

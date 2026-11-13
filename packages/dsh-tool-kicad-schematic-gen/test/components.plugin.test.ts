@@ -11,9 +11,9 @@ test('component tools expose canonical part-search identities and optional impor
   maxTextChars:12000,maxImages:5,allowedPdfHosts:['file.elecfans.com','file1.elecfans.com'],
  }))
  assert.equal(name,'@local/dsh-tool-kicad-library')
- assert.deepEqual(tools.map(t=>t.name),['get_kicad_component_models','import_kicad_symbol','get_kicad_datasheet','import_kicad_component','localize_kicad_module_footprints'])
+ assert.deepEqual(tools.map(t=>t.name),['get_kicad_component_models','get_kicad_datasheet','import_kicad_component_symbol_and_footprint'])
  assert.ok(tools.every(t=>!t.description.includes('search_kicad_components')))
- for (const tool of tools.filter(t=>t.name!=='localize_kicad_module_footprints')) {
+ for (const tool of tools) {
   const importing=tool.name.startsWith('import_')
   assert.deepEqual(Object.keys(tool.parameters.properties),importing
    ? ['manufacturer_id','mpn','projectDir'] : ['manufacturer_id','mpn'],tool.name)

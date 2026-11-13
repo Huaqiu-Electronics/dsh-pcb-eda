@@ -6,7 +6,7 @@
 
 ```js
 const core=sch.importModule({sourcePath:checkedSource,name:'core',offset:[25.4,25.4],
- nets:{VCC:'VCC_3V3',GND:'GND'},footprintMappingPath:checkedMapping});
+ nets:{VCC:'VCC_3V3',GND:'GND'}});
 sch.frame({name:'核心电路',description:'已确认用途与限制',
  autoBounds:true,objectUuids:core.objectUuids});
 // 真实脚号经方案核实；此处仅演示导入后如何取点。
@@ -23,7 +23,7 @@ name为唯一ASCII标识；offset是全局毫米平移，不能缩放电路。ne
 
 只补方案中来源未覆盖的功能，先核对已有上拉、保护、复位、DNP和实际装配，避免重复添加。新增区使用region局部坐标；跨区连接用导入的netNames、明确ports或真实pin。外部原图需要复杂修改时，按 [脚本修改](editing.md) 定向适配或重建，不能依赖旧对象编辑工具或全局文本替换。
 
-需要顺序混合示例时才看 [入口](../assets/mixed-design/design.mjs) 与 [新增模块](../assets/mixed-design/modules/load.mjs)；示例使用独立layout.mjs，仅适用于明确允许的顺序构建。真实并行布局只以清单region为准。配置的source/footprintMappingPath、端口、实际器件和区域须替换，并按实际原因传--sequential-reason；不为套示例改变器件或接法。
+需要顺序混合示例时才看 [入口](../assets/mixed-design/design.mjs) 与 [新增模块](../assets/mixed-design/modules/load.mjs)；示例使用独立layout.mjs，仅适用于明确允许的顺序构建。真实并行布局只以清单region为准。配置的source、端口、实际器件和区域须替换，并按实际原因传--sequential-reason；不为套示例改变器件或接法。
 
 ## 外框与说明
 

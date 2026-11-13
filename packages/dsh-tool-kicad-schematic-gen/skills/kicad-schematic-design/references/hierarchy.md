@@ -15,8 +15,10 @@ create_kicad_hierarchy({
 
 targetDir 是已创建的候选根目录，主图、工程、符号库及库表输出到 targetDir，子页输出到其 schematic/；不能把 targetDir 设为这个输出子目录。每个已声明端口必须恰好映射或明确未连接。只有带明确层次标签的单页图可作 sourcePath。同一来源使用多次时各实例由工具复制处理。
 
+至少提供一张子图。实际容量取决于子图方框和端口能否排进同一张顶层图纸。顶层图纸最大为 A0，超出布局容量时会在写文件前报错。
+
 工具统一 UUID、引用编号、根图页引脚与可唯一匹配的符号缓存，工程副本中将方向统一 passive，源方向冲突由 directionConflicts 提示。预检一次列出端口及缓存差异，按具体诊断修正，不写临时 PowerShell 或 XML 网表修复脚本。
 
 候选通过后，将生成的 schematic/ 内容连同其相对子页结构发布到固定 project/。替换文件依据本设计输出清单，不删除其他文件或旧文件中用户的未保存改动。保留根图、全部子页、所需符号库和配置；不只复制根图。预览根图及发生变化的子页，未完成页面在交付说明中标明。
 
-返回仅保留 projectPath、rootPath 和 sheets（每项 name、schematicPath）。warnings、sheets[].directionConflicts 仅在非空时返回，缺省表示无对应警告。完整方案版本、来源、连接映射、库路径、统计及旧位号到新位号映射保存到 targetDir/<projectName>.assembly.json，排查时按需读取。精简返回不改变端口校验、库文件生成，也不代表通过网表验证或 ERC。
+返回仅保留 projectPath、rootPath 和 sheets（每项 name、schematicPath）。warnings、sheets[].directionConflicts 仅在非空时返回，缺省表示无对应警告。完整方案版本、来源、连接映射、库路径、统计及旧位号到新位号映射保存到 targetDir/<projectName>.assembly.json，排查时按需读取。精简返回不改变端口校验、库文件生成，也不代表通过网表验证。

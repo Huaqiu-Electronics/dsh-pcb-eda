@@ -6,7 +6,6 @@ import {apply as registerComponents} from './components/index.ts'
 import {registerModules} from './modules/register.ts'
 import {apply as registerSchematic} from './schematic/index.ts'
 import {apply as registerSkills} from './skills.ts'
-import {registerModuleAnalysis} from './schematic/analysis-tool.ts'
 import {getKiCadPaths} from './runtime-paths.ts'
 import {registerSchematicGenSection} from './prompt.ts'
 import {registerModuleDispatch} from './module-dispatch.ts'
@@ -33,9 +32,8 @@ export function apply(ctx:Context, input:ConfigInput={}):void {
   log.info('applying schematic-gen node half',{kicadCliPath:config.schematic.kicadCliPath,
     symbolDir:getKiCadPaths(config.schematic.kicadCliPath).symbolDir??null})
   try {
-    registerModuleAnalysis(ctx, config.schematic)
     registerComponents(ctx,config.components)
-    registerModules(ctx,config.modules)
+    registerModules(ctx,config.modules,config.schematic)
     registerSchematic(ctx,config.schematic)
     registerSkills(ctx,config.schematic.kicadCliPath)
     registerModuleDispatch(ctx,config.schematic.kicadCliPath)

@@ -13,6 +13,7 @@ import {createModuleReviewTool} from './module-review.ts'
 interface Entry {
  moduleId:string;label:string;agentId?:string;status:'starting'|'running'|'completed'|'stale'|'failed'|'unknown'
  startedAt:string;contractSha256?:string;inputSha256?:string;taskDocumentPath?:string;taskDocumentSha256?:string;retryReason?:string;error?:string
+ candidate?:{schematicPath:string;reportPath:string;checkedAt:string;inputSha256:string}
  layoutReview?:{status:'pending';textIssueCount:number|null;unresolvedFieldCount:number|null;outsideCount:number|null;approximateOverlapCount:number|null;repairRequired:boolean}
 }
 interface DispatchState {version:1;manifestSha256:string;parentId:string;entries:Entry[]}
@@ -26,12 +27,13 @@ export function createModuleDispatchTool(ctx:Context):ToolDefinition {
  // Exclusive per project even if two calls originate in different scoped agents.
  const locks=new Set<string>()
  return {
-  name:'dispatch_kicad_schematic_modules',
-  description:'Start each schematic module once with an independent-context child. Each unstarted module requires reuse selection evidence (reuse/adapt/new with actual search outcomes) in the manifest; MODULE_REUSE_REQUIRED blocks missing records. Search failures must be recorded as unavailable, never no_match. Before starting, screen fixed pin geometry against frame content space; impossible frames block, spaceWarnings are advisory crowding/unknown-size estimates and never auto-resize. Refresh after runtime completion and launch only unstarted modules. The parent batches minor value, label and local layout fixes, then rechecks affected modules. No automatic child redispatch for stale/failed reports. Explicit retry is reserved for circuit redesign, major layout rework or an interrupted delivery, with retryReason and concrete feedback. Never publishes.',
+  name:'dispatch_kicad_module_tasks',
+  description:'Use action:plan before first dispatch to review advisory workload and space estimates without starting workers. Dispatch starts only unstarted schematic modules with reuse selection evidence and independent context. Search failures count as unavailable. Status refreshes existing workers without creating task packages; refresh after changing the manifest and before assembly. The parent batches confirmed repairs and rechecks affected modules. Retry requires an explicit major redesign, major layout change or interruption. readyForAssembly permits candidate construction; final visual review is required before publication.',
   parameters:{type:'object',additionalProperties:false,properties:{
    manifestPath:{type:'string',description:'module-plan.json inside the current session workspace.'},
-   action:{type:'string',enum:['dispatch','status','retry'],description:'dispatch starts only unstarted modules; status refreshes. Parent handles minor repairs. retry requires moduleId, feedback and retryReason.'},
-   moduleId:{type:'string'},feedback:{type:'string'},
+   action:{type:'string',enum:['plan','dispatch','status','retry'],description:'plan reviews workload and space before dispatch without writes. dispatch starts only unstarted modules. status refreshes. retry requires moduleId, feedback and retryReason.'},
+   moduleId:{type:'string',description:'Module ID for retry only.'},
+   feedback:{type:'string',description:'Concrete feedback for retry only.'},
    retryReason:{type:'string',enum:['circuit_redesign','major_layout','interrupted'],description:'Required only for explicit child retry. Do not use retry for values, labels, description clipping or small local moves; the parent fixes and rechecks those.'},
    subagentTool:{type:'string',description:'Independent-context DSH delegation tool name; default subagent. Do not select subagent_fork.'},
   },required:['manifestPath']},
@@ -41,7 +43,9 @@ export function createModuleDispatchTool(ctx:Context):ToolDefinition {
    if(!agent||!cwd)throw new Error('MODULE_DISPATCH_REQUIRES_AGENT: a parent session workspace is required')
    if(typeof args.manifestPath!=='string')throw new Error('MODULE_DISPATCH_INVALID: manifestPath required')
    const action=args.action??'dispatch'
-   if(!['dispatch','status','retry'].includes(action))throw new Error('MODULE_DISPATCH_INVALID: action')
+   if(!['plan','dispatch','status','retry'].includes(action))throw new Error('MODULE_DISPATCH_INVALID: action')
+   if(action!=='retry'&&['moduleId','feedback','retryReason'].some(key=>Object.hasOwn(args,key)))
+    throw new Error('MODULE_DISPATCH_INVALID: moduleId, feedback and retryReason are only accepted for retry')
    if(action==='retry'&&(typeof args.moduleId!=='string'||typeof args.feedback!=='string'||!args.feedback.trim()
     ||!['circuit_redesign','major_layout','interrupted'].includes(args.retryReason)))
     throw new Error('MODULE_RETRY_INVALID: parent fixes minor issues; child retry requires moduleId, feedback and retryReason (circuit_redesign, major_layout or interrupted)')
@@ -57,12 +61,19 @@ export function createModuleDispatchTool(ctx:Context):ToolDefinition {
     await readWorkspaceDesignPlan(ctx.fs,cwd,{...brief,path:joinRelative(dirname(target.displayPath),brief.path)},exec.signal)
     const paths=skillResourcePaths()
     const runtime=await import(pathToFileURL(paths.moduleRuntimePath).href)
-    const prompts=await import(pathToFileURL(join(paths.assetsDir,'module-tasks.mjs')).href)
     const contract=await runtime.loadModulePlan(target.displayPath)
     // Validate shared inputs before publishing any child, so workers don't all rediscover the same errors.
     if(action!=='status')await runtime.preflightConfirmedParts(contract,{requireValues:true,checkSpace:true})
+    const spaceWarnings=contract.spaceAssessment?.filter((s:{status:string})=>s.status!=='clear')??[]
+    if(action==='plan'){
+     const {assessModuleWorkload}=await import(pathToFileURL(join(paths.assetsDir,'module-workload.mjs')).href)
+     return {...assessModuleWorkload(contract.plan.modules),spaceWarnings,
+      nextAction:'Review concentrated workloads before dispatch. Once the split and regions are confirmed, call dispatch.'}
+    }
     const feedback=action==='retry'&&typeof args.moduleId==='string'&&typeof args.feedback==='string'?{[args.moduleId]:args.feedback}:{}
-    const tasks=(await prompts.prepareModuleTasks(contract,{feedback})).tasks as Array<{id:string;cwd:string;description:string;prompt:string;dependsOn:string[];documentPath:string;documentSha256:string;document:string;files:Array<{path:string;content:string;preserveExisting:boolean}>}>
+    const prompts=action==='status'?undefined:await import(pathToFileURL(join(paths.assetsDir,'module-tasks.mjs')).href)
+    const tasks=(prompts?(await prompts.prepareModuleTasks(contract,{feedback})).tasks:[]) as Array<{id:string;cwd:string;description:string;prompt:string;dependsOn:string[];documentPath:string;documentSha256:string;document:string;files:Array<{path:string;content:string;preserveExisting:boolean}>}>
+    const moduleIds=contract.plan.modules.map((mod:{id:string})=>mod.id) as string[]
     if(!ctx.tools.get('list_agents',agent))throw new Error('MODULE_SUBAGENT_UNAVAILABLE: enable DSH child discovery to track workers safely')
     if(action==='dispatch'){
      const name=args.subagentTool??'subagent',tool=typeof name==='string'?ctx.tools.get(name,agent):undefined
@@ -73,14 +84,21 @@ export function createModuleDispatchTool(ctx:Context):ToolDefinition {
     const stateTarget=await ctx.fs.resolve(runtime.projectPath(contract,'work/module-dispatch.json'),{signal:exec.signal})
     const policy=ctx.sandboxPolicy.resolve({session:agent.session})
     let state:DispatchState={version:1,manifestSha256:contract.manifestSha256,parentId:agent.id,entries:[]}
+    let savedState:string|undefined
     if(await ctx.fs.stat(stateTarget,exec.signal)){
-     state=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(await ctx.fs.readBytes(stateTarget,exec.signal,1024*1024)))
+     savedState=new TextDecoder('utf-8',{fatal:true}).decode(await ctx.fs.readBytes(stateTarget,exec.signal,1024*1024))
+     state=JSON.parse(savedState)
      if(state.version!==1||!Array.isArray(state.entries))throw new Error('MODULE_DISPATCH_STATE_INVALID: inspect saved state; do not overwrite it')
      if(state.parentId!==agent.id)throw new Error('MODULE_DISPATCH_PARENT_CHANGED: use the owning parent chat to continue its workers')
     }
-    const save=()=>ctx.fs.writeText(stateTarget,JSON.stringify(state,null,2)+'\n',undefined,exec.signal,policy)
+    const save=async()=>{
+     const next=JSON.stringify(state,null,2)+'\n'
+     if(next===savedState)return
+     await ctx.fs.writeText(stateTarget,next,undefined,exec.signal,policy)
+     savedState=next
+    }
     // A local plan edit must not cancel unrelated workers or erase accepted results.
-    const contracts=new Map<string,string>(tasks.map(task=>[task.id,runtime.moduleContractSha256(contract,task.id)]))
+    const contracts=new Map<string,string>(moduleIds.map(id=>[id,runtime.moduleContractSha256(contract,id)]))
     const nested=async(name:string,arguments_:unknown)=>{
      if(!ctx.tools.get(name,agent))throw new Error(`MODULE_SUBAGENT_UNAVAILABLE: ${name} is not visible to this agent`)
      const result=await ctx.tools.execute({callId:`${exec.callId}:module:${randomUUID()}` as typeof exec.callId,
@@ -100,19 +118,22 @@ export function createModuleDispatchTool(ctx:Context):ToolDefinition {
       if(row.status==='running'){entry.status='running';continue}
       if(row.status!=='inactive'){entry.status='unknown';continue}
       try{
-       const report=runtime.jsonFile(runtime.moduleReportPath(contract,entry.moduleId))
+       const reportPath=runtime.moduleReportPath(contract,entry.moduleId)
+       const report=runtime.jsonFile(reportPath)
        if(report.version!==1||report.status!=='passed'||report.moduleId!==entry.moduleId||!Number.isFinite(Date.parse(report.checkedAt))
         ||Date.parse(report.checkedAt)<Date.parse(entry.startedAt))
         throw new Error('module report is missing, failed or stale')
        runtime.assertModuleArtifacts(contract,entry.moduleId,report)
        if(report.inputSha256!==runtime.moduleInputs(contract,entry.moduleId).sha256){entry.status='stale';entry.error='Module inputs changed; recheck the existing implementation';continue}
        entry.status='completed';entry.inputSha256=report.inputSha256;delete entry.error
+       entry.candidate={schematicPath:report.result.schematicPath,reportPath,checkedAt:report.checkedAt,inputSha256:report.inputSha256}
        entry.layoutReview={status:'pending',textIssueCount:report.layout?.readability?.issues?.length??null,
         unresolvedFieldCount:report.result?.fieldLayout?.unresolved?.length??null,outsideCount:report.layout?.outside?.length??null,
         approximateOverlapCount:report.layout?.overlaps?.length??null,
         repairRequired:!!(report.layout?.readability?.issues?.length||report.result?.fieldLayout?.unresolved?.length||report.layout?.outside?.length)}
       }catch(error){entry.status='failed';entry.error=error instanceof Error?error.message:String(error)}
      }
+     for(const entry of state.entries)if(entry.status!=='completed')delete entry.candidate
     }
     const changedLive=state.entries.filter(entry=>active(entry)&&(!contracts.has(entry.moduleId)
      ||(entry.contractSha256?entry.contractSha256!==contracts.get(entry.moduleId):state.manifestSha256!==contract.manifestSha256)))
@@ -173,17 +194,21 @@ export function createModuleDispatchTool(ctx:Context):ToolDefinition {
       await launch(task);slots--
      }
     }
-    return {statePath:stateTarget.displayPath,manifestSha256:state.manifestSha256,maxParallel:contract.plan.maxParallel,started,
-     spaceWarnings:contract.spaceAssessment?.filter((s:{status:string})=>s.status!=='clear')??[],
-     modules:state.entries,pending:tasks.filter(t=>!state.entries.some(e=>e.moduleId===t.id)).map(t=>t.id),
-     parentRepair:state.entries.filter(e=>['stale','failed'].includes(e.status)||e.status==='completed'&&e.layoutReview?.repairRequired).map(e=>e.moduleId),
-     parentLayoutReview:state.entries.filter(e=>e.status==='completed').map(e=>({moduleId:e.moduleId,...e.layoutReview})),
-     deliveryReadiness:'not_certified',
-     readyForAssembly:tasks.every(t=>state.entries.some(e=>e.moduleId===t.id&&e.status==='completed')),
-     nextAction:'readyForAssembly permits candidate construction, never certifies delivery. parentRepair includes stale/failed modules and readability locations requiring parent attention. Inspect parentLayoutReview in current images, batch confirmed value/text/layout defects after native child inactivity, then recheck changed modules; explain conservative false positives instead of ignoring every warning. Fix unreadable text before publishing. Do not automatically redispatch; explicit child retry needs a major redesign/interruption reason. Reconcile unknown workers first.'}
+    const parentRepair=state.entries.filter(e=>['stale','failed'].includes(e.status)||e.status==='completed'&&e.layoutReview?.repairRequired).map(e=>e.moduleId)
+    const nextAction=state.entries.some(e=>e.status==='unknown')
+     ? 'Reconcile unknown workers with the child list. Read statePath for details.'
+     : parentRepair.length ? 'Read statePath for repair details. Batch confirmed fixes and recheck affected modules.' : undefined
+    return {statePath:stateTarget.displayPath,started,
+     modules:state.entries.map(({moduleId,status,agentId,error})=>({moduleId,status,
+      ...(status==='unknown'&&agentId?{agentId}:{}),...(error?{error}:{})})),
+     pending:moduleIds.filter(id=>!state.entries.some(e=>e.moduleId===id)),
+     ...(spaceWarnings.length?{spaceWarnings}:{}),
+     ...(parentRepair.length?{parentRepair}:{}),
+     readyForAssembly:moduleIds.every(id=>state.entries.some(e=>e.moduleId===id&&e.status==='completed')),
+     ...(nextAction?{nextAction}:{})}
    }catch(error){
     if(error instanceof Error&&Array.isArray((error as Error&{issues?:unknown[]}).issues))return {
-     status:'blocked',stage:'configuration',code:(error as Error&{code?:string}).code??'MODULE_PLAN_PREFLIGHT_FAILED',
+     status:'blocked',code:(error as Error&{code?:string}).code??'MODULE_PLAN_PREFLIGHT_FAILED',
      issues:(error as Error&{issues:unknown[]}).issues,message:error.message,
      nextAction:'Fix all listed shared configuration issues together and rerun preflight/dispatch. No new module workers were started by this call; do not patch the complete schematic script.',
     }

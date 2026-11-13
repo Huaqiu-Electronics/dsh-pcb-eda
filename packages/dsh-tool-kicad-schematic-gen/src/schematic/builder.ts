@@ -1,18 +1,22 @@
 /** Script API for model-planned single-sheet circuits; no automatic topology or routing. */
 import { randomUUID,createHash } from 'node:crypto'
-import { readFileSync, mkdirSync, writeFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, mkdirSync, writeFileSync, existsSync, lstatSync, renameSync, rmSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { children, parse, value, quote, applyEdits, type Form } from './sexpr.ts'
-import { buildFlatCopy, listFlatObjects, loadFlatTemplates, type FlatPoint, type FlatEndpoint, type FlatFrame, type ResolvedFlatFrame } from './flat.ts'
+import { buildFlatCopy, inspectSchematicText, listFlatObjects, loadFlatTemplates, type FlatPoint, type FlatEndpoint, type FlatFrame, type ResolvedFlatFrame } from './flat.ts'
 import { prepareFlatImport, type FlatImportSpec, type FlatImportResult } from './import-flat.ts'
-import { flatTextSize, type FlatBounds } from './flat-layout.ts'
+import { flatTextSize, unionFlatBounds, type FlatBounds } from './flat-layout.ts'
+import { packModuleColumns } from './module-packing.ts'
 import { normalizeCommonUnits } from './symbol-units.ts'
-import { planPowerLabels, insideBounds, powerArea, type PowerLayoutArea, type PowerPlanningOptions, type PowerPlacementPlan, type PowerGeometry } from './power-layout.ts'
+import { planPowerLabels, insideBounds, powerArea, wireCrossesPowerStroke, type PowerLayoutArea, type PowerPlanningOptions, type PowerPlacementPlan, type PowerGeometry } from './power-layout.ts'
 import {assignFootprintText} from './footprint-links.ts'
+import {isDownloadedModule,moduleFootprintAssets,moduleFootprintIndex,planModuleFootprints,type ModuleFootprint} from './module-footprint-plan.ts'
+import {registerFootprintLibrary} from '../components/project-footprint.ts'
 import {loadDesignPlan,type DesignPlanReference} from './design-plan.ts'
 import {gridPoint,onGrid} from './grid.ts'
 import {assertSchematicGrid} from './grid-check.ts'
 import {arrangeDefaultFields,type DefaultFields} from './field-layout.ts'
+import {inspectNoConnectPins,redundantPowerAnnotations} from './connections.ts'
 export type { PowerPlanningOptions, PowerPlacementPlan } from './power-layout.ts'
 
 /** Explicit instance placement in millimetres; library files must be trusted project inputs. */
@@ -20,6 +24,8 @@ export interface SymbolPlacement {
   libraryPath: string; libId: string; reference: string; at: FlatPoint
   value?: string; angle?: 0 | 90 | 180 | 270; mirror?: 'x' | 'y'; unit?: number; footprint?: string
   referenceAt?: FlatPoint; valueAt?: FlatPoint; fieldAngle?: number
+  /** Sheet-axis offsets from the symbol origin, also usable in a module region. */
+  referenceOffset?: FlatPoint; valueOffset?: FlatPoint
   hideReference?: boolean; hideValue?: boolean
 }
 /** Explicit deployment templates and page choice; no implicit file discovery. */
@@ -29,6 +35,8 @@ export interface SchematicOptions {
   projectName: string; templateDir: string; paper: 'A4' | 'A3' | 'A2' | 'A1' | 'A0'; title: string
   /** Explicit shared power nets required before render/save; never inferred from names. */
   requiredPowerSymbols?: Record<string, string>
+  /** Allow explicitly retained global labels to name a mapped power network. */
+  allowGlobalPowerLabels?: boolean
 }
 
 /** Planned module rectangle; origin and size use sheet millimetres. */
@@ -37,6 +45,9 @@ export interface ModuleRegionSpec { name: string; description: string; origin: F
 /** Explicit shared-net conversion; library Value must equal each selected network name. */
 export interface PowerLabelSpec {
   libraryPath: string; nets: Record<string, string>
+  keepAsGlobalLabels?: ReadonlySet<string>
+  /** Preserve these ordinary labels on the same schematic sheet. */
+  keepAsLocalLabels?: ReadonlySet<string>
   placements?: Record<string, { at: FlatPoint; via?: FlatPoint[]; angle?: 0 | 90 | 180 | 270; valueAt?: FlatPoint }>
 }
 /** Conservative power-symbol overlap hint; not an electrical check. */
@@ -44,6 +55,9 @@ export interface PowerLayoutWarning { code: 'POWER_LAYOUT_OVERLAP'; uuid: string
 export type PowerLayoutIssue = PowerLayoutWarning | {
   code: 'POWER_LAYOUT_OUTSIDE_PAGE' | 'POWER_LAYOUT_OUTSIDE_FRAME'
   uuid: string; reference: string; frame?: string; bounds: FlatBounds; allowedBounds: FlatBounds
+} | {
+  code: 'POWER_SYMBOL_WIRE_CROSSING'; uuid: string; reference: string; net: string
+  otherUuid: string; otherType: 'wire'; from: FlatPoint; to: FlatPoint
 }
 /** Recomputed from actual converted symbols and rendered frames, never from an earlier plan. */
 export interface PowerLayoutDiagnostics {
@@ -103,6 +117,9 @@ export class ModuleRegion {
    */
   label(name: string, at: FlatEndpoint, angle: 0 | 90 | 180 | 270 = 0): string {
     return this.schematic.label(name, this.endpoint(at), angle)
+  }
+  globalLabel(name: string, at: FlatEndpoint, angle: 0 | 90 | 180 | 270 = 0): string {
+    return this.schematic.globalLabel(name,this.endpoint(at),angle)
   }
   /** Mark an explicit branch or intentionally unused pin.
    * @param kind Marker kind. @param at Local point or pin. @returns UUID.
@@ -176,6 +193,23 @@ function powerDefinitions(spec: Pick<PowerLabelSpec, 'libraryPath' | 'nets'>): M
 /** Validate the exact power-net mapping before workers or circuit scripts run. */
 export function validatePowerSymbolMapping(spec: Pick<PowerLabelSpec,'libraryPath'|'nets'>): void { powerDefinitions(spec) }
 
+/** The line strokes used by the bundled GND and voltage symbols, in sheet axes. */
+function powerStrokes(form: Form, angle: number, unit=1, mirror=''): NonNullable<PowerGeometry['strokes']> {
+  const radians=angle*Math.PI/180,cos=Math.cos(radians),sin=Math.sin(radians)
+  const position=(xy: Form):FlatPoint=>{
+    const x=Number(value(xy,1)),y=Number(value(xy,2))
+    return [(x*cos-y*sin)*(mirror==='y'?-1:1), (x*sin+y*cos)*(mirror==='x'?1:-1)]
+  }
+  return children(form,'symbol').filter(section=>{
+    const suffix=/_(\d+)_(\d+)$/u.exec(value(section))
+    return suffix&&[0,unit].includes(Number(suffix[1]))&&[0,1].includes(Number(suffix[2]))
+  }).flatMap(section=>children(section,'polyline').flatMap(line=>{
+    const pts=children(line,'pts')[0]
+    const points=pts?children(pts,'xy').map(position):[]
+    return points.slice(1).map((to,index)=>({from:points[index]!,to}))
+  }))
+}
+
 /** Symbol-local points of a placed unit, split into body graphics and pin ends. */
 function unitExtent(sections: Form[], unit: number): { graphics: FlatPoint[]; pins: FlatPoint[] } {
   const graphics: FlatPoint[] = [], pins: FlatPoint[] = []
@@ -227,24 +261,27 @@ function boundsOf(points: FlatPoint[], at: FlatPoint, angle: number, mirror: 'x'
   }
   return { minX, maxX, minY, maxY, centerX: (minX + maxX) / 2, centerY: (minY + maxY) / 2 }
 }
-/** Reference and value share one side: power symbols away from their pin, other bodies by aspect. */
-function fieldAnchors(sections: Form[], unit: number, at: FlatPoint, angle: number,
-  mirror: 'x' | 'y' | undefined, isPower: boolean): [FlatPoint, FlatPoint] | undefined {
-  const extent = unitExtent(sections, unit), gap = 2.54
+/** Standard sheet-relative field positions for the selected symbol unit. */
+function fieldAnchors(extent: ReturnType<typeof unitExtent>, at: FlatPoint, angle: number,
+  mirror: 'x' | 'y' | undefined, isPower: boolean, reference: string) {
+  const gap = 2.54
   const body = boundsOf(extent.graphics, at, angle, mirror)
+  const pins = boundsOf(extent.pins, at, angle, mirror)
   const all = boundsOf(extent.graphics.concat(extent.pins), at, angle, mirror)
-  if (!all) return undefined
   if (isPower && body) {
-    const pins = boundsOf(extent.pins, at, angle, mirror)
     const above = pins === undefined || body.centerY < pins.centerY
     const edge = above ? body.minY : body.maxY, step = above ? -gap : gap
-    return [[body.centerX, edge + step * 2], [body.centerX, edge + step]]
+    return {referenceAt:[body.centerX, edge + step * 2] as FlatPoint, valueAt:[body.centerX, edge + step] as FlatPoint}
   }
-  if (all.maxX - all.minX >= all.maxY - all.minY) {
-    return [[all.centerX, all.minY - gap * 2], [all.centerX, all.minY - gap]]
+  if (!isPower && /^[RC]\d+$/iu.test(reference) && extent.pins.length === 4 && pins
+    && pins.maxY - pins.minY > pins.maxX - pins.minX) {
+    const outline = body ?? pins
+    const x = Math.max(outline.maxX, pins.maxX) + 1.27
+    return {referenceAt:[x, outline.centerY - gap / 2] as FlatPoint,
+      valueAt:[x, outline.centerY + gap / 2] as FlatPoint, justifyLeft:true}
   }
-  const sideX = all.maxX + gap * 1.5
-  return [[sideX, all.centerY - gap / 2], [sideX, all.centerY + gap / 2]]
+  const x = body?.centerX ?? all?.centerX ?? at[0], top = all?.minY ?? at[1]
+  return {referenceAt:[x, top - gap * 2] as FlatPoint, valueAt:[x, top - gap] as FlatPoint}
 }
 
 /** Build a circuit through explicit script calls; generation errors throw before save. */
@@ -259,9 +296,12 @@ export class Schematic {
   private readonly frames: FlatFrame[] = []
   private readonly regions: Array<{ name: string; start: FlatPoint; end: FlatPoint }> = []
   private readonly importedModules = new Set<string>()
+  private readonly moduleFootprints = new Map<string, ModuleFootprint>()
   private readonly objectModules = new Map<string, string>()
   private readonly powerOwners = new Map<string, number>()
+  private readonly powerAttachments = new Map<string,string[]>()
   private readonly requiredPowerSymbols: Record<string, string>
+  private readonly retainedLocalPowerLabels = new Set<string>()
   private readonly templates: ReturnType<typeof loadFlatTemplates>
   private readonly designPlan: DesignPlanReference
   /** Load validated templates. @param options Project identity, page and template directory. */
@@ -298,9 +338,72 @@ export class Schematic {
     this.frames.push({ name: spec.name, description: spec.description, start: origin, end })
     return new ModuleRegion(this, origin)
   }
+  /** Fit a reserved region around its completed objects, with the original region as the maximum envelope. */
+  fitRegionFrame(name:string,objectUuids:Iterable<string>):void {
+    const index=this.frames.findIndex(frame=>frame.name===name),frame=this.frames[index]
+    if(!frame||frame.autoBounds||!this.regions.some(region=>region.name===name))throw new Error(`No fixed module region to fit: ${name}`)
+    this.frames[index]={name,description:frame.description,autoBounds:true,objectUuids:[...new Set(objectUuids)],
+      excludeUuids:[],reserved:{start:frame.start,end:frame.end}}
+  }
+  /** Translate complete module groups after fitting and power conversion. Explicit inter-module wires are unsupported. */
+  compactModuleRegions(groups:Array<{name:string;objectUuids:Iterable<string>}>):
+    {status:'packed';shifts:Record<string,FlatPoint>}|{status:'unchanged';reason:string} {
+    const rendered=this.render(),objects=listFlatObjects(this.source(),this.templates.style)
+    const byId=new Map(objects.map(object=>[object.uuid,object]))
+    const ids=new Set<string>()
+    const items=groups.map(group=>{
+      const reserved=this.regions.find(region=>region.name===group.name)
+      const frame=rendered.resolvedFrames.find(frame=>frame.name===group.name)
+      const owned=[...new Set([...group.objectUuids].flatMap(id=>[id,...(this.powerAttachments.get(id)??[])]))]
+      const bounds=owned.map(id=>{
+        const object=byId.get(id)
+        if(ids.has(id)||!object?.bounds||!['symbol','wire','label','global_label','junction','no_connect'].includes(object.type))return undefined
+        ids.add(id)
+        return object.bounds
+      })
+      if(!reserved||!frame||!bounds.length||bounds.some(b=>!b))return undefined
+      const [left,top]=frame.start,[right,bottom]=frame.end
+      const occupied=unionFlatBounds(bounds as FlatBounds[])!
+      return {reserved,frame,owned,occupied,bounds:unionFlatBounds([{left,top,right,bottom},occupied])!}
+    })
+    if(items.some(item=>!item)||ids.size!==objects.length||groups.length!==this.frames.length)
+      return {status:'unchanged',reason:'unassigned_or_unmeasured_objects'}
+    const measured=items.filter(item=>item!==undefined)
+    if(measured.some(({bounds:a},i)=>measured.slice(i+1).some(({bounds:b})=>
+      a.left<b.right-1e-6&&a.right>b.left+1e-6&&a.top<b.bottom-1e-6&&a.bottom>b.top+1e-6)))
+      return {status:'unchanged',reason:'overlapping_source_envelopes'}
+    if(measured.some(({occupied:a},i)=>measured.slice(i+1).some(({occupied:b})=>
+      a.left<=b.right+1e-6&&a.right>=b.left-1e-6&&a.top<=b.bottom+1e-6&&a.bottom>=b.top-1e-6)))
+      return {status:'unchanged',reason:'touching_module_content'}
+    const shifts=packModuleColumns(measured,this.pageSize())
+    if(!shifts)return {status:'unchanged',reason:'packed_columns_do_not_fit_paper'}
+    const byObject=new Map(measured.flatMap(({owned},i)=>owned.map(id=>[id,shifts[i]!] as const)))
+    const shiftPoint=(p:FlatPoint,[dx,dy]:FlatPoint):FlatPoint=>[
+      Number((p[0]+dx).toFixed(6)),Number((p[1]+dy).toFixed(6))]
+    const translate=(source:string)=>{
+      const form=parse(source),uuid=children(form,'uuid')[0]!,shift=byObject.get(value(uuid))!
+      if(shift.every(n=>n===0))return source
+      const coordinates=[...children(form,'at'),...children(form,'property').flatMap(property=>children(property,'at')),
+        ...children(form,'pts').flatMap(points=>children(points,'xy'))]
+      return applyEdits(source,coordinates.map(at=>{
+        const [x,y]=shiftPoint([Number(value(at,1)),Number(value(at,2))],shift)
+        return {start:at.start,end:at.end,text:`(${at.head} ${[x,y,...at.items.slice(3)].join(' ')})`}
+      }))
+    }
+    const instances=this.instances.map(translate),graphics=this.graphics.map(translate)
+    const frames=this.frames.map(spec=>{
+      const i=measured.findIndex(({frame})=>frame.name===spec.name),frame=measured[i]!.frame,shift=shifts[i]!
+      return {...frame,start:shiftPoint(frame.start,shift),end:shiftPoint(frame.end,shift)}
+    })
+    this.instances.splice(0,this.instances.length,...instances)
+    this.graphics.splice(0,this.graphics.length,...graphics)
+    this.frames.splice(0,this.frames.length,...frames)
+    this.placedPins=undefined
+    return {status:'packed',shifts:Object.fromEntries(measured.map(({frame},i)=>[frame.name,shifts[i]!]))}
+  }
   private checkFrameRoute(): void {
     if(process.env.DSH_SCHEMATIC_MODULE_MODE==='default'&&this.frames.length>0)
-      throw new Error('MODULE_DELEGATION_REQUIRED: a second function frame requires module-plan.json and dispatch_kicad_schematic_modules BEFORE implementing block circuits. Stop patching the full script; prepare module contracts, dispatch workers, then assemble with --modules. Use --sequential-reason only for an actual delegation limitation or a focused existing-design fix.')
+      throw new Error('MODULE_DELEGATION_REQUIRED: a second function frame requires module-plan.json and dispatch_kicad_module_tasks BEFORE implementing block circuits. Stop patching the full script; prepare module contracts, dispatch workers, then assemble with --modules. Use --sequential-reason only for an actual delegation limitation or a focused existing-design fix.')
   }
   private source(): string {
     return `(kicad_sch (version 20250114) (generator "model_script") (uuid ${quote(this.rootId)})
@@ -319,14 +422,21 @@ export class Schematic {
    * @param spec Source path, unique module name, global translation and explicit shared nets.
    * @returns Reference map, translated label anchors, net names and object UUIDs for frames.
    */
-  importModule(spec: FlatImportSpec & { sourcePath: string;footprintMappingPath?:string }): FlatImportResult {
+  importModule(spec: FlatImportSpec & { sourcePath: string; footprintPaths?: readonly string[]; footprintMappingPath?:string }): FlatImportResult {
     this.checkFrameRoute()
     spec={...spec,offset:gridPoint(spec.offset)}
     if (this.importedModules.has(spec.name)) throw new Error(`duplicate imported module: ${spec.name}`)
     const used = new Set([...this.references.keys()].map(key => key.slice(0, key.lastIndexOf(':'))))
     const sourceText=readFileSync(spec.sourcePath,'utf8');
     assertSchematicGrid(sourceText)
-    const prepared = prepareFlatImport(sourceText, spec, this.options.projectName, this.rootId, used)
+    const index = moduleFootprintIndex(spec.sourcePath)
+    const assets = spec.footprintMappingPath ? undefined : spec.footprintPaths?.map(path => ({path}))
+      ?? (existsSync(index) ? moduleFootprintAssets(spec.sourcePath, readFileSync(index, 'utf8')) : undefined)
+    const automatic = !spec.footprintMappingPath && (assets || isDownloadedModule(spec.sourcePath))
+      ? planModuleFootprints(sourceText, (assets ?? []).map(asset => ({...asset, raw: readFileSync(asset.path, 'utf8')})))
+      : undefined
+    const prepared = prepareFlatImport(automatic ? assignFootprintText(sourceText, automatic.mappings) : sourceText,
+      spec, this.options.projectName, this.rootId, used)
     const footprints:Record<string,string>={};
     if(spec.footprintMappingPath){
       const mapping=JSON.parse(readFileSync(spec.footprintMappingPath,'utf8'));
@@ -348,6 +458,7 @@ export class Schematic {
     this.placedPins = undefined
     this.importedModules.add(spec.name)
     if(Object.keys(footprints).length)this.assignFootprints(footprints);
+    for (const [id, model] of automatic?.models ?? []) this.moduleFootprints.set(id, model)
     return prepared.result
   }
   /** Place a symbol using its actual library definition, expanding simple inheritance.
@@ -403,15 +514,27 @@ export class Schematic {
     const val = spec.value ?? (defaultProperty('Value') ? value(defaultProperty('Value')!, 2) : symbolName)
     const footprint = spec.footprint ?? (defaultProperty('Footprint') ? value(defaultProperty('Footprint')!, 2) : '')
     const uuid = randomUUID()
-    const anchors = fieldAnchors(sections, unit, at, angle, spec.mirror, children(form, 'power').length > 0)
-    const referenceAt = point(spec.referenceAt ?? (anchors ? anchors[0] : [at[0], at[1] - 5.08]))
-    const valueAt = point(spec.valueAt ?? (anchors ? anchors[1] : [at[0], at[1] - 2.54]))
+    const extent = unitExtent(sections, unit)
+    const isPower = children(form, 'power').length > 0
+    const anchors = fieldAnchors(extent, at, angle, spec.mirror, isPower, spec.reference)
+    const fieldPosition = (absolute: FlatPoint | undefined, offset: FlatPoint | undefined, fallback: FlatPoint) => {
+      if (absolute && offset) throw new Error('Use either At or Offset for each symbol field')
+      return point(absolute ?? (offset ? [at[0] + offset[0], at[1] + offset[1]] : fallback))
+    }
+    const referenceAt = fieldPosition(spec.referenceAt, spec.referenceOffset, anchors.referenceAt)
+    const valueAt = fieldPosition(spec.valueAt, spec.valueOffset, anchors.valueAt)
     const fieldAngle = spec.fieldAngle ?? ([90, 270].includes(angle) ? 90 : 0)
-    const extent=unitExtent(sections,unit),body=boundsOf(extent.graphics.concat(extent.pins),at,angle,spec.mirror)
-    if(body&&!children(form,'power').length)this.defaultFields.set(uuid,{at,
+    const body = boundsOf(extent.graphics.concat(extent.pins),at,angle,spec.mirror)
+    const defaultReference = spec.referenceAt === undefined && spec.referenceOffset === undefined
+    const defaultValue = spec.valueAt === undefined && spec.valueOffset === undefined
+    if(body&&!isPower)this.defaultFields.set(uuid,{at,
       body:{left:body.minX,right:body.maxX,top:body.minY,bottom:body.maxY},
-      reference:spec.referenceAt===undefined,value:spec.valueAt===undefined})
-    const property = (name: string, text: string, p: FlatPoint, hide = false) => `(property ${quote(name)} ${quote(text)} (at ${p[0]} ${p[1]} ${fieldAngle}) (effects (font (size 1.27 1.27))${hide ? ' (hide yes)' : ''}))`
+      reference:defaultReference,value:defaultValue})
+    // KiCad flips instance field justification when rotating by 180° or mirroring the sheet X coordinate.
+    const fieldJustify = anchors.justifyLeft && (fieldAngle + angle) % 180 === 0
+      ? ((angle === 180) !== (spec.mirror === 'y') ? 'right' : 'left')
+      : undefined
+    const property = (name: string, text: string, p: FlatPoint, hide = false, justify?: 'left' | 'right') => `(property ${quote(name)} ${quote(text)} (at ${p[0]} ${p[1]} ${fieldAngle}) (effects (font (size 1.27 1.27))${justify ? ` (justify ${justify})` : ''}${hide ? ' (hide yes)' : ''}))`
     const instanceProperties = children(form, 'property').filter(p =>
       !['Reference', 'Value', 'Footprint', 'Datasheet'].includes(value(p)) && !value(p).startsWith('ki_'))
       .map(p => property(value(p), value(p, 2), at, true))
@@ -421,7 +544,7 @@ export class Schematic {
     this.references.set(key, spec.libId)
     this.instances.push(`(symbol (lib_id ${quote(spec.libId)}) (at ${at[0]} ${at[1]} ${angle}) (unit ${unit}) ${spec.mirror ? `(mirror ${spec.mirror})` : ''}
       (in_bom yes) (on_board yes) (dnp no) (uuid ${quote(uuid)})
-      ${property('Reference', spec.reference, referenceAt, spec.hideReference ?? hiddenProperty('Reference'))} ${property('Value', val, valueAt, spec.hideValue ?? hiddenProperty('Value'))}
+      ${property('Reference', spec.reference, referenceAt, spec.hideReference ?? hiddenProperty('Reference'), defaultReference ? fieldJustify : undefined)} ${property('Value', val, valueAt, spec.hideValue ?? hiddenProperty('Value'), defaultValue ? fieldJustify : undefined)}
       ${property('Footprint', footprint, at, true)} ${property('Datasheet', defaultProperty('Datasheet') ? value(defaultProperty('Datasheet')!, 2) : '', at, true)}
       ${instanceProperties.join('\n')}
       (instances (project ${quote(this.options.projectName)} (path ${quote(`/${this.rootId}`)} (reference ${quote(spec.reference)}) (unit ${unit})))))`)
@@ -439,10 +562,19 @@ export class Schematic {
    */
   pinCatalog({includeBounds=false}: {includeBounds?:boolean} = {}): ReturnType<typeof listFlatObjects> {
     // Geometry estimates are opt-in: normal pin lookup keeps its inexpensive cached path.
-    const objects=includeBounds?listFlatObjects(this.source(),this.templates.style).filter(object=>object.type==='symbol'):
+    const objects=includeBounds?listFlatObjects(this.source(),this.templates.style,true).filter(object=>object.type==='symbol'):
       (this.placedPins ??= listFlatObjects(this.source()).filter(object => object.type === 'symbol'))
     return objects.map(o => ({ ...o, ...(o.at ? { at: [...o.at] as FlatPoint } : {}),
       ...(o.pins ? { pins: o.pins.map(p => ({ ...p, at: [...p.at] as FlatPoint })) } : {}) }))
+  }
+  /** Geometry before render, for layout passes that add the final labels and wires. */
+  layoutObjects(): ReturnType<typeof listFlatObjects> {
+    const source=this.source(),style=this.templates.style
+    const labelBounds=new Map(inspectSchematicText(source,style).filter(text=>text.kind==='label').map(text=>[text.ownerUuid,text.bounds]))
+    return listFlatObjects(source,style,true).map(object=>{
+      const bounds=labelBounds.get(object.uuid)
+      return bounds?{...object,bounds}:object
+    })
   }
   /** Resolve a placed symbol's numbered pin; ambiguous multi-unit matches fail.
    * @param reference Placed reference. @param number Actual library pin number.
@@ -487,6 +619,17 @@ export class Schematic {
     this.graphics.push(`(label ${quote(name)} (at ${p[0]} ${p[1]} ${angle}) (effects (font (size 1.27 1.27)) (justify ${justify} bottom)) (uuid ${quote(id)}))`)
     return id
   }
+  /** Name a shared net across the schematic with a native KiCad global label. */
+  globalLabel(name: string, at: FlatEndpoint, angle: 0 | 90 | 180 | 270 = 0): string {
+    const id=randomUUID()
+    this.graphics.push(this.globalLabelGraphic(name,this.endpoint(at),angle,id))
+    return id
+  }
+  private globalLabelGraphic(name: string, at: FlatPoint, angle: number, uuid: string): string {
+    if(!name||![0,90,180,270].includes(angle))throw new Error('global label needs a name and orthogonal angle')
+    const justify=angle===180||angle===270?'right':'left'
+    return `(global_label ${quote(name)} (shape passive) (at ${at[0]} ${at[1]} ${angle}) (effects (font (size 1.27 1.27)) (justify ${justify})) (uuid ${quote(uuid)}))`
+  }
   /** List only explicitly selected local/global labels in this build, before conversion.
    * UUIDs are fresh each build; select by module/net/coordinates and use this returned UUID.
    * @param nets Exact shared networks, never a heuristic power-name filter.
@@ -510,9 +653,23 @@ export class Schematic {
         type: form.head, ...(module ? { module } : {}) }]
     })
   }
+  /** Keep one mapped power annotation per already-wired group inside each module. */
+  deduplicatePowerLabels(nets: readonly string[], modules: readonly ReadonlySet<string>[], preferred: readonly string[] = []): string[] {
+    const objects=listFlatObjects(this.source()), selected=new Set(nets)
+    const rank=new Map(preferred.map((uuid,index)=>[uuid,index]))
+    if(rank.size)objects.sort((a,b)=>(rank.get(a.uuid)??rank.size)-(rank.get(b.uuid)??rank.size))
+    const removed=new Set(modules.flatMap(owned=>redundantPowerAnnotations(objects,owned,selected)))
+    if(removed.size){
+      const retained=this.graphics.filter(graphic=>{
+        const uuid=children(parse(graphic),'uuid')[0]
+        return !uuid||!removed.has(value(uuid))
+      })
+      this.graphics.splice(0,this.graphics.length,...retained)
+    }
+    return [...removed]
+  }
   /** Verify constructor-declared power-symbol delivery requirements before publication.
-   * Each exact net must have a genuine power definition, matching libId and Value,
-   * and no unconverted local/global label. Does not infer or merge power domains.
+   * Require the mapped symbol or an explicitly retained label of the same name.
    * @returns Per-net completion counts; throws without mutating the sheet on failure.
    */
   checkPowerSymbols(): PowerSymbolStatus[] {
@@ -528,19 +685,23 @@ export class Schematic {
         const val = children(form, 'property').find(property => value(property) === 'Value')
         return id && value(id) === libId && val && value(val, 2) === net
       }).length : 0
-      return { net, libId, symbolCount, remainingLabelUuids: labels.filter(label => label.net === net).map(label => label.uuid) }
+      return { net, libId, symbolCount, remainingLabelUuids: labels.filter(label => label.net === net
+        && !this.retainedLocalPowerLabels.has(label.uuid)
+        && !(this.options.allowGlobalPowerLabels && label.type==='global_label')).map(label => label.uuid) }
     })
-    const incomplete = statuses.filter(status => !status.symbolCount || status.remainingLabelUuids.length)
+    const retainedNets=new Set(labels.filter(label=>this.retainedLocalPowerLabels.has(label.uuid)
+      || (this.options.allowGlobalPowerLabels&&label.type==='global_label')).map(label=>label.net))
+    const incomplete = statuses.filter(status => (!status.symbolCount&&!retainedNets.has(status.net)) || status.remainingLabelUuids.length)
     if (incomplete.length) throw new Error(`POWER_SYMBOLS_REQUIRED: ${incomplete.map(status =>
-      `${status.net}: ${status.symbolCount} power symbols, ${status.remainingLabelUuids.length} unconverted labels`).join('; ')}. Convert current-build labels or report the unresolved requirement; do not remove power symbols to avoid layout overlaps.`)
+      `${status.net}: ${status.symbolCount} power symbols, ${status.remainingLabelUuids.length} unconverted labels`).join('; ')}. Convert the intended anchors or explicitly retain the selected power net labels.`)
     return statuses
   }
-  /** Plan bounded cardinal rotations, readable text positions and safe short straight leads.
+  /** Plan bounded cardinal rotations, readable text positions and safe short leads.
    * Does not mutate the sheet; consume placements in replacePowerLabels in this same build.
    * Unresolved conservative overlaps are returned, not presented as a clean layout.
    */
   planPowerPlacements(spec: PowerPlanningOptions): PowerPlacementPlan {
-    powerDefinitions(spec)
+    const definitions=powerDefinitions(spec)
     const cache = new Map<string, PowerGeometry>()
     const geometry = (net: string, angle: 0 | 90 | 180 | 270): PowerGeometry => {
       const key = `${net}:${angle}`, existing = cache.get(key)
@@ -553,12 +714,16 @@ export class Schematic {
       const body = listFlatObjects(probe.source(),this.templates.style)[0]?.bounds
       if (!body) throw new Error(`POWER_GEOMETRY_UNAVAILABLE: cannot measure ${spec.nets[net]}; choose a supported model`)
       const result = { body,
-        textSize: flatTextSize(net, [1.27, 1.27], this.templates.style) }
+        textSize: flatTextSize(net, [1.27, 1.27], this.templates.style),
+        strokes:powerStrokes(definitions.get(net)!,angle) }
       cache.set(key, result)
       return result
     }
     const context = this.powerLayoutContext()
-    return planPowerLabels(this.powerLabelCatalog(Object.keys(spec.nets)), context.objects, geometry, this.pageSize(), spec, context.areas)
+    const labels=this.powerLabelCatalog(Object.keys(spec.nets)).filter(label=>
+      !spec.keepAsGlobalLabels?.has(label.uuid)&&!spec.keepAsLocalLabels?.has(label.uuid)
+      &&!this.retainedLocalPowerLabels.has(label.uuid)&&!(this.options.allowGlobalPowerLabels&&label.type==='global_label'))
+    return planPowerLabels(labels, context.objects, geometry, this.pageSize(), spec, context.areas)
   }
   private pageSize(): FlatPoint {
     return ({ A4: [297, 210], A3: [420, 297], A2: [594, 420], A1: [841, 594], A0: [1189, 841] } as const)[this.options.paper].slice() as FlatPoint
@@ -598,6 +763,7 @@ export class Schematic {
     const replacements: PowerLabelReplacement[] = [], retained: string[] = []
     const extraWires: string[] = []
     const convertedIds = new Set<string>()
+    const localIds = new Set<string>()
     const wireGroups = new Map<string, string[]>()
     const samePoint=(a:FlatPoint,b:FlatPoint)=>Math.abs(a[0]-b[0])<1e-6&&Math.abs(a[1]-b[1])<1e-6
     const xy=(form:Form):FlatPoint=>[Number(value(form)),Number(value(form,2))]
@@ -613,6 +779,17 @@ export class Schematic {
       const anchor = children(form, 'at')[0], identity = children(form, 'uuid')[0]
       if (!anchor || !identity) throw new Error(`POWER_LABEL_INVALID: ${net} needs at and uuid`)
       const at = point([Number(value(anchor, 1)), Number(value(anchor, 2))]), uuid = value(identity)
+      if(spec.keepAsLocalLabels?.has(uuid)||this.retainedLocalPowerLabels.has(uuid)){
+        if(form.head!=='label'||spec.keepAsGlobalLabels?.has(uuid))
+          throw new Error(`POWER_LABEL_INVALID: ${uuid} must select one local power label`)
+        localIds.add(uuid)
+        retained.push(graphic)
+        continue
+      }
+      if(spec.keepAsGlobalLabels?.has(uuid)||(this.options.allowGlobalPowerLabels&&form.head==='global_label')){
+        retained.push(form.head==='global_label'?graphic:this.globalLabelGraphic(net,at,Number(value(anchor,3)),uuid))
+        continue
+      }
       const owner = powerArea(uuid, at, context.areas)
       if (owner) owners.set(uuid,context.areas.indexOf(owner))
       let reference: string
@@ -652,6 +829,8 @@ export class Schematic {
     for (const uuid of Object.keys(spec.placements ?? {})) {
       if (!convertedIds.has(uuid)) throw new Error(`POWER_LABEL_INVALID: placement ${uuid} does not select a mapped label`)
     }
+    for(const uuid of spec.keepAsLocalLabels??[])if(!localIds.has(uuid))
+      throw new Error(`POWER_LABEL_INVALID: local label ${uuid} does not select a mapped label`)
     for (const [id, cached] of prepared.definitions) {
       if (this.definitions.has(id) && this.definitions.get(id) !== cached) throw new Error(`inconsistent library definition: ${id}`)
     }
@@ -660,7 +839,9 @@ export class Schematic {
     this.placedPins = undefined
     this.instances.push(...prepared.instances)
     for (const [uuid,owner] of owners) this.powerOwners.set(uuid,owner)
+    for (const [uuid,wires] of wireGroups) this.powerAttachments.set(uuid,wires)
     this.graphics.splice(0, this.graphics.length, ...retained, ...extraWires)
+    for(const uuid of localIds)this.retainedLocalPowerLabels.add(uuid)
     for (const frame of this.frames) {
       if (frame.autoBounds && frame.objectUuids) {
         frame.objectUuids = [...frame.objectUuids, ...frame.objectUuids.flatMap(uuid => wireGroups.get(uuid) ?? [])]
@@ -680,12 +861,17 @@ export class Schematic {
   }
   private inspectPowerLayout(rendered?: ReturnType<typeof buildFlatCopy>): PowerLayoutDiagnostics {
     const {objects,areas} = this.powerLayoutContext(rendered)
-    const powers = objects.filter(o => o.type === 'symbol' && o.libId
-      && children(parse(this.definitions.get(o.libId)!), 'power').length > 0)
+    const definitions=new Map<string,Form>()
+    const powers=objects.filter(o=>{
+      if(o.type!=='symbol'||!o.libId)return false
+      if(!definitions.has(o.libId))definitions.set(o.libId,parse(this.definitions.get(o.libId)!))
+      return children(definitions.get(o.libId)!,'power').length>0
+    })
     const issues: PowerLayoutIssue[] = []
     const [width,height] = this.pageSize(), page = {left:0,top:0,right:width,bottom:height}
     for (const power of powers) {
       if (!power.bounds) continue
+      const strokes=powerStrokes(definitions.get(power.libId!)!,power.angle??0,power.unit,power.mirror)
       if (!insideBounds(power.bounds,page)) issues.push({code:'POWER_LAYOUT_OUTSIDE_PAGE',uuid:power.uuid,
         reference:power.reference!,bounds:power.bounds,allowedBounds:page})
       const ownerIndex = this.powerOwners.get(power.uuid)
@@ -694,7 +880,15 @@ export class Schematic {
         reference:power.reference!,frame:area.name,bounds:power.bounds,allowedBounds:area.contentBounds})
       for (const other of objects) {
         if (other.uuid === power.uuid || !other.bounds || ['rectangle', 'junction', 'no_connect'].includes(other.type)) continue
-        if (other.type === 'wire' && [other.from, other.to].some(p => p && power.at && p[0] === power.at[0] && p[1] === power.at[1])) continue
+        if (other.type==='wire'&&other.from&&other.to&&power.at) {
+          const pin=power.pins?.[0]?.at??power.at
+          if(wireCrossesPowerStroke({from:other.from,to:other.to},strokes,power.at,pin)){
+            issues.push({code:'POWER_SYMBOL_WIRE_CROSSING',uuid:power.uuid,reference:power.reference!,
+              net:power.value??'',otherUuid:other.uuid,otherType:'wire',from:other.from,to:other.to})
+            continue
+          }
+          if([other.from,other.to].some(p=>p[0]===pin[0]&&p[1]===pin[1]))continue
+        }
         const a = power.bounds, b = other.bounds
         if (a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom) {
           issues.push({ code: 'POWER_LAYOUT_OVERLAP', uuid: power.uuid, reference: power.reference!, otherUuid: other.uuid, otherType: other.type })
@@ -720,9 +914,24 @@ export class Schematic {
    */
   marker(kind: 'junction' | 'no_connect', at: FlatEndpoint): string {
     if (!['junction', 'no_connect'].includes(kind)) throw new Error('unsupported marker')
-    const p = this.endpoint(at), id = randomUUID()
+    const p = this.endpoint(at)
+    if(kind==='no_connect'){
+      for(const graphic of this.graphics){
+        if(!/^\(no_connect\s/.test(graphic))continue
+        const form=parse(graphic),anchor=children(form,'at')[0],uuid=children(form,'uuid')[0]
+        if(anchor&&uuid&&Number(value(anchor,1))===p[0]&&Number(value(anchor,2))===p[1])return value(uuid)
+      }
+    }
+    const id = randomUUID()
     this.graphics.push(`(${kind} (at ${p[0]} ${p[1]}) ${kind === 'junction' ? '(diameter 0) (color 0 0 0 0)' : ''} (uuid ${quote(id)}))`)
     return id
+  }
+  /** Add native blue flags without altering the symbol definition or any pin type. */
+  ensureNoConnectMarkers(declared: readonly {reference:string;pin:string}[] = []): Array<{reference:string;uuid:string}> {
+    const {targets,issues}=inspectNoConnectPins(listFlatObjects(this.source()),declared)
+    if(issues.length)throw Object.assign(new Error(`MODULE_NO_CONNECT_INVALID: ${issues.map(issue=>`${issue.reference}.${issue.pin}: ${issue.message}`).join(' ')}`),
+      {code:'MODULE_NO_CONNECT_INVALID',issues})
+    return targets.map(({reference,at,marker})=>({reference,uuid:marker??this.marker('no_connect',at)}))
   }
   /** Add a module frame with manual bounds or explicitly grouped automatic bounds.
    * @param frame Visible title, explanation and range selection; omitted excludeUuids resolves to an empty list.
@@ -740,8 +949,9 @@ export class Schematic {
   render(): ReturnType<typeof buildFlatCopy> {
     loadDesignPlan(this.designPlan)
     this.checkPowerSymbols()
-    assertSchematicGrid(this.source())
     if (!this.instances.length) throw new Error('place at least one symbol before rendering')
+    this.ensureNoConnectMarkers()
+    assertSchematicGrid(this.source())
     return buildFlatCopy(this.source(), this.options.projectName, { removeReferences: [], removeUuids: [], removeTextUuids: [], setValues: [], setLabels: [], addWires: [], frames: this.frames }, this.templates)
   }
   /** Write a new output pair without overwriting existing files; use a unique candidate directory.
@@ -750,15 +960,56 @@ export class Schematic {
    */
   save(directory: string): { schematicPath: string; projectPath: string; frames: ResolvedFlatFrame[]; layoutWarnings: PowerLayoutWarning[]; powerLayout:PowerLayoutDiagnostics; designPlan:DesignPlanReference } {
     if(process.env.DSH_SCHEMATIC_MODULE_MODE==='default'&&this.frames.length>1)
-      throw new Error('MODULE_DELEGATION_REQUIRED: multiple function blocks must use module-plan.json, dispatch_kicad_schematic_modules and run-design.mjs --modules. If delegation is unavailable or this is a focused edit of an existing design, document the actual reason with --sequential-reason; do not silently draw all blocks in one agent.')
+      throw new Error('MODULE_DELEGATION_REQUIRED: multiple function blocks must use module-plan.json, dispatch_kicad_module_tasks and run-design.mjs --modules. If delegation is unavailable or this is a focused edit of an existing design, document the actual reason with --sequential-reason; do not silently draw all blocks in one agent.')
     const result = this.render(), schematicPath = join(directory, `${this.options.projectName}.kicad_sch`), projectPath = join(directory, `${this.options.projectName}.kicad_pro`)
     if (existsSync(schematicPath) || existsSync(projectPath)) throw new Error(`output already exists: ${directory}; choose a unique candidate directory`)
     mkdirSync(directory, { recursive: true })
+    this.saveModuleFootprints(directory)
     writeFileSync(schematicPath, result.schematic, { flag: 'wx' })
     writeFileSync(projectPath, result.project, { flag: 'wx' })
     const powerLayout = this.inspectPowerLayout(result)
     return { schematicPath, projectPath, frames: result.resolvedFrames,
       layoutWarnings:powerLayout.issues.filter((issue): issue is PowerLayoutWarning=>issue.code==='POWER_LAYOUT_OVERLAP'),
       powerLayout,designPlan:{...this.designPlan} }
+  }
+
+  private saveModuleFootprints(directory: string): void {
+    if (!this.moduleFootprints.size) return
+    const tablePath = join(directory, 'fp-lib-table')
+    const lock = tablePath + '.module-lock'
+    writeFileSync(lock, '', { flag: 'wx' })
+    const temporary = tablePath + '.' + randomUUID() + '.tmp'
+    try {
+      const localPath = (...parts: string[]) => {
+        let path = directory
+        for (const part of parts) {
+          path = join(path, part)
+          if (lstatSync(path, {throwIfNoEntry:false})?.isSymbolicLink()) throw new Error('Footprint path is a symbolic link: ' + path)
+        }
+        return path
+      }
+      localPath('fp-lib-table')
+      const old = existsSync(tablePath) ? readFileSync(tablePath, 'utf8') : null
+      let table = old
+      const newFiles: Array<{path: string; text: string}> = []
+      for (const {nickname, name, text} of this.moduleFootprints.values()) {
+        const path = localPath('libraries', 'footprints', nickname + '.pretty', name + '.kicad_mod')
+        if (!existsSync(path)) newFiles.push({path, text})
+        else if (readFileSync(path, 'utf8') !== text) throw new Error('Footprint already exists with different content: ' + path)
+        table = registerFootprintLibrary(table, nickname) ?? table
+      }
+      for (const {path, text} of newFiles) {
+        mkdirSync(dirname(path), {recursive:true})
+        writeFileSync(path, text, {flag:'wx'})
+      }
+      if (table !== null && table !== old) {
+        writeFileSync(temporary, table, {flag:'wx'})
+        if ((existsSync(tablePath) ? readFileSync(tablePath, 'utf8') : null) !== old) throw new Error('fp-lib-table changed during module footprint preparation')
+        renameSync(temporary, tablePath)
+      }
+    } finally {
+      rmSync(temporary, {force:true})
+      rmSync(lock, {force:true})
+    }
   }
 }

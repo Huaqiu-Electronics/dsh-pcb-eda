@@ -1,30 +1,16 @@
-# 查询模块器件、网络与BOM
+# 下载模块的器件、网表与 BOM
 
-下载只保存文件，需要电路信息才查询analyze_kicad_module；不必先调用summary。需要改电路时按 [脚本修改](editing.md)，缺少的图纸备注按需看来源和预览。
+`download_eda_module_schematic` 保存源图、可用的配套工程和随包封装。有随包封装时，它同时提取模块信息。读取 `analysis` 里的短摘要，按当前问题选择文件：
 
-## 请求与结果
-
-```json
-{"schematicPath":"designs/demo/sources/module.kicad_sch","view":"nets","reference":"U1","pin":"7"}
-```
-
-必填schematicPath/view；可选reference、pin、net、offset、kicadCliPath、refresh。pin只用于nets且须配reference，net仅用于nets；offset不用于summary。正常省略CLI和refresh。
-
-| view | 何时使用及重要含义 |
+| 字段 | 用途 |
 | --- | --- |
-| components | 位号、数值、封装、装配状态；按reference筛选时附自定义fields/sheetPath。只有BOM推导器件时partial，可能不全；bomIncluded省略表示未知，其余装配布尔标记省略为false |
-| nets | 网名和节点；reference/pin查询返回该脚所在网络。每块最多32节点，按nextOffset继续，并将相同net的分块合并，不能把一个网络误认为多个 |
-| bom | 按数值、封装、完整物料字段和装配状态分组，含references/quantity。仅BOM而缺网表补充时，采购字段可能不完整 |
-| summary | 确需总统计时使用；counts.bom为纳入BOM的器件数，不是分组行数；缺统计表示未知 |
+| `analysis.ports` | 显式层次端口名称、总数和方向冲突。摘要截断时按 `analysis.ports.nextAction` 获取完整名称数组。空列表时从连接器引脚和网表判断接口。 |
+| `analysis.files.components` | `components.json` 中的 `data.components` 保留网表导出的位号、值、封装、字段和装配信息。网表失败而 BOM 可用时，`data.bomRows` 提供有限的器件信息。 |
+| `analysis.files.bom` | `bom.json` 的 `items` 按器件实例列出 BOM 成员和可取得的物料字段。 |
+| `analysis.files.connectivity` | `connectivity.json` 的 `data.nets` 保存网名和完整连接节点。 |
 
-详情返回status/items及可选nextOffset、warnings、error、files；无nextOffset才结束。每页最多60项/24000字符；fieldsTruncated或omitted表示需从files读完整数据，不代表连接缺失。ready+空items是无匹配，unavailable+空items是未取得数据，partial仅部分可用。DNP网络不证明已装配，ready不证明电气正确。
+`analysis.status` 为 `ready` 时摘要和导出均可用，`partial` 时先复用已有文件，`unavailable` 时查看诊断及端口子状态。下载的原理图仍可查看。阶段诊断见 `analysis.stages`，完整导出文件保存在源图附近按版本划分的 `analysis/` 目录。结果对应默认装配变体，电气验收按设计检查流程进行。
 
-components/nets复用网表，bom按需补物料字段；summary可能补充尚未尝试的阶段。成功/失败按阶段缓存，不为获取另一个view重新下载或重复导出。完整网表器件/物料在components.json，网络在connectivity.json，需排障时再从返回files定位。
+`footprints: null` 时按 `nextAction` 改选模块，`analysis.status` 为 `skipped`。导出失败时先处理原因，再使用相同 `moduleId` 和 `targetDir` 加 `refreshAnalysis: true`，复用当前插件进程记录的近期本地下载。CLI 启动失败时可额外传 `get_eda_host_info` 已知的 `kicadCliPath` 绝对路径。进程重启或本地记录被淘汰时，重新调用正常下载流程。
 
-## 来源与恢复
-
-工具内部选择CLI及同名配套工程：HQ_EDA_*优先.source.kicad_pro，否则.kicad_pro；其它本地图使用同名.kicad_pro。不传sourceProjectPath或扫描任意文件；非标准来源须准备同名工程，原始来源保持不变。
-
-来源、子页、配套工程或CLI变化使结果失效；工作副本按自身路径查询。修好问题后保留原查询和筛选条件，加refresh:true刷新所需阶段；刷新失败不能继续沿用该阶段旧成功结果。普通调用不会隐式重试缓存的失败。
-
-error含code/message，完整诊断在files的metadata.stages；启动探测尚未生成文件时可没有files。CLI_START_FAILED复用已知宿主CLI路径，加kicadCliPath和refresh:true重试；导出、解析、能力或超时按原原因处理，不一律换路径。其余按 [恢复参考](troubleshooting.md)，不重新下载已成功来源。
+对于自己生成的候选原理图，按模块检查和整图验收流程核对实际连接。

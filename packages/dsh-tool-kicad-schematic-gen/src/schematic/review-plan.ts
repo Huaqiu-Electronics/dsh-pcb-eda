@@ -50,7 +50,9 @@ export function reviewIssues(report:any){
  return [
   ...(report.connectivity?.issues??report.issues??[]).map((issue:any)=>({category:'electrical',...issue})),
   ...(report.layout?.reviewIssues??[]).map((issue:any)=>({category:issue.code==='MODULE_LAYOUT_OUTSIDE_FRAME'?'frame':'visual_confirmation',...issue})),
-  ...(report.result?.fieldLayout?.unresolved??[]).map((issue:any)=>({category:'visual_confirmation',...issue})),
+  ...(report.result?.fieldLayout?.unresolved??[]).map((issue:any)=>typeof issue==='string'
+   ?{category:'visual_confirmation',code:'FIELD_REVIEW',field:issue}
+   :{category:'visual_confirmation',...issue}),
  ]
 }
 
@@ -59,9 +61,10 @@ export function summarizeReviewIssues(report:any,maxItems=12,maxChars=6000){
  const all=reviewIssues(report)
  if(!all.length&&report.status!=='passed')all.push({category:'electrical',code:report.code??'MODULE_CHECK_FAILED',message:report.error??'Module check failed; read the full report.'})
  const counts:Record<string,number>={}
- const rank=(issue:any)=>issue.category==='electrical'?0:issue.code==='MODULE_LAYOUT_OUTSIDE_FRAME'?1:issue.code==='TEXT_OVERLAP_REVIEW'?2:issue.code==='LAYOUT_OVERLAP_REVIEW'?4:3
- const issues:any[]=[],compact=(issue:any)=>{
-  const item:Record<string,unknown>={category:issue.category,code:typeof issue.code==='string'?issue.code.slice(0,100):'FIELD_REVIEW'}
+ const priorityCounts={must_fix:0,visual_check:0,advisory:0}
+ const rank=(issue:any)=>issue.category==='electrical'?0:['MODULE_LAYOUT_OUTSIDE_FRAME','POWER_SYMBOL_WIRE_CROSSING'].includes(issue.code)?1:issue.code==='TEXT_OVERLAP_REVIEW'?2:issue.code==='LAYOUT_OVERLAP_REVIEW'?4:3
+ const issues:any[]=[],compact=(issue:any,priority:keyof typeof priorityCounts)=>{
+  const item:Record<string,unknown>={category:issue.category,priority,code:typeof issue.code==='string'?issue.code.slice(0,100):'FIELD_REVIEW'}
   for(const key of ['reference','pin','net','actualNet','field','moduleId','message','reason'])if(typeof issue[key]==='string'){
    item[key]=issue[key].slice(0,300);if(issue[key].length>300)item.detailsTruncated=true
   }
@@ -79,12 +82,14 @@ export function summarizeReviewIssues(report:any,maxItems=12,maxChars=6000){
  let chars=0
  for(const issue of [...all].sort((a,b)=>rank(a)-rank(b))){
   const key=issue.code??'FIELD_REVIEW';counts[key]=(counts[key]??0)+1
-  const item=compact(issue),length=JSON.stringify(item).length
+  const order=rank(issue),priority=order<=1?'must_fix':order===4?'advisory':'visual_check'
+  priorityCounts[priority]++
+  const item=compact(issue,priority),length=JSON.stringify(item).length
   if(issues.length<maxItems&&chars+length<=maxChars){issues.push(item);chars+=length}
  }
  const spaceFailure=['POWER_PLACEMENT_UNAVAILABLE','MODULE_SPACE_INSUFFICIENT'].includes(report.code)
  const stage=spaceFailure?'resize':report.status!=='passed'?'structure':all.some(i=>rank(i)<4)?'layout':'visual_review'
- return {issues,issueCount:all.length,omittedIssues:all.length-issues.length,counts,
+ return {issues,issueCount:all.length,omittedIssues:all.length-issues.length,counts,priorityCounts,
   repairPlan:{stage,batchRequired:true,fullReportRequired:issues.length<all.length||issues.some(i=>i.detailsTruncated),
    nextAction:spaceFailure?'Ask the parent for one coordinated frame/route change before another build; include all space failures.':
     stage==='structure'?'Read all structural/connection defects (including omitted items in reportPath), fix them together, then rebuild once.':
@@ -93,12 +98,28 @@ export function summarizeReviewIssues(report:any,maxItems=12,maxChars=6000){
 }
 
 /** Keep all diagnostic areas covered without returning an unbounded number of images. */
-export function batchReviewRegions(regions:PreviewRegion[]):PreviewRegion[]{
+export function reviewRegionContainsIssue(region:PreviewRegion,issue:Record<string,unknown>):boolean{
+ const {start,end}=issue
+ return Array.isArray(start)&&Array.isArray(end)&&start.every((v,i)=>v>=region.start[i]!)
+  &&end.every((v,i)=>v<=region.end[i]!)
+}
+
+export function batchReviewRegions(regions:PreviewRegion[],limit=8):PreviewRegion[]{
  const unique=regions.filter((region,index)=>regions.findIndex(other=>JSON.stringify([other.pageName,other.start,other.end])===JSON.stringify([region.pageName,region.start,region.end]))===index)
- if(unique.length<=8)return unique
+ if(unique.length<=limit)return unique
  const pages=new Map<string,PreviewRegion[]>()
  for(const region of unique)pages.set(region.pageName,[...(pages.get(region.pageName)??[]),region])
- return [...pages].map(([pageName,items])=>({name:'all diagnostic areas',pageName,
-  start:[Math.min(...items.map(r=>r.start[0])),Math.min(...items.map(r=>r.start[1]))],
-  end:[Math.max(...items.map(r=>r.end[0])),Math.max(...items.map(r=>r.end[1]))]}))
+ return [...pages].flatMap(([pageName,items])=>{
+  const groups=pages.size===1?limit:1
+  const span=(axis:0|1)=>Math.max(...items.map(r=>r.end[axis]))-Math.min(...items.map(r=>r.start[axis]))
+  const axis=span(0)>=span(1)?0:1
+  const sorted=[...items].sort((a,b)=>a.start[axis]+a.end[axis]-b.start[axis]-b.end[axis])
+  const size=Math.ceil(sorted.length/groups)
+  return Array.from({length:Math.ceil(sorted.length/size)},(_,i)=>{
+   const nearby=sorted.slice(i*size,(i+1)*size)
+   return {name:nearby.map(r=>r.name).join(' / ').slice(0,180),pageName,
+    start:[Math.min(...nearby.map(r=>r.start[0])),Math.min(...nearby.map(r=>r.start[1]))] as [number,number],
+    end:[Math.max(...nearby.map(r=>r.end[0])),Math.max(...nearby.map(r=>r.end[1]))] as [number,number]}
+  })
+ })
 }

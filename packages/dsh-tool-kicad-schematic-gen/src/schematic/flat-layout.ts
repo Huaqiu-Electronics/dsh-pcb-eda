@@ -39,7 +39,7 @@ function transform(point: Point, origin: Point, angle: number, library = false, 
 function corners(bounds: FlatBounds): Point[] {
   return [[bounds.left, bounds.top], [bounds.right, bounds.top], [bounds.left, bounds.bottom], [bounds.right, bounds.bottom]]
 }
-function hidden(form: Form): boolean {
+export function isHiddenText(form: Form): boolean {
   const effects = children(form, 'effects')[0]
   return effects !== undefined && (effects.items.includes('hide') || children(effects, 'hide').some(item => value(item) === 'yes'))
 }
@@ -57,8 +57,8 @@ export function flatTextSize(text: string, size: Point, style: FlatLayoutStyle):
   return [Math.max(style.textWidthFactor,...lines.map(line=>[...line].reduce((width,character)=>width+(wide.test(character)?Math.max(1.6,style.textWidthFactor):style.textWidthFactor),0))) * size[0],
     lines.length * size[1] * style.textHeightFactor]
 }
-export function textBounds(form: Form, text: string, style: FlatLayoutStyle,instanceAngle=0): FlatBounds | null {
-  if (hidden(form)) return null
+export function textBounds(form: Form, text: string, style: FlatLayoutStyle,instanceAngle=0,instanceMirror=''): FlatBounds | null {
+  if (isHiddenText(form)) return null
   const at = children(form, 'at')[0]
   if (at === undefined) return null
   const effects = children(form, 'effects')[0]
@@ -76,7 +76,8 @@ export function textBounds(form: Form, text: string, style: FlatLayoutStyle,inst
     return box(corners({ left: -dimensions[0] - dimensions[1], top: -dimensions[1],
       right: dimensions[0] + dimensions[1], bottom: dimensions[1] }).map(point => transform(point, origin, -angle)))
   }
-  return box(corners(local).map(point => transform(point, origin, -angle)))
+  return box(corners(local).map(point => transform(point, origin, -angle, false,
+    form.head === 'property' && angle % 180 === 0 && instanceMirror === 'y' ? 'y' : '')))
 }
 
 /** Read a PNG's physical placement using KiCad 10's wxWidgets resolution rules.
@@ -193,7 +194,7 @@ export function flatObjectBounds(root: Form, form: Form, style: FlatLayoutStyle)
       }
     }
     for (const field of children(form, 'property')) {
-      const bounds = textBounds(field, value(field, 2), style,angle)
+      const bounds = textBounds(field, value(field, 2), style, angle, axis)
       if (bounds) ranges.push(bounds)
     }
     return unionFlatBounds(ranges.length === 0 ? [box([origin])] : ranges)

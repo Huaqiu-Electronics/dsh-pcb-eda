@@ -29,8 +29,9 @@ const region=sch.region({name:'功能区',description:'用途与限制',
 region.addSymbol({libraryPath:imported.libraryPath,libId:imported.libId,
  footprint:imported.footprintId,reference:'U1',unit:1,at:[40.64,40.64]});
 // 放完全部器件，再依据实际引脚完成所有接线、标签和标记。
-sch.arrangeSymbolFields();
-const spec={libraryPath:symbolLibrary('power'),nets};
+// 关键点和次要支路都用 region.label；把需要保持黑字的电源标签 UUID 加入 keepAsLocalLabels。
+const keepAsLocalLabels=new Set();
+const spec={libraryPath:symbolLibrary('power'),nets,keepAsLocalLabels};
 const plan=sch.planPowerPlacements(spec);
 sch.replacePowerLabels({...spec,placements:plan.placements});
 sch.checkPowerSymbols();
@@ -63,14 +64,15 @@ region 数组坐标均为框内局部毫米，region.pin 也返回局部点；re
 
 模块导出 `place({draw,region,parts,references,nets,bounds})`，返回 `{ports,bounds,connect}`，先完成全部 place 再统一 connect。draw.put 复用确认的器件和value，不得覆盖身份。
 
-- draw.put(role,{at,angle?,mirror?,unit?,referenceAt?,valueAt?,fieldAngle?,hideReference?,hideValue?})。
+- draw.put(role,{at,angle?,mirror?,unit?,referenceAt?,valueAt?,referenceOffset?,valueOffset?,fieldAngle?,hideReference?,hideValue?})。竖放两脚电阻、电容的位号和值在右侧左对齐，横放阻容、IC、连接器等默认放在上方居中，位号在上、值在下。摆放时为对应位置预留空间，尤其是并排阻容的右侧和有顶部引脚的 IC 上方。At 是模块内坐标，Offset 是沿图纸轴相对器件原点的毫米数。同一字段的 At 和 Offset 互斥。
+- 已确认的两脚串联器件优先用 `draw.putSeries('r_dm',{at:[136.53,82.55],from:draw.pin('mcu','GPIO18'),input:'a',output:'b'})`。先放上游器件，选有足够空间的串联位置，再让生成器按实际引脚几何选择角度并对齐输入脚。显式 `angle` 时只尝试该角度。到 `connect()` 再通过 `draw.pin` 获取两端实际坐标并用 `draw.wire` 连接，输出端标签朝器件外侧。并排摆放多颗器件时给位号、值和输出标签留空。需要绕开其他器件或没有直连空间时，用 `draw.put` 明确指定朝向和走线。
 - draw.pin(role,pinRole) 按 parts.pins 的语义键取真实局部坐标；不能把物理脚号冒充语义键。
 - draw.offset(at,dx,dy)、draw.row(start,count,step=10.16)；row 沿x方向。
 - draw.stub(role,pinRole,dx,dy,{net?,angle?}) 从真实pin引短线并返回末端，内部标签可随线放置；用于随器件移动的电源/地支路，不重复公共端口标签。
 - draw.wire(a,b,route) 对应 wireOrthogonal；draw.label/junction/nc 对应标签/接点/按语义引脚NC。
 - 公共端口返回 `{reference,pin,labelAt?,angle?}`，pin 为物理脚号；运行时统一画标签及短引线，不在 connect 重复画。labelAt 为局部点，路径不避障，必须按实际符号预留通道。
 
-旋转器件通常保留默认fieldAngle；显示方向结合实例旋转，不把存储角度0直接当成水平。arrangeSymbolFields 只有限移动默认文字，保留显式位置；零未决不证明全部文字可读。
+旋转器件通常保留默认 fieldAngle，使文字在图纸上保持水平。默认流程使用放置时确定的字段位置。发现重叠时按预览调整器件、走线或显式字段位置。
 
 ## 脚本编辑与编码
 

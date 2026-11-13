@@ -24,36 +24,6 @@ export interface ImportedSymbol {
   table: 'created' | 'updated' | 'existing'
 }
 
-/** Compact public response; the paired importer retains the full internal result. */
-export function summarizeImportedSymbol(result:ImportedSymbol) {
-  const compatibility=result.builderCompatibility
-  return {
-    part:result.part,libId:result.libId,libraryPath:result.libraryPath,
-    units:compatibility.availableUnits,library:result.library,table:result.table,
-    ...(result.symbolTextRepaired?{symbolTextRepaired:true}:{}),
-    ...(compatibility.normalization?{normalization:compatibility.normalization}:{}),
-    ...(compatibility.status==='unsupported_units'
-      ?{error:{code:'SYMBOL_UNITS_UNSUPPORTED',nextAction:compatibility.nextAction}}:{}),
-  }
-}
-
-/** Save provenance beside the local library, keeping verbose metadata out of tool output. */
-export async function saveSymbolImportRecord(result:ImportedSymbol,workspaceRoot:string,
-  fs:ProjectFileSystem,policy:WritePolicy,signal:AbortSignal):Promise<void> {
-  const workspace=await fs.resolve(workspaceRoot,{signal})
-  const target=await fs.resolve(`${result.libraryPath}.import.json`,{signal})
-  if(!fs.contains(workspace,target))throw new Error('Symbol import record must stay inside workspace')
-  const info=await fs.stat(target,signal)
-  if(info&&info.type!=='file')throw new Error(`Symbol import record is not a file: ${target.displayPath}`)
-  const text=JSON.stringify({version:1,...result},null,2)+'\n'
-  if(info&&await fs.readText(target,signal)===text)return
-  try {
-    await fs.writeText(target,text,info?{kind:'replaceIfVersion',version:info.version}:{kind:'createIfAbsent'},signal,policy)
-  }catch(error){
-    throw new Error(`Symbol imported at ${result.libraryPath}, but import record could not be saved at ${target.displayPath}. Inspect existing files before retrying.`,{cause:error})
-  }
-}
-
 export function libraryName(mfgId: string, mpn: string): string {
   const readable = mpn.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 40) || 'part'
   const suffix = createHash('sha256').update(mpn).digest('hex').slice(0, 12)

@@ -1,7 +1,8 @@
 /** Save a downloaded schematic through DSH's workspace-scoped filesystem service. */
-import { isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import {createHash} from 'node:crypto'
 import {footprintModel} from '../../components/project-footprint.ts'
+import {moduleFootprintIndex} from '../../schematic/module-footprint-plan.ts'
 import type { FileSystem } from '@deepseek-ai/dsh-fs'
 import { downloadSchematic, type DownloadOptions } from './download.ts'
 
@@ -79,6 +80,16 @@ export async function downloadIntoWorkspace(
     if(info&&(info.type!=='file'||await fs.readText(asset,signal)!==file.text))throw new Error('Module footprint asset already exists with different content');
     footprints.push({archiveEntry:file.archiveEntry,footprintPath:asset.displayPath,footprintName:model.name,sha256:file.sha256});
   }
+  const index = await fs.resolve(moduleFootprintIndex(target.displayPath), { signal })
+  if (!fs.contains(directory, index)) throw new Error('Module footprint index escapes download directory')
+  const indexText = JSON.stringify(footprints.map(({ footprintPath, archiveEntry }, position) => ({
+    path: basename(footprintPath), archiveEntry,
+    sha256: createHash('sha256').update(source.footprints![position]!.text).digest('hex'),
+  }))) + '\n'
+  const indexInfo = await fs.stat(index, signal)
+  if (indexInfo && (indexInfo.type !== 'file' || await fs.readText(index, signal) !== indexText)) {
+    throw new Error('Module footprint index already exists with different content')
+  }
   if (existing === undefined) await fs.writeText(target, source.text, { kind: 'createIfAbsent' }, signal, policy)
   if (source.project !== undefined && projectTarget !== undefined && existingProject === undefined) {
     await fs.writeText(projectTarget, source.project.text, { kind: 'createIfAbsent' }, signal, policy)
@@ -87,6 +98,7 @@ export async function downloadIntoWorkspace(
     const asset=await fs.resolve(footprints[i]!.footprintPath,{signal});
     if(!await fs.stat(asset,signal))await fs.writeText(asset,source.footprints![i]!.text,{kind:'createIfAbsent'},signal,policy);
   }
+  if (!indexInfo) await fs.writeText(index, indexText, { kind: 'createIfAbsent' }, signal, policy)
   return {
     footprints,
     moduleId,

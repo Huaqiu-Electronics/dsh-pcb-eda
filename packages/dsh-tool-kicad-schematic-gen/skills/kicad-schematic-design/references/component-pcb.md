@@ -6,16 +6,16 @@
 
 1. search_hqsch_parts({query,require_eda_model:true,requirements:{symbol:true,footprint:true}})筛选候选；搜索标记不证明实际模型可用。
 2. 用同一manufacturer_id/mpn查get_kicad_component_models和必要手册：parsed含name/units/pins，单位0为公共单元；normalization=common_only_to_unit_1表示导入规范为1。get_hqsch_part补参数，get_hqsch_part_models仅给链接；需要采购信息才查供应链，空报价不代表无库存。
-3. import_kicad_component({manufacturer_id,mpn,projectDir})登记本地符号/封装。缺模型、编号不匹配或不支持unit会拒绝，不手改库/换脚号绕过；同sourceUrl和结构的确定性失败不因换MPN重试。编号检查按唯一编号，无编号机械焊盘不参与，额外编号焊盘也拒绝；不替代尺寸、功能和手册核对。
-4. 将返回libraryPath/libId/footprintId、实际value和引脚角色存共享parts，采用builderCompatibility.availableUnits。
+3. import_kicad_component_symbol_and_footprint({manufacturer_id,mpn,projectDir})登记本地符号/封装。缺模型、编号不匹配或不支持unit会拒绝，不手改库/换脚号绕过；同sourceUrl和结构的确定性失败不因换MPN重试。编号检查按唯一编号，无编号机械焊盘不参与，额外编号焊盘也拒绝；不替代尺寸、功能和手册核对。
+4. 将返回libraryPath/libId/footprintId、实际value和引脚角色存共享parts，按返回的 units 选择符号单元，省略时使用单元 1。
 
 ```js
 sch.addSymbol({libraryPath:imported.libraryPath,libId:imported.libId,
- footprint:imported.footprintId,unit:imported.builderCompatibility.availableUnits[0],
+ footprint:imported.footprintId,unit:imported.units?.[0] ?? 1,
  reference:'U1',value:selected.mpn,at:[101.6,101.6]});
 ```
 
-仅符号导入scope:"symbol"返回units，不建立封装引用；成套失败不自动降级。完整来源/兼容信息在libraryPath+'.import.json'，具体排障再读。
+缺少封装时返回 FOOTPRINT_NOT_AVAILABLE，按已确认的电气与封装要求重新搜索替代料。下载、格式和编号不匹配按各自错误处理。
 
 ## 库与属性
 
@@ -23,7 +23,7 @@ sch.addSymbol({libraryPath:imported.libraryPath,libId:imported.libId,
 
 productDetail补齐缺失MPN、Manufacturer、huaqiu_pn、Description、Datasheet及技术参数，保留非空值，新增字段隐藏；addSymbol复制到实例。旧库/实例不会自动更新。全部物理器件（包括阻容/连接器）准备实际模型，电源绘图符号除外。方案BOM和parts一致，不用参考符号冒充采购器件。
 
-库表保留其他条目；多个文件写入不是事务。权限/取消/并发失败先检查报错路径的部分结果，再重试，不清空工程。预览和正式快照不检查封装；需要时单独localize_kicad_module_footprints(action:"check")检查实际图，未变图仅改库后重查，不重画。来源模块的映射准备见 [封装本地化](module-footprints.md)。上游3D引用可能仍不可用，不保证PCB已更新。
+库表保留其他条目；多个文件写入不是事务。权限/取消/并发失败先检查报错路径的部分结果，再重试，不清空工程。来源模块在生成时匹配随包封装并登记本地库，见 [封装本地化](module-footprints.md)。上游3D引用可能仍不可用，不保证PCB已更新。
 
 ## 旧库缺参数时才使用
 

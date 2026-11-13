@@ -3,6 +3,8 @@ import { test } from 'node:test'
 import { registerModules } from '../src/modules/register.ts'
 import type { Config } from '../src/modules/config.ts'
 
+const analysis = {kicadCliPath:'kicad-cli',maxSchematicBytes:1000000,previewTimeoutMs:10000}
+
 const config: Config = {
   search: { apiBaseUrl: 'https://gen.eda.cn', requestTimeoutMs: 30000, maxResults: 10, maxResponseBytes: 1000000 },
   download: { apiBaseUrl: 'https://www.eda.cn', requestTimeoutMs: 30000, maxDetailBytes: 2000000,
@@ -15,7 +17,7 @@ test('module registration includes catalog searches and the KiCad download adapt
     tools: { register: (tool: { name: string }) => { names.push(tool.name); return () => {} } },
     effect: (callback: () => unknown) => callback(),
   }
-  registerModules(ctx as never, config)
+  registerModules(ctx as never, config, analysis)
   assert.deepEqual(names, ['eda_module_rag_search', 'eda_module_category_search', 'eda_module_precise_search', 'download_eda_module_schematic'])
 })
 
@@ -25,7 +27,7 @@ test('another EDA host is rejected when download executes', async () => {
     get: () => ({ context: { getTargetHost: () => 'other' } }),
     tools: { register: (tool: any) => { if (tool.name === 'download_eda_module_schematic') download = tool; return () => {} } },
     effect: (callback: () => unknown) => callback(),
-  } as never, config)
+  } as never, config, analysis)
   assert.ok(download)
   await assert.rejects(download.execute({ moduleId: '1' }, { signal: new AbortController().signal }), /only in KiCad/)
 })

@@ -1,4 +1,4 @@
-/** KiCad-owned electrical extraction, separate from ERC and expected-net assertions. */
+/** KiCad-owned electrical extraction, separate from expected-net assertions. */
 import {createHash} from 'node:crypto'
 import {mkdtemp, readFile, writeFile, rm, stat} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
@@ -34,14 +34,14 @@ type StageResults = Partial<Record<AnalysisStage, {status: 'ready' | 'failed'; d
 export interface AnalysisResult {
   status: 'ready' | 'partial' | 'unavailable'; cached: boolean; revision?: string
   executable?: string
-  files?: {components: string; connectivity: string}
+  files?: {components: string; connectivity: string; bom?: string}
   counts?: {components?: number; nets?: number; dnp?: number; bom?: number}
   inventoryScope?: AnalysisData['inventoryScope']
   failure?: {code: 'CLI_START_FAILED' | 'CLI_PROBE_TIMEOUT' | 'CLI_CAPABILITY_UNSUPPORTED' | 'CLI_PROBE_FAILED'; executable: string}
   stages?: StageResults
   diagnostics: string[]; nextAction: string
 }
-export const cliRecoveryHint = 'Reuse get_eda_host_info installation.executables entry named kicad-cli (query host info only if absent). Call analyze_kicad_module with schematicPath, the original view, refresh:true and kicadCliPath set to that absolute path. Do not download again or scan configuration directories.'
+export const cliRecoveryHint = 'Reuse the absolute kicad-cli path from get_eda_host_info. Retry download_eda_module_schematic with the same moduleId and targetDir, refreshAnalysis:true, and kicadCliPath.'
 export type AnalyzeModule = (path: string, exec: ToolRunContext, options?: {sourceProjectPath?: string; kicadCliPath?: string; view?: AnalysisView; refresh?: boolean}) => Promise<{analysis: AnalysisResult; data?: AnalysisData}>
 
 /** RFC-style quoted CSV cells, including escaped quotes, embedded commas and line breaks. */
@@ -212,7 +212,7 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
       return {analysis: {status: 'unavailable', cached: false, failure: {code: failureCode, executable: cli},
         diagnostics: [String(error).slice(0, 1600)], nextAction: failureCode === 'CLI_START_FAILED' ? cliRecoveryHint
           : failureCode === 'CLI_CAPABILITY_UNSUPPORTED' ? 'CLI started but export capabilities are unsupported. Check KiCad version/options; do not download again.'
-          : 'CLI probe failed or timed out. Inspect diagnostics, then retry the original analyze_kicad_module query with refresh:true; do not download again.'}}
+          : 'CLI probe failed or timed out. Inspect diagnostics, then retry with refreshAnalysis:true.'}}
     }
     let binaryIdentity = ''
     if (isAbsolute(cli)) {try {const info = await stat(cli); binaryIdentity = `${info.size}:${info.mtimeMs}`} catch { /* command reports the actual error */ }}
@@ -220,15 +220,16 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
       project: project ? digest(project.text) : null, variant: 'default'}))
     const directory = await resolvePreviewOutputDir(ctx.fs, cwd, join(dirname(source.path), 'analysis', basename(source.path, '.kicad_sch'), revision), signal)
     const files = {components: join(directory, 'components.json'), connectivity: join(directory, 'connectivity.json')}
+    const bomPath = join(directory, 'bom.json')
     const summarize = (data: AnalysisData, stages: StageResults, cached: boolean): AnalysisResult => {
       const status = data.components !== null && data.nets !== null && data.bomAvailable ? 'ready'
         : data.components !== null || data.nets !== null ? 'partial' : 'unavailable'
-      return {status, cached, revision, files, stages, executable:cli, inventoryScope: data.inventoryScope, counts: {
+      return {status, cached, revision, files: {...files, ...(data.bomAvailable ? {bom:bomPath} : {})}, stages, executable:cli, inventoryScope: data.inventoryScope, counts: {
         ...(data.components === null ? {} : {components: data.components.length, dnp: data.components.filter(c => c.dnp).length}),
         ...(data.nets === null ? {} : {nets: data.nets.length}),
         ...(data.bomAvailable ? {bom: data.components!.filter(c => c.bomIncluded).length} : {}),
       }, diagnostics: Object.values(stages).flatMap(stage => stage.diagnostic ? [stage.diagnostic] : []),
-      nextAction: 'Reuse available data. After fixing a failed export, repeat the original query with refresh:true.'}
+      nextAction: 'Reuse available files. After fixing a failed export, retry with refreshAnalysis:true.'}
     }
     // BOM needs netlist properties to preserve full procurement identity when grouping.
     const requested: AnalysisStage[] = options.view === 'nets' || options.view === 'components' ? ['netlist'] : ['netlist','bom']
@@ -266,7 +267,23 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
       } catch {signal.throwIfAborted() /* absent, old or damaged caches are rebuilt */}
       // Each stage remembers success or failure independently. Reading summary is not a retry.
       const pending = requested.filter(stage=>options.refresh || !stages[stage])
-      if(!pending.length){const data=assemble();return {analysis:summarize(data,stages,true),data}}
+      const writeArtifact = async (path: string, text: string) => {
+        if (Buffer.byteLength(text) > maxBytes) throw new Error('Analysis artifact exceeds 20 MiB')
+        const target = await ctx.fs.resolve(path, {signal})
+        const root = await ctx.fs.resolve(directory, {signal})
+        if (!ctx.fs.contains(root, target)) throw new Error('Analysis output escaped its cache directory')
+        const exists = await ctx.fs.stat(target, signal)
+        const policy = ctx.sandboxPolicy.resolve({session: exec.agent!.session})
+        await ctx.fs.writeText(target, text, exists ? {kind: 'replaceIfVersion', version: exists.version} : {kind: 'createIfAbsent'}, signal, policy)
+      }
+      const saveBom = async (data: AnalysisData) => {
+        if (!data.bomAvailable) return
+        const bom = {items: data.components!.filter(component => component.bomIncluded)}
+        let existing: unknown
+        try { existing = await read(bomPath) } catch { signal.throwIfAborted() }
+        if (JSON.stringify(existing) !== JSON.stringify(bom)) await writeArtifact(bomPath, JSON.stringify(bom))
+      }
+      if(!pending.length){const data=assemble();await saveBom(data);return {analysis:summarize(data,stages,true),data}}
       const temporary = await mkdtemp(join(tmpdir(), 'dsh-module-analysis-'))
       try {
         const names = new Map<string, string>([[source.path, basename(source.path)]])
@@ -322,17 +339,8 @@ export function createModuleAnalyzer(ctx: Pick<Context, 'fs' | 'sandboxPolicy'>,
           hashes:{components:digest(JSON.stringify(componentData)),connectivity:digest(JSON.stringify(netData))}}
         const artifacts = {components: JSON.stringify({metadata, data: componentData}),
           connectivity: JSON.stringify({metadata, data: netData})}
-        const policy = ctx.sandboxPolicy.resolve({session: exec.agent!.session})
-        for (const key of ['components', 'connectivity'] as const) {
-          const text = artifacts[key]
-          if (Buffer.byteLength(text!) > maxBytes) throw new Error('Analysis artifact exceeds 20 MiB')
-          const target = await ctx.fs.resolve(files[key], {signal})
-          const root = await ctx.fs.resolve(directory, {signal})
-          if (!ctx.fs.contains(root, target)) throw new Error('Analysis output escaped its cache directory')
-          const exists = await ctx.fs.stat(target, signal)
-          // A revision directory is generated cache only; failed/corrupt artifacts can be repaired.
-          await ctx.fs.writeText(target, text!, exists ? {kind: 'replaceIfVersion', version: exists.version} : {kind: 'createIfAbsent'}, signal, policy)
-        }
+        for (const key of ['components', 'connectivity'] as const) await writeArtifact(files[key], artifacts[key])
+        await saveBom(data)
         return {analysis, data}
       } finally {
         if (dirname(resolve(temporary)) !== resolve(tmpdir())) throw new Error('Analysis temporary directory escaped')

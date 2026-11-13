@@ -33,12 +33,12 @@ export interface PowerPlacementPlan {
     unmeasuredObjectUuids: string[]
   }
 }
-export interface PowerPlanningOptions extends Pick<PowerLabelSpec, 'libraryPath' | 'nets'> {
+export interface PowerPlanningOptions extends Pick<PowerLabelSpec, 'libraryPath' | 'nets' | 'keepAsGlobalLabels' | 'keepAsLocalLabels'> {
   clearanceMm?: number
-  /** Maximum short cardinal lead, 0 disables movement. Default 5.08 mm. */
+  /** Maximum total lead length, 0 disables movement. Default 7.62 mm. */
   maxMoveMm?: number
 }
-export interface PowerGeometry { body: FlatBounds; textSize: FlatPoint }
+export interface PowerGeometry { body: FlatBounds; textSize: FlatPoint; strokes?: Lead[] }
 const EPS = 1e-6
 const equal = (a: FlatPoint, b: FlatPoint) => Math.abs(a[0] - b[0]) < EPS && Math.abs(a[1] - b[1]) < EPS
 const contains = (a: FlatPoint, b: FlatPoint, p: FlatPoint) =>
@@ -59,6 +59,18 @@ function unsafeIntersection(a: FlatPoint, b: FlatPoint, c: FlatPoint, d: FlatPoi
   const t = cross(offset, s) / denominator, u = cross(offset, r) / denominator
   return t > EPS && t <= 1 + EPS && u >= -EPS && u <= 1 + EPS
 }
+/** Compare drawing centre lines. Only an intersection at the electrical pin is normal. */
+export function wireCrossesPowerStroke(wire: Lead, strokes: readonly Lead[], at: FlatPoint, pin=at): boolean {
+  return strokes.some(stroke => {
+    const a:FlatPoint = [stroke.from[0]+at[0],stroke.from[1]+at[1]]
+    const b:FlatPoint = [stroke.to[0]+at[0],stroke.to[1]+at[1]]
+    // An unsplit wire can pass through the pin; inspect the two departing segments.
+    const startsAtPin=contains(wire.from,wire.to,pin)
+    return startsAtPin
+      ? [wire.from,wire.to].some(end=>!equal(end,pin)&&unsafeIntersection(pin,end,a,b))
+      : contains(a,b,wire.from)||unsafeIntersection(wire.from,wire.to,a,b)
+  })
+}
 export function overlap(a: FlatBounds, b: FlatBounds, clearance = 0): boolean {
   return a.left - clearance < b.right && b.left < a.right + clearance
     && a.top - clearance < b.bottom && b.top < a.bottom + clearance
@@ -68,18 +80,22 @@ export function offsetBounds(bounds: FlatBounds, at: FlatPoint): FlatBounds {
 }
 const centreBox = (at: FlatPoint, width: number, height: number): FlatBounds =>
   ({ left: at[0] - width / 2, right: at[0] + width / 2, top: at[1] - height / 2, bottom: at[1] + height / 2 })
+type Lead = { from: FlatPoint; to: FlatPoint }
+const leadBounds = ({from,to}: Lead) => centreBox([(from[0]+to[0])/2,(from[1]+to[1])/2],
+  Math.abs(from[0]-to[0])+0.05,Math.abs(from[1]-to[1])+0.05)
 
 export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[],
   geometry: (net: string, angle: 0 | 90 | 180 | 270) => PowerGeometry,
   pageSize: FlatPoint, options: Pick<PowerPlanningOptions, 'clearanceMm' | 'maxMoveMm'>,
   areas: readonly PowerLayoutArea[] = []): PowerPlacementPlan {
-  const clearance = options.clearanceMm ?? 0.6, maxMove = options.maxMoveMm ?? 5.08
+  const clearance = options.clearanceMm ?? 0.6, maxMove = options.maxMoveMm ?? 7.62
   if (!Number.isFinite(clearance) || clearance < 0 || clearance > 3) throw new Error('Power clearanceMm must be between 0 and 3')
   if (!Number.isFinite(maxMove) || maxMove < 0 || maxMove > 10.16) throw new Error('Power maxMoveMm must be between 0 and 10.16')
   const ids = new Set(labels.map(label => label.uuid))
   const obstacles = objects.filter(object => !ids.has(object.uuid) && !['rectangle', 'junction', 'no_connect'].includes(object.type))
   const placed: Array<{ uuid: string; body: FlatBounds; text: FlatBounds }> = []
-  const leads: Array<{ from: FlatPoint; to: FlatPoint }> = []
+  const leads: Lead[] = []
+  const wires = obstacles.flatMap(o=>o.type==='wire'&&o.from&&o.to?[{from:o.from,to:o.to}]:[])
   const placements: PowerPlacementPlan['placements'] = {}
   const unavailable: string[] = []
   const diagnostics: PowerPlacementPlan['diagnostics'] = { stage:'automatic', plannedCount: labels.length, rotatedCount: 0, movedCount: 0,
@@ -91,28 +107,39 @@ export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[]
   for (const label of ordered) {
     const area = powerArea(label.uuid, label.at, areas)
     const allowed = (bounds: FlatBounds) => inside(bounds) && (!area || insideBounds(bounds, area.contentBounds))
-    const locations: FlatPoint[] = [[...label.at]]
-    for (const distance of [2.54, 5.08, 7.62, 10.16].filter(d => d <= maxMove + EPS)) {
-      for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) locations.push([label.at[0] + dx! * distance, label.at[1] + dy! * distance])
+    const locations: Array<{at:FlatPoint;via?:FlatPoint;length:number}> = [{at:label.at,length:0}]
+    const steps = [1.27,2.54,3.81,5.08,7.62,10.16].filter(d => d <= maxMove + EPS)
+    for (const distance of steps) {
+      for (const [dx,dy] of [[0,1],[0,-1],[1,0],[-1,0]] as const) {
+        const via:FlatPoint = [label.at[0]+dx*distance,label.at[1]+dy*distance]
+        locations.push({at:via,length:distance})
+        for (const turn of steps.filter(step=>step+distance<=maxMove+EPS)) {
+          for (const sign of [-1,1]) locations.push({at:[via[0]+dy*turn*sign,via[1]+dx*turn*sign],via,length:distance+turn})
+        }
+      }
     }
-    let best: { at: FlatPoint; angle: 0 | 90 | 180 | 270; valueAt: FlatPoint; body: FlatBounds; text: FlatBounds; score: number; conflicts: string[] } | undefined
-    for (const at of locations) {
-      const moved = !equal(at, label.at)
-      if (moved && (obstacles.some(o =>
-        o.type === 'wire' && o.from && o.to && unsafeIntersection(label.at, at, o.from, o.to)
-        || o.pins?.some(pin => contains(label.at, at, pin.at) && !equal(pin.at, label.at)))
-        || leads.some(lead => unsafeIntersection(label.at, at, lead.from, lead.to))
-        || ordered.some(other => other.uuid !== label.uuid && contains(label.at, at, other.at) && !equal(other.at, label.at)))) continue
-      // Conservative object bounds can include pin text. Never exempt an entire
-      // owning symbol: doing so could route a lead through its body.
-      const leadBox = centreBox([(label.at[0] + at[0]) / 2, (label.at[1] + at[1]) / 2],
-        Math.abs(at[0] - label.at[0]) + 0.05, Math.abs(at[1] - label.at[1]) + 0.05)
-      if (moved && area && !insideBounds(leadBox, area.bounds)) continue
-      if (moved && obstacles.some(o => o.type !== 'wire' && o.bounds && overlap(leadBox, o.bounds))) continue
-      if (moved && placed.some(o => overlap(leadBox, o.body) || overlap(leadBox, o.text))) continue
+    let best: { at: FlatPoint; via?:FlatPoint; route:Lead[]; angle: 0 | 90 | 180 | 270; valueAt: FlatPoint; body: FlatBounds; text: FlatBounds; score: number; conflicts: string[] } | undefined
+    for (const {at,via,length} of locations) {
+      const route:Lead[] = via ? [{from:label.at,to:via},{from:via,to:at}] : length ? [{from:label.at,to:at}] : []
+      const boxes=route.map(leadBounds)
+      if (route.some(({from,to},i)=>{
+        const bounds=boxes[i]!
+        const touches=(p:FlatPoint)=>contains(from,to,p)&&!equal(p,label.at)
+        return !inside(bounds) || (area&&!insideBounds(bounds,area.bounds))
+          || obstacles.some(o=>o.type==='wire'&&o.from&&o.to&&unsafeIntersection(from,to,o.from,o.to)
+            || o.pins?.some(pin=>touches(pin.at))
+            || o.type!=='wire'&&o.bounds&&overlap(bounds,o.bounds))
+          || objects.some(o=>['junction','no_connect'].includes(o.type)&&o.at&&touches(o.at))
+          || leads.some(lead=>unsafeIntersection(from,to,lead.from,lead.to))
+          || ordered.some(other=>other.uuid!==label.uuid&&touches(other.at))
+          || placed.some(o=>overlap(bounds,o.body)||overlap(bounds,o.text))
+      })) continue
       for (const angle of [0, 90, 270, 180] as const) {
         const metrics = geometry(label.net, angle), body = offsetBounds(metrics.body, at)
         if (!allowed(body)) continue
+        const strokes=metrics.strokes
+        if (strokes?.length && [wires,route,leads].some(segments=>
+          segments.some(wire=>wireCrossesPowerStroke(wire,strokes,at)))) continue
         const [width, height] = metrics.textSize
         const cx = (body.left + body.right) / 2, cy = (body.top + body.bottom) / 2
         // Put the text beyond the actual rotated body, horizontally readable.
@@ -140,11 +167,12 @@ export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[]
               Math.abs(lead.to[0] - lead.from[0]) + 0.05, Math.abs(lead.to[1] - lead.from[1]) + 0.05)
             if (overlap(body, bounds, clearance) || overlap(text, bounds, clearance)) conflicts.push('planned-power-lead')
           }
-          if (moved && overlap(text, leadBox, clearance)) conflicts.push('own-power-lead')
+          if (boxes.some(box=>overlap(text,box,clearance))
+            || boxes.slice(0,-1).some(box=>overlap(body,box,clearance))) conflicts.push('own-power-lead')
           const unique = [...new Set(conflicts)]
-          const score = unique.length * 10000 + (moved ? 100 + Math.abs(at[0] - label.at[0]) + Math.abs(at[1] - label.at[1]) : 0)
+          const score = unique.length * 10000 + (length ? 100 + length + (via ? 10 : 0) : 0)
             + (angle === 0 ? 0 : angle === 180 ? 320 : 300) + textIndex
-          if (!best || score < best.score) best = { at, angle, valueAt, body, text, score, conflicts: unique }
+          if (!best || score < best.score) best = { at, via, route, angle, valueAt, body, text, score, conflicts: unique }
         }
       }
     }
@@ -152,10 +180,10 @@ export function planPowerLabels(labels: PowerLabelEntry[], objects: FlatObject[]
       unavailable.push(`${label.net} at ${label.at.join(',')}${area ? ` inside module ${area.name} (including title/description clearance)` : ' inside page'}`)
       continue
     }
-    placements[label.uuid] = { at: best.at, angle: best.angle, valueAt: best.valueAt }
+    placements[label.uuid] = { at: best.at, ...(best.via?{via:[best.via]}:{}), angle: best.angle, valueAt: best.valueAt }
     placed.push({ uuid: label.uuid, body: best.body, text: best.text })
     if (best.angle !== 0) diagnostics.rotatedCount++
-    if (!equal(best.at, label.at)) { diagnostics.movedCount++; leads.push({ from: label.at, to: best.at }) }
+    if (best.route.length) { diagnostics.movedCount++; leads.push(...best.route) }
     if (best.conflicts.length) diagnostics.unresolved.push({ uuid: label.uuid, net: label.net, at: best.at, obstacleUuids: best.conflicts })
   }
   if (unavailable.length) throw new Error(`POWER_PLACEMENT_UNAVAILABLE: no safe candidates for ${unavailable.join('; ')}. Enlarge the listed regions or move source labels/channels in one batch; do not retry unchanged.`)

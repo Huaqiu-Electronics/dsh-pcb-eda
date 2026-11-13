@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { applyEdits, children, deleteForm, quote, required, value, type Form, type TextEdit } from './sexpr.ts'
 import { validatePreviewSchematic } from './preview-diagnostics.ts'
 import { alignVendorSymbolIds } from './project.ts'
-import { flatImageBounds, flatObjectBounds, flatTextSize, textBounds, unionFlatBounds, type FlatBounds, type FlatImage, type FlatLayoutStyle } from './flat-layout.ts'
+import { flatImageBounds, flatObjectBounds, flatTextSize, isHiddenText, textBounds, unionFlatBounds, type FlatBounds, type FlatImage, type FlatLayoutStyle } from './flat-layout.ts'
 
 /** Coordinates in schematic millimetres. */
 export type FlatPoint = [number, number]
@@ -14,7 +14,7 @@ export type FlatEndpoint = FlatPoint | { reference: string; pin: string }
 /** One graphic module frame and its visible explanation. */
 export type FlatFrame = { name: string; description: string } & (
   { start: FlatPoint; end: FlatPoint; autoBounds?: false }
-  | { autoBounds: true; objectUuids?: string[]; excludeUuids: string[] }
+  | { autoBounds: true; objectUuids?: string[]; excludeUuids: string[]; reserved?: {start:FlatPoint;end:FlatPoint} }
 )
 /** Final frame coordinates, including automatically calculated ranges. */
 export interface ResolvedFlatFrame { name: string; description: string; start: FlatPoint; end: FlatPoint }
@@ -46,7 +46,8 @@ export interface FlatObject {
   from?: FlatPoint
   to?: FlatPoint
   pinError?: string
-  pins?: Array<{ number: string; name: string; at: FlatPoint; electricalType: string }>
+  pins?: Array<{ number: string; name: string; at: FlatPoint; electricalType: string; outward?: FlatPoint }>
+  fields?: Array<{ name: string; at: FlatPoint; angle: number; hidden: boolean }>
   bounds?: FlatBounds
   boundsError?: string
   image?: FlatImage
@@ -121,7 +122,8 @@ export function inspectSchematicText(source:string,style:FlatLayoutStyle){
     if(form.head==='symbol'){
       for(const field of children(form,'property').filter(p=>['Reference','Value'].includes(value(p)))){
         const instanceAt=children(form,'at')[0]
-        const bounds=textBounds(field,value(field,2),style,Number(instanceAt?.items[3]??0)),at=children(field,'at')[0]
+        const mirror=children(form,'mirror')[0]
+        const bounds=textBounds(field,value(field,2),style,Number(instanceAt?.items[3]??0),mirror?value(mirror):''),at=children(field,'at')[0]
         if(bounds&&at)result.push({uuid:`${id(form)}:${value(field)}`,ownerUuid:id(form),reference:reference(form),kind:'property',field:value(field),text:value(field,2),at:point(at),bounds})
       }
     }else if(['label','global_label','hierarchical_label','text'].includes(form.head)){
@@ -139,7 +141,7 @@ export function inspectSchematicText(source:string,style:FlatLayoutStyle){
   return result
 }
 
-function pins(root: Form, instance: Form): NonNullable<FlatObject['pins']> {
+function pins(root: Form, instance: Form, includeLayout=false): NonNullable<FlatObject['pins']> {
   const libId = value(required(instance, 'lib_id'))
   const matches = children(required(root, 'lib_symbols'), 'symbol').filter(item => value(item) === libId)
   if (matches.length !== 1) throw new Error(`embedded symbol cache must uniquely match ${libId}`)
@@ -162,15 +164,18 @@ function pins(root: Form, instance: Form): NonNullable<FlatObject['pins']> {
     if ((Number(suffix[1]) !== 0 && Number(suffix[1]) !== unit)
       || (Number(suffix[2]) !== 0 && Number(suffix[2]) !== body)) return []
     return children(section, 'pin').map(pin => {
-      const local = point(required(pin, 'at'))
+      const pinAt = required(pin, 'at'),local = point(pinAt)
       const rotatedX = local[0] * Math.cos(radians) - local[1] * Math.sin(radians)
       const rotatedY = local[0] * Math.sin(radians) + local[1] * Math.cos(radians)
       // KiCad mirrors the rotated symbol axes before converting library Y to sheet Y.
       const x = axis === 'y' ? -rotatedX : rotatedX
       const y = axis === 'x' ? -rotatedY : rotatedY
       const round = (number: number) => Math.round(number * 1e6) / 1e6
+      const direction = (angle + Number(pinAt.items[3] ?? 0)) * Math.PI / 180
+      const outward:FlatPoint = [round((axis === 'y' ? 1 : -1)*Math.cos(direction))||0,round((axis === 'x' ? -1 : 1)*Math.sin(direction))||0]
       return { number: value(required(pin, 'number')), name: value(required(pin, 'name')),
         electricalType: value(pin),
+        ...(includeLayout?{outward}:{}),
         at: [round(origin[0] + x), round(origin[1] - y)] as FlatPoint }
     })
   })
@@ -181,7 +186,7 @@ function pins(root: Form, instance: Form): NonNullable<FlatObject['pins']> {
  * @param style Optional template-selected text allowances for layout measurements.
  * @returns Object IDs and component pins, plus PNG geometry and optional conservative bounds.
  */
-export function listFlatObjects(source: string, style?: FlatLayoutStyle): FlatObject[] {
+export function listFlatObjects(source: string, style?: FlatLayoutStyle, includeLayout=false): FlatObject[] {
   rootOf(source)
   const root = rootOf(alignVendorSymbolIds(source))
   const types = new Set(['symbol', 'wire', 'junction', 'label', 'global_label', 'hierarchical_label',
@@ -201,7 +206,12 @@ export function listFlatObjects(source: string, style?: FlatLayoutStyle): FlatOb
       if (footprint) object.footprint = value(footprint, 2)
       object.dnp = children(form, 'dnp').some(item => value(item) === 'yes')
       object.value = value(property(form, 'Value'), 2)
-      try { object.pins = pins(root, form) }
+      if(includeLayout)object.fields=children(form,'property').flatMap(field=>{
+        const name=value(field),anchor=children(field,'at')[0]
+        return anchor&&['Reference','Value'].includes(name)
+          ?[{name,at:point(anchor),angle:Number(anchor.items[3]??0),hidden:isHiddenText(field)}]:[]
+      })
+      try { object.pins = pins(root, form, includeLayout) }
       catch (error) { object.pinError = error instanceof Error ? error.message : String(error) }
     } else if (form.head === 'wire') {
       const ends = children(required(form, 'pts'), 'xy')
@@ -260,18 +270,31 @@ function resolveFrame(frame: FlatFrame, objects: FlatObject[], templates: FlatTe
     if (include?.has(uuid) && exclude.has(uuid)) throw new Error(`frame ${frame.name}: object appears in both include and exclude: ${uuid}`)
   }
   const content = objects.filter(object => !exclude.has(object.uuid) && (include ? include.has(object.uuid) : object.type !== 'rectangle'))
+  const reserved=frame.reserved
+  const useReserved=()=>({
+    name:frame.name,description:wrapFrameDescription(frame.description,reserved!.end[0]-reserved!.start[0]-templates.style.inset*2,templates.style),
+    ...reserved!,
+  })
   const missing = content.filter(object => object.boundsError)
+  if(reserved&&missing.length)return useReserved()
   if (missing.length > 0) throw new Error(`frame ${frame.name}: automatic bounds unavailable: ${JSON.stringify(missing.map(object => ({ uuid: object.uuid, message: object.boundsError })))}; provide manual start/end, or explicitly exclude decoration from this frame`)
   const bounds = unionFlatBounds(content.flatMap(object => object.bounds ? [object.bounds] : []))
+  if(reserved&&!bounds)return useReserved()
   if (!bounds) throw new Error(`frame ${frame.name}: no visible selected content for automatic bounds`)
-  const sampleTokens: Record<string, string> = { TITLE: quote(frame.name), DESCRIPTION: quote(frame.description) }
+  const left=frameRange(bounds,templates.style,0,0).start[0]
+  const available=reserved?reserved.end[0]-left-templates.style.inset*2:0
+  if(reserved&&available<=0)return useReserved()
+  const description=reserved?wrapFrameDescription(frame.description,available,templates.style):frame.description
+  const sampleTokens: Record<string, string> = { TITLE: quote(frame.name), DESCRIPTION: quote(description) }
   const sample = rootOf(`(kicad_sch (version 20250114) (uuid "frame-template") (lib_symbols) ${templates.frame.replace(/\{\{([A-Z_0-9]+)\}\}/gu,
     (_all, token: string) => sampleTokens[token] ?? '0')})`)
   const textSizes = children(sample, 'text').map(text => flatTextSize(value(text),
     point(required(required(required(text, 'effects'), 'font'), 'size')), templates.style))
-  return { name: frame.name, description: frame.description,
-    ...frameRange(bounds, templates.style, Math.max(0, ...textSizes.map(size => size[0])), frame.description.split('\n').length,
+  const resolved={ name: frame.name, description,
+    ...frameRange(bounds, templates.style, Math.max(0, ...textSizes.map(size => size[0])), description.split('\n').length,
       textSizes[0]?.[1], textSizes[1]?.[1]) }
+  if(reserved&&(resolved.start.some((v,i)=>v<reserved.start[i]!-1e-6)||resolved.end.some((v,i)=>v>reserved.end[i]!+1e-6)))return useReserved()
+  return resolved
 }
 
 /** Wrap explicit-frame explanations using the same conservative metrics used by diagnostics. */

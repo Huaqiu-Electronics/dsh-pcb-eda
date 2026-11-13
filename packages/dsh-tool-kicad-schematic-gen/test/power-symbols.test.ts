@@ -7,6 +7,8 @@ import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { Schematic } from '../src/schematic/builder.ts'
 import { children, parse, value } from '../src/schematic/sexpr.ts'
+import { planPowerLabels } from '../src/schematic/power-layout.ts'
+import type { FlatPoint } from '../src/schematic/flat.ts'
 
 const templateDir = fileURLToPath(new URL('../skills/kicad-schematic-design/templates', import.meta.url))
 const power = (net: string) => `(symbol "${net}" (power)
@@ -138,7 +140,116 @@ test('planner reserves rendered titles and descriptions, while final diagnostics
   const content=parse(await readFile(saved.schematicPath,'utf8'))
   const symbol=children(content,'symbol')[0]!
   const val=children(symbol,'property').find(p=>value(p)==='Value')!
-  assert.equal(Number(value(children(val,'at')[0]!,3)),0,'rotated power symbols keep horizontal value text')
+  const rotation = Number(value(children(symbol,'at')[0]!,3))
+  const fieldAngle = Number(value(children(val,'at')[0]!,3))
+  assert.equal((rotation + fieldAngle) % 180,0,'rotated power symbols keep horizontal value text')
+}))
+
+test('power planning can use one bend when every straight landing is obstructed', () => {
+  const anchor: FlatPoint = [25.4,25.4]
+  const offsets = [[0,0],[1.27,0],[-1.27,0],[0,1.27],[0,-1.27],[2.54,0],[-2.54,0],[0,2.54],[0,-2.54]] as const
+  const obstacles = offsets.map(([dx,dy],index) => ({
+    uuid: String(index),type:'text',
+    bounds:{left:anchor[0]+dx+4.9,right:anchor[0]+dx+5.1,top:anchor[1]+dy+4.9,bottom:anchor[1]+dy+5.1},
+  }))
+  const result=planPowerLabels([{uuid:'label',net:'GND',at:anchor,type:'label',angle:0}],obstacles,
+    ()=>({body:{left:4.9,right:5.1,top:4.9,bottom:5.1},textSize:[0.2,0.2]}),[100,100],{maxMoveMm:2.54,clearanceMm:0.1})
+  assert.deepEqual(result.diagnostics.unresolved,[])
+  const placement=result.placements.label!
+  assert.equal(placement.via?.length,1)
+  const [bend]=placement.via!
+  assert.ok(bend![0]===anchor[0] || bend![1]===anchor[1])
+  assert.ok(bend![0]===placement.at[0] || bend![1]===placement.at[1])
+})
+
+test('power planning rotates away from incoming wires while allowing pin contact', () => {
+  const sch=build()
+  const libraryPath=fileURLToPath(new URL('../skills/kicad-schematic-design/assets/libraries/power.kicad_sym',import.meta.url))
+  const nets={GND:'power:GND','+3V3':'power:+3V3'}
+  const gnd=sch.label('GND',[50.8,50.8]), supply=sch.label('+3V3',[76.2,50.8])
+  sch.wire([50.8,50.8],[50.8,55.88])
+  sch.wire([76.2,50.8],[76.2,45.72])
+  const {placements}=sch.planPowerPlacements({libraryPath,nets,maxMoveMm:0})
+  assert.notEqual(placements[gnd]?.angle,0)
+  assert.notEqual(placements[supply]?.angle,0)
+  sch.replacePowerLabels({libraryPath,nets,placements})
+  assert.ok(!sch.powerLayoutDiagnostics().issues.some(issue=>issue.code==='POWER_SYMBOL_WIRE_CROSSING'))
+})
+
+test('final diagnostics locate crossings on the generated lead and on an unsplit wire', () => {
+  const sch=build()
+  const libraryPath=fileURLToPath(new URL('../skills/kicad-schematic-design/assets/libraries/power.kicad_sym',import.meta.url))
+  const nets={GND:'power:GND'}
+  const moved=sch.label('GND',[50.8,50.8]), middle=sch.label('GND',[76.2,50.8])
+  sch.wire([76.2,45.72],[76.2,55.88])
+  sch.replacePowerLabels({libraryPath,nets,placements:{[moved]:{at:[50.8,46.99],angle:0}}})
+  const crossings=sch.powerLayoutDiagnostics().issues.filter(issue=>issue.code==='POWER_SYMBOL_WIRE_CROSSING')
+  assert.deepEqual(crossings.map(issue=>({uuid:issue.uuid,net:issue.net,from:issue.from,to:issue.to})),[
+    {uuid:moved,net:'GND',from:[50.8,50.8],to:[50.8,46.99]},
+    {uuid:middle,net:'GND',from:[76.2,45.72],to:[76.2,55.88]},
+  ])
+})
+
+test('power annotations are deduplicated by physical wires, with unjoined crossings and other modules preserved', () => {
+  const sch=build({GND:'power:GND'})
+  const owned=new Set<string>()
+  const own=(...ids:string[])=>ids.forEach(id=>owned.add(id))
+  own(...sch.wire([25.4,50.8],[50.8,50.8]))
+  own(...sch.wire([38.1,50.8],[38.1,55.88]))
+  own(...sch.wire([44.45,44.45],[44.45,57.15]))
+  const kept=sch.label('GND',[25.4,50.8]), duplicate=sch.label('GND',[38.1,55.88])
+  const crossing=sch.label('GND',[44.45,44.45]), unrelated=sch.label('GND',[50.8,50.8])
+  own(kept,duplicate,crossing)
+  const removed=sch.deduplicatePowerLabels(['GND'],[owned])
+  assert.ok(removed.includes(duplicate))
+  assert.equal(removed.length,2,'only the duplicate and its dedicated stub should disappear')
+  assert.deepEqual(sch.powerLabelCatalog(['GND']).map(label=>label.uuid),[kept,crossing,unrelated])
+  const libraryPath=fileURLToPath(new URL('../skills/kicad-schematic-design/assets/libraries/power.kicad_sym',import.meta.url))
+  sch.replacePowerLabels({libraryPath,nets:{GND:'power:GND'}})
+  assert.equal(sch.checkPowerSymbols()[0]?.symbolCount,3)
+})
+
+test('mixed power presentation keeps the exact net name and UUID of global labels', () => {
+  const sch=new Schematic({designPlan:testDesignPlan,projectName:'mixed_power',title:'Mixed power',paper:'A4',templateDir,
+    requiredPowerSymbols:{GND:'power:GND'},allowGlobalPowerLabels:true})
+  const libraryPath=fileURLToPath(new URL('../skills/kicad-schematic-design/assets/libraries/power.kicad_sym',import.meta.url))
+  const symbol=sch.label('GND',[50.8,50.8])
+  const label=sch.label('GND',[76.2,50.8],180)
+  const global=sch.globalLabel('GND',[76.2,76.2])
+  const spec={libraryPath,nets:{GND:'power:GND'},keepAsGlobalLabels:new Set([label])}
+  const plan=sch.planPowerPlacements(spec)
+  assert.deepEqual(Object.keys(plan.placements),[symbol])
+  sch.replacePowerLabels({...spec,placements:plan.placements})
+  assert.deepEqual(sch.powerLabelCatalog(['GND']).map(({uuid,net,type})=>({uuid,net,type})),[
+    {uuid:label,net:'GND',type:'global_label'},{uuid:global,net:'GND',type:'global_label'},
+  ])
+  assert.equal(sch.checkPowerSymbols()[0]?.symbolCount,1)
+})
+
+test('single-sheet power labels can retain their ordinary label style alongside symbols', () => {
+  const sch=build({GND:'power:GND','+3V3':'power:+3V3'})
+  const libraryPath=fileURLToPath(new URL('../skills/kicad-schematic-design/assets/libraries/power.kicad_sym',import.meta.url))
+  const symbol=sch.label('GND',[50.8,50.8])
+  const branch=sch.label('GND',[76.2,50.8],180)
+  const supply=sch.label('+3V3',[76.2,76.2])
+  const spec={libraryPath,nets:{GND:'power:GND','+3V3':'power:+3V3'},keepAsLocalLabels:new Set([branch,supply])}
+  assert.throws(()=>sch.checkPowerSymbols(),/POWER_SYMBOLS_REQUIRED/)
+  const plan=sch.planPowerPlacements(spec)
+  assert.deepEqual(Object.keys(plan.placements),[symbol])
+  sch.replacePowerLabels({...spec,placements:plan.placements})
+  assert.deepEqual(sch.powerLabelCatalog(['GND','+3V3']).map(({uuid,type})=>[uuid,type]),[[branch,'label'],[supply,'label']])
+  assert.deepEqual(sch.checkPowerSymbols().map(status=>status.symbolCount),[1,0])
+})
+
+test('region field offsets are relative to a rotated symbol along sheet axes', async () => fixture(async (root, library) => {
+  const sch=build()
+  const region=sch.region({name:'Fields',description:'',origin:[20.32,20.32],size:[60.96,60.96]})
+  region.addSymbol({libraryPath:library,libId:'power:GND',reference:'U1',at:[12.7,12.7],angle:90,
+    referenceOffset:[-2.54,3.81],valueAt:[15.24,17.78]})
+  const symbol=children(parse(await readFile(sch.save(join(root,'offsets')).schematicPath,'utf8')),'symbol')[0]!
+  const position=(name:string)=>children(children(symbol,'property').find(p=>value(p)===name)!,'at')[0]!.items.slice(1,3).map(Number)
+  assert.deepEqual(position('Reference'),[30.48,36.83])
+  assert.deepEqual(position('Value'),[35.56,38.1])
 }))
 
 test('final diagnostics retain original module ownership after a manual move outside it',async()=>fixture(async(root,library)=>{

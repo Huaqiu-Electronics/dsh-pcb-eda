@@ -9,9 +9,7 @@ import {Context} from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import {Schematic} from '../src/schematic/builder.ts'
 import {createModuleAnalyzer, parseAnalysisNetlist, parseBomCsv} from '../src/schematic/module-analysis.ts'
-import {registerModuleAnalysis, pageAnalysisItems, queryAnalysisItems} from '../src/schematic/analysis-tool.ts'
 import {adaptTool} from '../src/modules/kicad-download.ts'
-import {parse, children, value, applyEdits} from '../src/schematic/sexpr.ts'
 
 const exported = `(export (version "E") (components
   (comp (ref "U1") (value "Demo") (footprint "Local:Demo") (fields (field (name "MPN") "REAL-PART")) (sheetpath (names "/"))))
@@ -58,90 +56,6 @@ test('BOM CSV preserves quoted text, DNP, empty fields and multiline values', ()
   assert.equal(parseAnalysisNetlist(exported).nets[0]!.nodes[0]!.pin, '1')
 })
 
-test('query output bounds both rows and text without dropping pagination or concealing oversized data', () => {
-  const many = Array.from({length: 80}, (_, i) => ({reference: `R${i}`}))
-  assert.equal(pageAnalysisItems(many, 0).items.length, 60)
-  assert.equal(pageAnalysisItems(many, 0).nextOffset, 60)
-  const large = [{fields: 'x'.repeat(16000)}, {fields: 'y'.repeat(16000)}]
-  assert.equal(pageAnalysisItems(large, 0).nextOffset, 1)
-  assert.equal(pageAnalysisItems(large, 1).items.length, 1)
-  const oversized = pageAnalysisItems([{fields: 'x'.repeat(25000)}, {reference: 'U2'}], 0)
-  assert.equal((oversized.items[0] as any).omitted, true)
-  assert.equal(oversized.nextOffset, 1)
-})
-
-test('compact queries preserve connection peers, procurement identity and unknown assembly state', () => {
-  const parsed = parseAnalysisNetlist(exported), first = parsed.components[0]!
-  const components = [first, {...first, reference: 'U2'}, {...first, reference: 'U3', fields: {MPN: 'OTHER'}},
-    {...first, reference: 'U4', dnp: true}].map(c => ({...c, bomIncluded: true}))
-  const data = {components, nets: [{name: 'GND', nodes: Array.from({length: 2050}, (_, i) => ({reference: `U${i}`, pin: '1', pinName: '', pinType: ''}))}],
-    bomAvailable: true, inventoryScope: 'netlist' as const}
-  const chunks = queryAnalysisItems(data, 'nets', 'U1', '1') as any[]
-  const all: object[] = []
-  let offset = 0
-  for (;;) {
-    const page = pageAnalysisItems(chunks, offset)
-    all.push(...page.items)
-    if (page.nextOffset === null) break
-    assert.ok(page.nextOffset > offset); offset = page.nextOffset
-  }
-  const nodes = all.flatMap((n: any) => n.nodes)
-  assert.equal(nodes.length, 2050)
-  assert.equal(new Set(nodes.map(n => n.reference)).size, 2050)
-  assert.equal(chunks[1].nodeOffset, 32); assert.equal(chunks[0].totalNodes, 2050)
-  assert.equal('pinName' in nodes[0], false)
-  assert.deepEqual(queryAnalysisItems(data, 'nets', undefined, undefined, 'missing'), [])
-  const bom = queryAnalysisItems(data, 'bom') as any[]
-  assert.equal(bom.length, 3)
-  assert.deepEqual(bom[0].references, ['U1', 'U2']); assert.equal(bom[0].quantity, 2)
-  assert.equal(bom[1].fields.MPN, 'OTHER'); assert.equal(bom[2].dnp, true)
-  const brief = queryAnalysisItems(data, 'components') as any[]
-  assert.equal('fields' in brief[0], false); assert.equal('dnp' in brief[0], false)
-  const detail = queryAnalysisItems(data, 'components', 'U1') as any[]
-  assert.equal(detail[0].fields.MPN, 'REAL-PART')
-  const unknown = queryAnalysisItems({...data, bomAvailable: false, components: [{...first, bomIncluded: null}]}, 'components') as any[]
-  assert.equal(unknown[0].bomIncluded, null)
-  // A representative repeated network uses fewer serialized characters after grouping.
-  const old = data.nets[0]!.nodes.map(n => ({net: 'GND', nodeCount: 2050, ...n}))
-  assert.ok(JSON.stringify(chunks).length < JSON.stringify(old).length)
-})
-
-test('public queries require view, omit repeated metadata and explicitly distinguish unavailable data', async () => fixture(async ({source, services, exec}) => {
-  const tools: any[] = [], options: any[] = []
-  const data = {...parseAnalysisNetlist(exported), bomAvailable: true, inventoryScope: 'netlist' as const}
-  const analysis = {status: 'ready' as 'ready' | 'partial', cached: true, revision: 'long-revision',
-    files: {components: 'long-components-path', connectivity: 'long-connectivity-path'},
-    counts: {components: 1, nets: 1, bom: 1}, inventoryScope: 'netlist' as const, diagnostics: [] as string[], nextAction: 'long hint'}
-  registerModuleAnalysis({...services, effect: (fn: () => unknown) => fn(), tools: {register: (t: any) => {tools.push(t); return () => {}}}} as never,
-    config, async (_path, _exec, input) => {options.push(input); return {analysis, data}})
-  const tool = tools[0]
-  assert.deepEqual(tool.parameters.required, ['schematicPath', 'view'])
-  assert.equal(Object.keys(tool.parameters.properties).length, 7)
-  await assert.rejects(tool.execute({schematicPath: source}, exec), /view/)
-  await assert.rejects(tool.execute({schematicPath: source, view: 'nets', pin: '1'}, exec), /pin requires/)
-  await assert.rejects(tool.execute({schematicPath: source, view: 'components', net: 'GND'}, exec), /net applies/)
-  await assert.rejects(tool.execute({schematicPath: source, view: 'summary', kicadCliPath: 'x'}, exec), /kicadCliPath/)
-  const details = await tool.execute({schematicPath: source, view: 'components'}, exec)
-  assert.deepEqual(Object.keys(details).sort(), ['items', 'status'])
-  assert.equal(options.at(-1).reusePartial, true)
-  const summary = await tool.execute({schematicPath: source, view: 'summary'}, exec)
-  assert.deepEqual(summary, {status: 'ready', counts: analysis.counts, inventoryScope: 'netlist'})
-  assert.equal(options.at(-1).reusePartial, false)
-  const hostCli = join(dirname(source), 'host', 'kicad-cli.exe')
-  await tool.execute({schematicPath: source, view: 'summary', kicadCliPath: hostCli}, exec)
-  assert.equal(options.at(-1).kicadCliPath, hostCli)
-  data.components[0]!.fields.LongField = 'x'.repeat(25000)
-  const oversized = await tool.execute({schematicPath: source, view: 'components', reference: 'U1'}, exec)
-  assert.equal(oversized.items[0].omitted, true)
-  assert.deepEqual(oversized.files, analysis.files)
-  analysis.status = 'partial'; analysis.diagnostics = ['x'.repeat(2000)]
-  data.bomAvailable = false
-  const missing = await tool.execute({schematicPath: source, view: 'bom'}, exec)
-  assert.deepEqual(missing.items, [])
-  assert.ok(missing.warnings.some((s: string) => s.includes('BOM unavailable')))
-  assert.ok(missing.warnings.every((s: string) => s.length <= 400))
-}))
-
 test('analysis remembers download environment and discovers matching project after restart', async () => fixture(async ({source, services, exec, root}) => {
   const project = join(root, 'reference.kicad_pro')
   await writeFile(project, '{"custom":"project"}')
@@ -157,7 +71,7 @@ test('analysis remembers download environment and discovers matching project aft
   const analyze = createModuleAnalyzer(services, config, runner)
   const rememberedCli = join(root, 'host', 'kicad-cli.exe')
   const first = await analyze(source, exec, {sourceProjectPath: project, kicadCliPath: rememberedCli})
-  const reused = await analyze(source, exec, {reusePartial: true})
+  const reused = await analyze(source, exec)
   assert.equal(reused.analysis.revision, first.analysis.revision)
   assert.equal(reused.analysis.cached, true); assert.equal(cliCalls.length, 4)
   assert.ok(cliCalls.every(cli => cli === rememberedCli))
@@ -172,31 +86,6 @@ test('analysis remembers download environment and discovers matching project aft
   const changed = await fresh(downloaded, exec)
   assert.equal(changed.analysis.status, 'ready')
   assert.notEqual(changed.analysis.revision, recovered.analysis.revision)
-}))
-
-test('CLI start failure guides host-path recovery without downloading and reuses the successful path', async () => fixture(async ({source, services, exec, root}) => {
-  const hostCli = join(root, 'host', 'kicad-cli.exe'), wrongCli = join(root, 'missing', 'kicad-cli.exe')
-  let calls = 0
-  const analyze = createModuleAnalyzer(services, {...config, kicadCliPath: wrongCli}, async (cli, args) => {
-    calls++
-    if (cli !== hostCli) throw Object.assign(new Error(`spawn ${cli} ENOENT`), {code: 'ENOENT'})
-    if (args.includes('--help')) return result(help(args))
-    await writeFile(args[args.indexOf('--output') + 1]!, args.includes('netlist') ? exported : csv)
-    return result()
-  })
-  const tools: any[] = []
-  registerModuleAnalysis({...services, effect: (fn: () => unknown) => fn(), tools: {register: (t: any) => tools.push(t)}} as never, config, analyze)
-  const tool = tools[0]
-  const failed = await tool.execute({schematicPath: source, view: 'summary'}, exec)
-  assert.equal(failed.status, 'unavailable')
-  assert.deepEqual(failed.error, {code: 'CLI_START_FAILED', executable: wrongCli})
-  assert.ok(failed.warnings.some((s: string) => s.includes('ENOENT')))
-  assert.ok(failed.warnings.some((s: string) => s.includes('get_eda_host_info') && s.includes('kicadCliPath') && s.includes('Do not download again')))
-  assert.equal((await tool.execute({schematicPath: source, view: 'summary', kicadCliPath: hostCli}, exec)).status, 'ready')
-  const afterRecovery = calls
-  assert.equal((await tool.execute({schematicPath: source, view: 'components'}, exec)).status, 'ready')
-  assert.equal(calls, afterRecovery)
-  assert.ok((await readFile(source, 'utf8')).includes('kicad_sch'))
 }))
 
 test('CLI capability, timeout and command failures preserve causes without wrong path-recovery advice', async () => fixture(async ({source, services, exec}) => {
@@ -226,11 +115,11 @@ test('analysis caches exact revisions, repairs damaged artifacts and never chang
   const first = await analyze(source, exec)
   assert.equal(first.analysis.status, 'ready'); assert.equal(first.data!.components!.length, 1)
   assert.equal(calls.length, 4)
-  assert.deepEqual((await readdir(dirname(first.analysis.files!.components))).sort(), ['components.json', 'connectivity.json'])
+  assert.deepEqual((await readdir(dirname(first.analysis.files!.components))).sort(), ['bom.json', 'components.json', 'connectivity.json'])
   const saved = JSON.parse(await readFile(first.analysis.files!.components, 'utf8'))
-  assert.equal(saved.metadata.version, 2)
+  assert.equal(saved.metadata.version, 3)
   assert.equal(saved.metadata.revision, first.analysis.revision)
-  assert.equal(saved.data.components[0].bomIncluded, true)
+  assert.equal(first.data!.components![0]!.bomIncluded, true)
   assert.equal('manifestPath' in first.analysis, false)
   assert.equal((await analyze(source, exec)).analysis.cached, true); assert.equal(calls.length, 4)
   await writeFile(first.analysis.files!.components, '[]')
@@ -240,7 +129,7 @@ test('analysis caches exact revisions, repairs damaged artifacts and never chang
   const changed = await analyze(source, exec)
   assert.notEqual(changed.analysis.revision, first.analysis.revision)
   assert.equal(calls.length, 8)
-  assert.equal(calls.some(a => a.includes('erc')), false)
+  assert.ok(calls.every(a => a[0] === 'sch' && a[1] === 'export' && ['netlist', 'bom'].includes(a[2]!)))
 }))
 
 test('partial exports remain explicit and can recover; missing CLI does not destroy downloaded files', async () => fixture(async ({source, services, exec}) => {
@@ -256,9 +145,9 @@ test('partial exports remain explicit and can recover; missing CLI does not dest
   assert.equal(partial.analysis.counts!.bom, undefined)
   assert.equal(partial.data!.components![0]!.bomIncluded, null)
   broken = false
-  const reused = await analyze(source, exec, {reusePartial: true})
+  const reused = await analyze(source, exec)
   assert.equal(reused.analysis.status, 'partial'); assert.equal(reused.analysis.cached, true)
-  assert.equal((await analyze(source, exec)).analysis.status, 'ready')
+  assert.equal((await analyze(source, exec, {refresh:true})).analysis.status, 'ready')
   const unavailable = createModuleAnalyzer(services, config, async () => {throw new Error('spawn ENOENT')})
   assert.equal((await unavailable(source, exec)).analysis.status, 'unavailable')
   assert.ok((await readFile(source, 'utf8')).includes('kicad_sch'))
@@ -279,7 +168,7 @@ test('BOM-only and fully failed extraction omit unavailable counts and preserve 
   assert.equal(partial.analysis.counts!.components, 1)
   assert.equal(partial.data!.nets, null)
   failBom = true
-  const failed = await analyze(source, exec)
+  const failed = await analyze(source, exec, {refresh:true})
   assert.equal(failed.analysis.status, 'unavailable')
   assert.deepEqual(failed.analysis.counts, {})
   assert.equal(failed.data!.components, null)
@@ -309,48 +198,59 @@ test('child content invalidates cache; unsafe dependencies fail before any CLI i
   assert.equal(count, after)
 }))
 
-test('download adapter retains success on analysis failure and forwards a known host CLI only to analysis', async () => fixture(async ({source, exec, root}) => {
-  const host = {context: {getTargetHost: () => 'kicad'}, project: {getCurrent: () => ({projectId: root}), onChanged: () => () => {}}}
-  const base: any = {parameters: {}, execute: async (args: any) => {
-    assert.deepEqual(args, {moduleId: 'module'})
-    return {moduleId: 'module', moduleName: 'Module', schematicPath: source, originalProjectPath: null, status: 'created', originalProjectStatus: 'absent', footprints: []}
+test('download exports local BOM, connectivity and ports and retries without downloading again', async () => fixture(async ({source, services, exec, root}) => {
+  const host = {context:{getTargetHost:()=>'kicad'},project:{getCurrent:()=>({projectId:root}),onChanged:()=>()=>{}}}
+  let downloads=0
+  const base={parameters:{},execute:async (args:unknown)=>{
+    assert.deepEqual(args,{moduleId:'module'})
+    downloads++
+    return {moduleId:'module',moduleName:'Module',schematicPath:source,originalProjectPath:null,status:'created',footprints:[{footprintName:'Demo',footprintPath:'Demo.kicad_mod'}]}
   }}
-  const tool = adaptTool(base, host, async (_path, _exec, options) => {
-    assert.equal(options!.kicadCliPath, 'custom-cli'); throw new Error('analysis unavailable')
+  const cliPath=join(root,'host','kicad-cli.exe')
+  const analyze=createModuleAnalyzer(services,config,async (cli,args)=>{
+    if (cli!==cliPath) throw Object.assign(new Error('spawn ENOENT'),{code:'ENOENT'})
+    if (args.includes('--help')) return result(help(args))
+    await writeFile(args[args.indexOf('--output')+1]!,args.includes('netlist')?exported:csv)
+    return result()
   })
-  const output: any = await tool.execute({moduleId: 'module', kicadCliPath: 'custom-cli'}, exec)
-  assert.equal(output.schematicStatus, 'created'); assert.equal(output.analysis.status, 'unavailable')
+  let sourceWithPort='(kicad_sch (hierarchical_label "EN" (shape input)))'
+  const tool=adaptTool(base as never,host,analyze,async()=>sourceWithPort)
+  const first:any=await tool.execute({moduleId:'module'},exec)
+  assert.equal(first.schematicStatus,'created')
+  assert.equal(first.analysis.status,'unavailable')
+  assert.deepEqual(first.analysis.ports.items,['EN'])
+  assert.equal(first.analysis.ports.nextAction,undefined)
+  assert.match(first.analysis.nextAction,/refreshAnalysis:true/)
+  sourceWithPort='(kicad_sch '+Array.from({length:61},(_,index)=>`(hierarchical_label "P${index}" (shape input))`).join(' ')+')'
+  const retry:any=await tool.execute({moduleId:'module',refreshAnalysis:true,kicadCliPath:cliPath},exec)
+  assert.equal(retry.schematicStatus,'existing')
+  assert.equal(retry.analysis.status,'ready')
+  assert.equal(retry.analysis.ports.truncated,true)
+  assert.equal(retry.analysis.ports.items.length,60)
+  assert.match(retry.analysis.ports.nextAction,/list_kicad_hierarchical_ports.*schematicPath/)
+  assert.match(retry.analysis.filesHint,/analysis\.files/)
+  assert.equal(downloads,1)
+  assert.equal(JSON.parse(await readFile(retry.analysis.files.bom,'utf8')).items[0].fields.MPN,'REAL-PART')
+  assert.equal(JSON.parse(await readFile(retry.analysis.files.connectivity,'utf8')).data.nets[0].name,'EN')
 }))
 
-test('real local KiCad exports label aliases and BOM; tool queries reuse the cache', {skip: !process.env.KICAD_CLI_PATH}, async () => fixture(async ({source, services, exec}) => {
-  const tools: any[] = []
-  registerModuleAnalysis({...services, effect: (fn: () => unknown) => fn(), tools: {register: (t: any) => {tools.push(t); return () => {}}}} as never,
-    {...config, kicadCliPath: process.env.KICAD_CLI_PATH!})
-  const tool = tools[0]
-  const summary = await tool.execute({schematicPath: source, view: 'summary'}, exec)
-  assert.equal(summary.status, 'ready', JSON.stringify(summary.warnings))
-  assert.equal(summary.counts.components, 2)
-  assert.equal(summary.counts.bom, 2)
-  assert.equal('items' in summary, false)
-  const nets = await tool.execute({schematicPath: source, view: 'nets', reference: 'U1', pin: '1'}, exec)
-  assert.equal(nets.status, 'ready')
-  assert.deepEqual(nets.items.flatMap((n: any) => n.nodes.map((node: any) => node.reference)).sort(), ['U1', 'U2'])
-  const components = await tool.execute({schematicPath: source, view: 'components', reference: 'U1'}, exec)
-  assert.equal(components.items[0].reference, 'U1')
-  const text = await readFile(source, 'utf8')
-  const u2 = children(parse(text), 'symbol').find(s => children(s, 'property').some(p => value(p) === 'Reference' && value(p, 2) === 'U2'))!
-  const dnp = children(u2, 'dnp')[0]!
-  await writeFile(source, applyEdits(text, [{start: dnp.start, end: dnp.end, text: '(dnp yes)'}]))
-  const assembly = await tool.execute({schematicPath: source, view: 'components', reference: 'U2'}, exec)
-  assert.equal(assembly.items[0].dnp, true)
-  const bom = await tool.execute({schematicPath: source, view: 'bom', reference: 'U2'}, exec)
-  assert.equal(bom.items.length, 1)
-  assert.ok(bom.items[0].dnp)
-  const assemblyText = await readFile(source, 'utf8')
-  const assemblyU2 = children(parse(assemblyText), 'symbol').find(s => children(s, 'property').some(p => value(p) === 'Reference' && value(p, 2) === 'U2'))!
-  const inBom = children(assemblyU2, 'in_bom')[0]!
-  await writeFile(source, applyEdits(assemblyText, [{start: inBom.start, end: inBom.end, text: '(in_bom no)'}]))
-  const excluded = await tool.execute({schematicPath: source, view: 'components', reference: 'U2'}, exec)
-  assert.equal(excluded.items[0].excludeFromBom, true)
-  assert.equal((await tool.execute({schematicPath: source, view: 'bom', reference: 'U2'}, exec)).items.length, 0)
+test('download without packaged footprints skips both CLI exports and port parsing', async () => fixture(async ({source, exec, root}) => {
+  const host = {context:{getTargetHost:()=>'kicad'},project:{getCurrent:()=>({projectId:root}),onChanged:()=>()=>{}}}
+  const base={parameters:{},execute:async()=>({moduleId:'module',moduleName:'Module',schematicPath:source,status:'created',footprints:[]})}
+  const unexpected=async()=>{assert.fail('skipped analysis should never run')}
+  const tool=adaptTool(base as never,host,unexpected,unexpected)
+  const output:any=await tool.execute({moduleId:'module'},exec)
+  assert.equal(output.footprints,null)
+  assert.deepEqual(output.analysis,{status:'skipped',reason:'no_packaged_footprints'})
+  assert.match(output.nextAction,/Select another module/)
+}))
+
+test('real KiCad writes BOM and connectivity artifacts', {skip: !process.env.KICAD_CLI_PATH}, async () => fixture(async ({source, services, exec}) => {
+  const analyze = createModuleAnalyzer(services, {...config, kicadCliPath:process.env.KICAD_CLI_PATH!})
+  const {analysis} = await analyze(source, exec)
+  assert.equal(analysis.status, 'ready', JSON.stringify(analysis.diagnostics))
+  const bom = JSON.parse(await readFile(analysis.files!.bom!, 'utf8'))
+  assert.deepEqual(bom.items.map((item:{reference:string})=>item.reference).sort(), ['U1','U2'])
+  const connectivity = JSON.parse(await readFile(analysis.files!.connectivity, 'utf8'))
+  assert.ok(connectivity.data.nets.some((net:{nodes:unknown[]})=>net.nodes.length===2))
 }))

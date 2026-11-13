@@ -11,6 +11,7 @@ import {createModuleDrawing} from './module-authoring.mjs';
 import {describeSchematicReadability} from './module-layout.mjs';
 import {assessModuleSpace} from './module-space.mjs';
 import {inspectModuleReuse} from './module-reuse.mjs';
+import {planModulePortLabels} from './module-port-layout.mjs';
 
 export const digest=bytes=>createHash('sha256').update(bytes).digest('hex');
 const fail=(code,message)=>{throw new Error(`${code}: ${message}`);};
@@ -42,6 +43,8 @@ export async function loadModulePlan(path){
   ||!['A4','A3','A2','A1','A0'].includes(plan.project.paper)||!Array.isArray(plan.modules)||!plan.modules.length)
   fail('MODULE_PLAN_INVALID','version=1, project{name,title,paper} and nonempty modules are required');
  if(!Number.isSafeInteger(plan.maxParallel)||plan.maxParallel<1)fail('MODULE_PLAN_INVALID','maxParallel must be a positive safe integer');
+ if(plan.project.compactLayout!==undefined&&typeof plan.project.compactLayout!=='boolean')
+  fail('MODULE_PLAN_INVALID','project.compactLayout must be boolean');
  for(const field of ['sharedSources','resources','links'])if(!Array.isArray(plan[field]))fail('MODULE_PLAN_INVALID',`${field} must be an array`);
  for(const source of [plan.parts,...plan.sharedSources,...plan.resources])projectPath(contract,source);
  if(!['.json','.mjs'].includes(extname(plan.parts)))fail('MODULE_PLAN_INVALID','parts must be .json (recommended) or .mjs');
@@ -61,6 +64,8 @@ export async function loadModulePlan(path){
    ||!point(mod.region.origin)||!point(mod.region.size)||mod.region.size.some(n=>n<=0)||!Array.isArray(mod.dependsOn)||!Array.isArray(mod.sources))
    fail('MODULE_PLAN_INVALID',`invalid module ${mod.id}`);
   ids.add(mod.id);
+  if(mod.region.autoFit!==undefined&&typeof mod.region.autoFit!=='boolean')
+   fail('MODULE_PLAN_INVALID',`${mod.id}: region.autoFit must be boolean`);
   if(mod.referencePatterns!==undefined)validateReferencePatterns(mod.referencePatterns);
   if(Object.keys(mod.references).sort().join('\0')!==Object.keys(mod.partRoles).sort().join('\0')||!Object.values(mod.partRoles).every(text))
    fail('MODULE_PLAN_INVALID',`${mod.id}: partRoles must map every reference role to a shared parts key`);
@@ -94,6 +99,18 @@ export async function loadModulePlan(path){
     fail('MODULE_PORT_INVALID',`${mod.id}.${name} needs owned reference, pin, net, voltage`);
    if(voltages.has(port.net)&&voltages.get(port.net)!==port.voltage)fail('MODULE_LINK_INVALID',`public net ${port.net} has inconsistent voltage contracts`);
    voltages.set(port.net,port.voltage);
+  }
+  if(mod.expectedNoConnects!==undefined){
+   if(!Array.isArray(mod.expectedNoConnects))fail('MODULE_NO_CONNECT_PLAN_INVALID',mod.id);
+   const assigned=new Set([...Object.values(mod.ports),...(mod.expectedConnections??[]).flatMap(group=>group.pins)]
+    .map(p=>`${p.reference}/${p.pin}`));
+   for(const p of mod.expectedNoConnects){
+    if(!object(p)||!Object.values(mod.references).includes(p.reference)||!text(p.pin))
+     fail('MODULE_NO_CONNECT_PLAN_INVALID',`${mod.id}: expected an owned reference and physical pin number`);
+    const key=`${p.reference}/${p.pin}`;
+    if(assigned.has(key))fail('MODULE_NO_CONNECT_PLAN_INVALID',`${mod.id}: ${key} is repeated or already assigned to a net or port`);
+    assigned.add(key);
+   }
   }
  }
  const visiting=new Set(),visited=new Set();
@@ -129,8 +146,9 @@ export function moduleContractSha256(contract,id){
  const visit=key=>{if(visited.has(key))return;visited.add(key);const mod=moduleById(contract,key);modules.push(mod);for(const dep of mod.dependsOn)visit(dep);};
  visit(id);modules.sort((a,b)=>a.id.localeCompare(b.id));
  const {project,designPlan,parts,sharedSources,resources,power}=contract.plan;
+ const {compactLayout,...moduleProject}=project;
  const shared=[parts,...sharedSources,...resources].sort().map(path=>({path,sha256:digest(readFileSync(projectPath(contract,path)))}));
- return digest(JSON.stringify({version:2,project,designPlan,parts,sharedSources,resources,power,modules,shared}));
+ return digest(JSON.stringify({version:2,project:moduleProject,designPlan,parts,sharedSources,resources,power,modules,shared}));
 }
 
 /** Snapshot explicitly declared transitive inputs; unlisted dynamic imports are unsupported. */
@@ -142,6 +160,7 @@ export function moduleInputs(contract,id){
  const files=[...sources,...contract.plan.resources].sort().map(path=>({path,sha256:digest(readFileSync(projectPath(contract,path)))}));
  files.push({path:'$power',sha256:digest(readFileSync(libraryPath(contract)))});
  for(const [path,file] of [['$moduleRuntime',new URL(import.meta.url)],['$moduleAuthoring',new URL('./module-authoring.mjs',import.meta.url)],['$moduleTemplates',new URL('./module-templates.mjs',import.meta.url)],['$moduleCircuit',new URL('./module-circuit.mjs',import.meta.url)],['$modulePreflight',new URL('./module-preflight.mjs',import.meta.url)],['$moduleSpace',new URL('./module-space.mjs',import.meta.url)],['$moduleNetlist',new URL('./module-netlist.mjs',import.meta.url)],['$moduleLayout',new URL('./module-layout.mjs',import.meta.url)],['$runtime',new URL('./runtime.mjs',import.meta.url)],['$builder',contract.builderPath]])files.push({path,sha256:digest(readFileSync(file))});
+ files.push({path:'$modulePortLayout',sha256:digest(readFileSync(new URL('./module-port-layout.mjs',import.meta.url)))});
  return {sha256:digest(JSON.stringify({contract:moduleContractSha256(contract,id),files})),files,sources:[...sources]};
 }
 
@@ -231,6 +250,11 @@ export async function preflightConfirmedParts(contract,{requireValues=false,chec
   try{probe.pin(pin.reference,pin.pin);}
   catch(error){issues.push({code:'MODULE_CONNECTION_PIN_INVALID',moduleId:mod.id,message:`${group.net}: ${error.message}`});}
  }
+ for(const mod of contract.plan.modules)for(const {reference,pin} of mod.expectedNoConnects??[]){
+  if(!valid.has(reference))continue;
+  try{probe.pin(reference,pin);}
+  catch(error){issues.push({code:'MODULE_NO_CONNECT_PLAN_INVALID',moduleId:mod.id,message:`${reference}.${pin}: ${error.message}`});}
+ }
  if(checkSpace&&!issues.length){
   const catalog=probe.pinCatalog({includeBounds:true}),style=jsonFile(new URL('../templates/frame-style.json',import.meta.url));
   contract.spaceAssessment=contract.plan.modules.map(mod=>assessModuleSpace(mod,catalog,style,{paper:contract.plan.project.paper}));
@@ -248,9 +272,11 @@ export function describeModuleParts(contract,mod,parts){
   const {pins,units,angle,mirror,...symbol}=parts[mod.partRoles[role]];
   for(const unit of units??[symbol.unit??1])probe.addSymbol({...symbol,reference,unit,angle:0,at:[50.8,50.8]});
  }
+ const relativePoint=at=>at.map(v=>Number((v-50.8).toFixed(8)));
  return probe.pinCatalog({includeBounds:true}).map(o=>({reference:o.reference,libId:o.libId,unit:o.unit,
   bounds:o.bounds?Object.fromEntries(Object.entries(o.bounds).map(([k,v])=>[k,Number((v-50.8).toFixed(8))])):undefined,
-  pins:o.pins?.map(p=>({...p,at:p.at.map(v=>Number((v-50.8).toFixed(8)))}))}));
+  fields:o.fields?.map(field=>({...field,at:relativePoint(field.at)})),
+  pins:o.pins?.map(p=>({...p,at:relativePoint(p.at)}))}));
 }
 
 /** A passed claim is usable only with real, project-local candidate files. Not visual/electrical approval. */
@@ -288,7 +314,7 @@ export function assertModuleReports(contract){
 export function assertModuleDispatch(contract){
  let state;
  try{state=jsonFile(projectPath(contract,'work/module-dispatch.json'));}
- catch{fail('MODULE_DELEGATION_REQUIRED','call dispatch_kicad_schematic_modules to start real module workers before assembly');}
+ catch{fail('MODULE_DELEGATION_REQUIRED','call dispatch_kicad_module_tasks to start real module workers before assembly');}
  if(state.version!==1||state.manifestSha256!==contract.manifestSha256||!Array.isArray(state.entries))
   fail('MODULE_DISPATCH_STALE','dispatch state does not match this module plan');
  for(const mod of contract.plan.modules){
@@ -299,15 +325,28 @@ export function assertModuleDispatch(contract){
  return state.entries.map(({moduleId,agentId})=>({moduleId,agentId}));
 }
 
-function guardedRegion(region,mod,parts){
+function guardedRegion(region,mod,parts,powerNets){
  const placed=new Set(),references=new Set(Object.values(mod.references));let placing=true;
+ const objectUuids=new Set();
+ const remember=id=>{objectUuids.add(id);return id;};
  const wiringIssues=[];
  const allowedNets=new Set([...Object.values(mod.nets),...Object.values(mod.ports).map(p=>p.net)]);
+ const powerStyles=new Map(),publicPowerLabels=new Set();
  const own=reference=>{if(!references.has(reference))fail('MODULE_REFERENCE_UNDECLARED',`${mod.id}: ${reference}`);};
  const endpoint=point=>{if(object(point))own(point.reference);};
+ const label=(name,at,angle,style,isPublic=false)=>{
+  if(!allowedNets.has(name)&&!name.startsWith(`${mod.id}__`))fail('MODULE_NET_UNDECLARED',`${mod.id}: ${name}`);
+  const power=Object.hasOwn(powerNets,name);
+  if(style!==undefined&&(!power||!['symbol','label'].includes(style)))fail('MODULE_POWER_STYLE_INVALID',`${mod.id}: ${name} requires a mapped power net and powerStyle symbol or label`);
+  endpoint(at);
+  const id=remember(region.label(name,at,angle));
+  if(style!==undefined)powerStyles.set(id,style);
+  if(power&&isPublic)publicPowerLabels.add(id);
+  return id;
+ };
  const wire=(method,a,b,route)=>{
   endpoint(a);endpoint(b);
-  try{return region[method](a,b,route);}
+  try{return region[method](a,b,route).map(remember);}
   catch(error){
    if(!/WIRE_ROUTE_INVALID|wire collapses|wire needs nonzero orthogonal/.test(error.message))throw error;
    wiringIssues.push({code:'WIRE_ROUTE_INVALID',moduleId:mod.id,from:a,to:b,route:route??[],message:error.message});
@@ -321,25 +360,25 @@ function guardedRegion(region,mod,parts){
    const role=Object.keys(mod.references).find(role=>mod.references[role]===spec.reference),part=parts[mod.partRoles[role]];
    if(!part||spec.libId!==part.libId||spec.footprint!==part.footprint||!text(spec.libraryPath)||realpathSync(spec.libraryPath)!==realpathSync(part.libraryPath))
     fail('MODULE_PART_MISMATCH',`${mod.id}: ${spec.reference} must use confirmed parts.${mod.partRoles[role]} symbol and footprint`);
-   placed.add(spec.reference);return region.addSymbol(spec);
+   placed.add(spec.reference);return remember(region.addSymbol(spec));
   },
   pin:(reference,pin)=>{own(reference);return region.pin(reference,pin);},
   wire:(a,b,via)=>wire('wire',a,b,via),
   wireOrthogonal:(a,b,route)=>wire('wireOrthogonal',a,b,route),
-  label:(name,at,angle)=>{if(!allowedNets.has(name)&&!name.startsWith(`${mod.id}__`))fail('MODULE_NET_UNDECLARED',`${mod.id}: ${name}`);endpoint(at);return region.label(name,at,angle);},
-  marker:(kind,at)=>{endpoint(at);return region.marker(kind,at);},
+  label,
+  marker:(kind,at)=>{endpoint(at);return remember(region.marker(kind,at));},
  };
- return {region:Object.freeze(methods),placed,finishPlacement(){placing=false;},assertWiring(){
+ return {region:Object.freeze(methods),placed,objectUuids,remember,powerStyles,publicPowerLabels,finishPlacement(){placing=false;},assertWiring(){
   if(wiringIssues.length)throw Object.assign(new Error(`WIRE_ROUTE_INVALID: fix all ${wiringIssues.length} invalid routes in ${mod.id}`),
    {code:'WIRE_ROUTE_INVALID',issues:wiringIssues});
  }};
 }
 
-async function placeModule(contract,sch,mod,parts){
+async function placeModule(contract,sch,mod,parts,seriesPins){
  const api=await import(pathToFileURL(projectPath(contract,mod.entry)).href);
  if(typeof api.place!=='function')fail('MODULE_EXPORT_INVALID',mod.id);
- const guard=guardedRegion(sch.region(mod.region),mod,parts);
- const result=await api.place({region:guard.region,draw:createModuleDrawing(guard.region,parts,mod),parts,references:Object.freeze({...mod.references}),
+ const guard=guardedRegion(sch.region(mod.region),mod,parts,contract.plan.power.nets);
+ const result=await api.place({region:guard.region,draw:createModuleDrawing(guard.region,parts,mod,seriesPins),parts,references:Object.freeze({...mod.references}),
   allocateReference:role=>{if(!mod.references[role])fail('MODULE_REFERENCE_UNDECLARED',`${mod.id}: use a declared role, not a prefix`);return mod.references[role];},
   nets:Object.freeze({...mod.nets}),bounds:structuredClone(mod.region)});
  guard.finishPlacement();
@@ -353,6 +392,8 @@ async function placeModule(contract,sch,mod,parts){
   if(actual.labelAt!==undefined&&(!point(actual.labelAt)||actual.labelAt.some((v,i)=>v<0||v>mod.region.size[i])))
    fail('MODULE_PORT_LAYOUT_INVALID',`${mod.id}.${name}: labelAt must be a local point inside the region`);
   if(actual.angle!==undefined&&![0,90,180,270].includes(actual.angle))fail('MODULE_PORT_LAYOUT_INVALID',`${mod.id}.${name}: invalid angle`);
+  if(actual.labelLayout!==undefined&&!['auto','manual'].includes(actual.labelLayout))
+   fail('MODULE_PORT_LAYOUT_INVALID',`${mod.id}.${name}: labelLayout must be auto or manual`);
  }
  return {mod,result,guard};
 }
@@ -365,20 +406,37 @@ export async function buildModules(contract,outputDirectory,{moduleId}={}){
  const sch=new Schematic({projectName:contract.plan.project.name,title:contract.plan.project.title,paper:contract.plan.project.paper,
   templateDir,designPlan:{path:contract.designPlan.path,sha256:contract.designPlan.sha256},requiredPowerSymbols:powerNets});
  const parts=await preflightConfirmedParts(contract);
- const all=[];
- for(const mod of selected)all.push(await placeModule(contract,sch,mod,parts));
+ const nativePins=new Map();
+ const seriesPins=({libraryPath,libId},unit)=>{
+  const key=JSON.stringify([libraryPath,libId,unit]);
+  if(!nativePins.has(key)){
+   const probe=new Schematic({projectName:'series_geometry',title:'Series pin geometry',paper:contract.plan.project.paper,
+    templateDir,designPlan:{path:contract.designPlan.path,sha256:contract.designPlan.sha256}});
+   probe.addSymbol({libraryPath,libId,reference:'U1',at:[0,0],unit});
+   nativePins.set(key,probe.pinCatalog({includeBounds:true})[0].pins);
+  }
+  return nativePins.get(key);
+ };
+ const all=[],portLabelIssues=[];
+ for(const mod of selected)all.push(await placeModule(contract,sch,mod,parts,seriesPins));
  for(const {mod,result,guard} of all){
   await result.connect();
   guard.assertWiring();
+ }
+ for(const {mod,result,guard} of all){
+  const linked=new Set(contract.plan.links.flatMap(link=>[link.from,link.to]).filter(end=>end.module===mod.id).map(end=>end.port));
+  const layout=planModulePortLabels(mod,result.ports,sch.layoutObjects(),powerNets,linked);
+  portLabelIssues.push(...layout.issues);
   for(const [name,port] of Object.entries(mod.ports)){
    const presentation=result.ports[name],pin=sch.pin(port.reference,port.pin);
-   const at=presentation.labelAt?presentation.labelAt.map((v,i)=>v+mod.region.origin[i]):pin;
+   const automatic=layout.automatic.get(name);
+   const at=automatic?.at??(presentation.labelAt?presentation.labelAt.map((v,i)=>v+mod.region.origin[i]):pin);
    if(at.some((v,i)=>Math.abs(v-pin[i])>1e-7)){
     const bend=[at[0],pin[1]];
     const route=[pin,bend,at].filter((p,i,a)=>i===0||p.some((v,j)=>Math.abs(v-a[i-1][j])>1e-7));
-    sch.wire(route[0],route.at(-1),route.slice(1,-1));
+    sch.wire(route[0],route.at(-1),route.slice(1,-1)).forEach(guard.remember);
    }
-   sch.label(port.net,at,presentation.angle??0);
+   guard.region.label(port.net,at.map((v,i)=>v-mod.region.origin[i]),automatic?.angle??presentation.angle??0,presentation.powerStyle,true);
   }
  }
  if(!moduleId)for(const link of contract.plan.links){
@@ -390,16 +448,47 @@ export async function buildModules(contract,outputDirectory,{moduleId}={}){
   const route=[start,...via,end].filter((p,i,all)=>i===0||p[0]!==all[i-1][0]||p[1]!==all[i-1][1]);
   sch.wire(route[0],route.at(-1),route.slice(1,-1));
  }
- const fieldLayout=sch.arrangeSymbolFields();
+ const ownerByReference=new Map(all.flatMap(({mod,guard})=>Object.values(mod.references).map(reference=>[reference,guard])));
+ for(const {reference,uuid} of sch.ensureNoConnectMarkers(selected.flatMap(mod=>mod.expectedNoConnects??[])))
+  ownerByReference.get(reference)?.remember(uuid);
+ const powerNames=Object.keys(powerNets),keepAsLocalLabels=new Set();
+ const powerSpec=powerNames.length?{libraryPath:libraryPath(contract),nets:powerNets,keepAsLocalLabels}:undefined;
+ const styles=all.flatMap(({guard})=>[...guard.powerStyles]);
+ const prefer=['symbol','label'].flatMap(style=>styles.filter(([,value])=>value===style).map(([id])=>id));
+ const publicDefaults=all.flatMap(({guard})=>[...guard.publicPowerLabels].filter(id=>!guard.powerStyles.has(id)));
+ const removedPowerAnnotations=powerSpec?sch.deduplicatePowerLabels(powerNames,all.map(({guard})=>guard.objectUuids),[...new Set([...prefer,...publicDefaults])]):[];
+ for(const uuid of removedPowerAnnotations)for(const {guard} of all)guard.objectUuids.delete(uuid);
+ if(powerSpec){
+  const labels=sch.powerLabelCatalog(powerNames);
+  for(const {guard} of all)for(const net of powerNames){
+   const group=labels.filter(l=>l.net===net&&guard.objectUuids.has(l.uuid));
+   const explicit=group.some(l=>guard.powerStyles.get(l.uuid)==='symbol');
+   const automatic=group.filter(l=>!guard.powerStyles.has(l.uuid));
+   const main=explicit?undefined:automatic.find(l=>guard.publicPowerLabels.has(l.uuid))??automatic[0];
+   for(const label of group)if(label!==main&&guard.powerStyles.get(label.uuid)!=='symbol')keepAsLocalLabels.add(label.uuid);
+  }
+ }
+ // Plan power symbols in the reserved space. The final frame follows the actual replacement geometry.
+ const powerPlan=powerSpec&&sch.planPowerPlacements(powerSpec);
+ for(const {mod,guard} of all)if(mod.region.autoFit!==false)sch.fitRegionFrame(mod.region.name,guard.objectUuids);
  let powerSymbols=[];
- if(Object.keys(powerNets).length){
-  const spec={libraryPath:libraryPath(contract),nets:powerNets};
-  const plan=sch.planPowerPlacements(spec);
-  powerSymbols=sch.replacePowerLabels({...spec,placements:plan.placements});
+ if(powerSpec&&powerPlan){
+  powerSymbols=sch.replacePowerLabels({...powerSpec,placements:powerPlan.placements});
+ }
+ let pagePacking;
+ if(!moduleId){
+  pagePacking=contract.plan.project.compactLayout===false?{status:'unchanged',reason:'disabled'}:
+   contract.plan.links.length?{status:'unchanged',reason:'explicit_cross_module_wires'}:
+    sch.compactModuleRegions(all.map(({mod,guard})=>({name:mod.region.name,objectUuids:guard.objectUuids})));
+  if(pagePacking.status==='packed'){
+   const shifts=new Map(all.flatMap(({mod,guard})=>[...guard.objectUuids].map(id=>[id,pagePacking.shifts[mod.region.name]])));
+   powerSymbols=powerSymbols.map(symbol=>({...symbol,at:symbol.at.map((v,i)=>Number((v+shifts.get(symbol.uuid)[i]).toFixed(6)))}));
+  }
  }
  const saved=sch.save(outputDirectory);
  const readability=moduleId?undefined:await describeSchematicReadability(contract,saved);
- return {...saved,fieldLayout,...(readability?{readability}:{}),powerSymbols,modules:selected.map(mod=>({id:mod.id,
+ return {...saved,...(moduleId?{portLabelIssues}:{}),...(readability?{readability}:{}),...(pagePacking?{pagePacking}:{}),powerSymbols,modules:selected.map((mod,index)=>({id:mod.id,
+  frame:saved.frames[index],
   ports:Object.fromEntries(Object.entries(mod.ports).map(([name,port])=>[name,{...port,at:sch.pin(port.reference,port.pin)}]))}))};
 }
 

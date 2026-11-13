@@ -122,7 +122,9 @@ function makeRoot(projectName: string, title: string, rootUuid: string,
   }
   const page = ([['A3', 297], ['A2', 420], ['A1', 594], ['A0', 841]] as const)
     .find(([, height]) => nextRow - 20.32 + 25.4 <= height)?.[0]
-  if (page === undefined) throw new Error('hierarchy sheet ports exceed A0 page height')
+  if (page === undefined) {
+    throw new Error(`Hierarchy layout for ${sheets.length} child sheets and their ports exceeds the A0 root page height`)
+  }
   for (const [index, sheet] of sheets.entries()) {
     const sx = 63.5 + (index % 2) * 190.5
     const sy = rowStarts[Math.floor(index / 2)]!
@@ -175,7 +177,7 @@ function makeRoot(projectName: string, title: string, rootUuid: string,
 /** Validate explicit port mappings, reannotate copied children, and build a new multi-sheet project. */
 export function buildAssembly(projectName: string, title: string, sheets: AssemblySheet[],
   sourceProjectText?: string, drivenNets: string[] = [], powerLibrary?: string): AssemblyFiles {
-  if (sheets.length < 1 || sheets.length > 9) throw new Error('hierarchy needs 1 to 9 child sheets')
+  if (sheets.length < 1) throw new Error('hierarchy needs at least one child sheet')
   if (new Set(sheets.map(sheet => sheet.name)).size !== sheets.length) throw new Error('sheet names must be unique')
   if (new Set(drivenNets).size !== drivenNets.length) throw new Error('drivenNets contains duplicates')
   const problems: string[] = []

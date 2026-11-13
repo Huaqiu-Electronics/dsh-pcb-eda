@@ -1,4 +1,4 @@
-/** Compare explicit expected pin memberships against a real KiCad XML netlist. Not ERC. */
+/** Compare explicit expected pin memberships against a real KiCad XML netlist. */
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {join} from 'node:path';
@@ -30,14 +30,23 @@ export function compareConnections(xml,expected){
   }
  }
  return {status:issues.length?'failed':'passed',checkedPins:expected.reduce((n,g)=>n+g.pins.length,0),issues,warnings,
-  limitations:'Checks declared memberships and merging between distinct declared nets; not undeclared shorts, complete connectivity, ERC or circuit validity.'};
+  limitations:'Checks declared memberships and merging between distinct declared nets; not undeclared shorts, complete connectivity or circuit validity.'};
 }
 export async function checkModuleConnections(contract,mod,result,output,kicadCliPath){
- if(!mod.expectedConnections)return {status:'not_requested',nextAction:'Declare expectedConnections in the shared module plan to check real pin membership before visual review.'};
- const {resolveKiCadPaths}=await import(pathToFileURL(contract.builderPath));
+ const {resolveKiCadPaths,inspectSchematicObjects,inspectNoConnectPins}=await import(pathToFileURL(contract.builderPath));
+ const objects=inspectSchematicObjects(readFileSync(result.schematicPath,'utf8'));
+ const {targets,issues:ncIssues}=inspectNoConnectPins(objects,mod.expectedNoConnects);
+ for(const {reference,pin,marker} of targets)if(!marker)
+  ncIssues.push({code:'MODULE_NO_CONNECT_MARKER_MISSING',reference,pin,message:'The pin requires a native KiCad no-connect marker.'});
+ if(!mod.expectedConnections){
+  if(targets.length||ncIssues.length)return {status:ncIssues.length?'failed':'passed',checkedPins:0,checkedNoConnects:targets.length,issues:ncIssues,warnings:[]};
+  return {status:'not_requested',nextAction:'Declare expectedConnections in the shared module plan to check real pin membership before visual review.'};
+ }
  const file=join(output,'module-netlist.xml');
  const cli=kicadCliPath||resolveKiCadPaths().kicadCliPath;
  const run=spawnSync(cli,['sch','export','netlist','--format','kicadxml','-o',file,result.schematicPath],{encoding:'utf8',windowsHide:true,timeout:30000,maxBuffer:1024*1024});
  if(run.status!==0)throw new Error(`MODULE_NETLIST_EXPORT_FAILED: ${run.error?.message||run.stderr||run.stdout}`);
- return {...compareConnections(readFileSync(file,'utf8'),mod.expectedConnections),path:file};
+ const checked=compareConnections(readFileSync(file,'utf8'),mod.expectedConnections);
+ return {...checked,issues:[...checked.issues,...ncIssues],status:ncIssues.length?'failed':checked.status,
+  ...(targets.length?{checkedNoConnects:targets.length}:{}),path:file};
 }

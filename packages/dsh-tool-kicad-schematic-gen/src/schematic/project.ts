@@ -16,16 +16,13 @@ export interface ProjectFiles {
   references: string[]
   ports: Port[]
   importedProjectSettings: string[]
-  droppedSourceErcExclusions: number
 }
 
 /** Safe settings selected from an optional downloaded KiCad project. */
 export interface ImportedProjectSettings {
-  ercSeverities?: Record<string, string>
   schematic?: Record<string, unknown>
   textVariables?: Record<string, string>
   imported: string[]
-  droppedErcExclusions: number
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -54,22 +51,6 @@ export function importProjectSettings(text: string): ImportedProjectSettings {
   const root = record(parsed)
   if (root === undefined) throw new Error('sourceProjectPath must contain a KiCad project JSON object')
   const imported: string[] = []
-  const erc = record(root.erc)
-  const sourceSeverities = record(erc?.severities)
-  let ercSeverities: Record<string, string> | undefined
-  if (sourceSeverities !== undefined) {
-    const selected: Record<string, string> = {}
-    for (const [key, value] of Object.entries(sourceSeverities)) {
-      if (!/^[a-z][a-z0-9_]*$/u.test(key) || !['error', 'warning', 'ignore'].includes(String(value))) {
-        throw new Error('source project has an invalid ERC severity entry')
-      }
-      selected[key] = String(value)
-    }
-    if (Object.keys(selected).length > 0) {
-      ercSeverities = selected
-      imported.push('erc.severities')
-    }
-  }
   const sourceSchematic = record(root.schematic)
   const schematic: Record<string, unknown> = {}
   if (sourceSchematic !== undefined) {
@@ -103,11 +84,9 @@ export function importProjectSettings(text: string): ImportedProjectSettings {
     }
   }
   return {
-    ...(ercSeverities === undefined ? {} : { ercSeverities }),
     ...(Object.keys(schematic).length === 0 ? {} : { schematic }),
     ...(textVariables === undefined ? {} : { textVariables }),
     imported,
-    droppedErcExclusions: Array.isArray(erc?.erc_exclusions) ? erc.erc_exclusions.length : 0,
   }
 }
 
@@ -433,13 +412,10 @@ export function buildProject(
     drivenInputs.length > 0 ? renamedFlagCache : undefined, firstFlagNumber)
   parse(root); parse(symbolLibrary); parse(symbolTable)
   const imported: ImportedProjectSettings = sourceProjectText === undefined
-    ? { imported: [], droppedErcExclusions: 0 } satisfies ImportedProjectSettings
+    ? { imported: [] }
     : importProjectSettings(sourceProjectText)
   const project = JSON.stringify({
     board: { design_settings: {}, layer_presets: [], viewports: [] },
-    ...(imported.ercSeverities === undefined ? {} : { erc: {
-      erc_exclusions: [], meta: { version: 0 }, pin_map: [], severities: imported.ercSeverities,
-    } }),
     libraries: { pinned_footprint_libs: [], pinned_symbol_libs: [] },
     meta: { filename: `${projectName}.kicad_pro`, version: 1 },
     net_settings: { classes: [{ name: 'Default', clearance: 0.2, track_width: 0.25,
@@ -450,6 +426,5 @@ export function buildProject(
     ...(imported.textVariables === undefined ? {} : { text_variables: imported.textVariables }),
   }, null, 2) + '\n'
   return { root, child, symbolLibrary, symbolTable, project, references, ports,
-    importedProjectSettings: imported.imported,
-    droppedSourceErcExclusions: imported.droppedErcExclusions }
+    importedProjectSettings: imported.imported }
 }

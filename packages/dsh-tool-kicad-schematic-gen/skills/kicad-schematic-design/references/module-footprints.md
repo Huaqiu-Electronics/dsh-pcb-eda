@@ -1,38 +1,21 @@
-# 复用模块的封装本地化
+# 复用模块的项目本地封装
 
-原理图的嵌入符号可显示，不代表其 `Footprint` 能用于 PCB。模块选定后立即准备封装，与布局编写交错进行，不等布局完成才开始。对精确 MPN 去重搜索，保存候选 manufacturer.id/mpn；同一型号的多个引用合成一个 assignment。布局微调复用映射，不重复搜索和下载。
+下载模块后，保留源图、相邻的 `.kicad_sch.footprints.json` 索引及 `.footprints/` 资源目录。下载返回 `footprints: null` 时，按 `nextAction` 改选模块。已有下载缺少索引时，可重新执行下载补建索引；平铺脚本也可以通过 `footprintPaths` 提供现有的本地封装路径列表。
 
-1. 对实际采用的 sources/work 原理图调用 `localize_kicad_module_footprints({action:"list",schematicPath:模块路径})`，查看实例的 reference、value、footprintId、pinNumbers、dnp。工具与 importModule 共用供应商缓存 ID 对齐逻辑；仅缓存别名差异不需自行重写原理图或解析器。DNP 需结合实际用途确认，不能假设模块中上拉或旁路一定已装配。电源符号及 on_board=no 对象不要求封装。
-2. 优先查看下载结果的 footprints：有资源时包含 footprintName、footprintPath，无资源时为 null。匹配原封装型号，并确认实际器件的封装规格；不能仅凭名称近似替换。没有随包封装时，对去重后的精确型号调用器件搜索，选择同一候选的 manufacturer.id/mpn。已有模块符号保持不变，缺少在线符号模型不妨碍只下载封装。
-3. 调用 import，projectDir 指向最终 project。一个 assignment 可以指定多个相同型号实例；选择 footprintPath 或 manufacturer_id+mpn，不能同时提供。工具以模块原符号的编号检查焊盘集合，而不是采用在线符号替换模块。额外的编号机械/散热焊盘须显式列入 allowedExtraPads，并填写 extraPadReason；说明来源及如何处理，不能为绕过不匹配而随意放行。检查只能确认编号覆盖，不证明引脚功能、封装尺寸或电气兼容。
+平铺调用只需给出模块源图及布局和连接信息：
 
-```javascript
-// 模块随包封装优先。省略 targetPath，保持来源文件不变。
-localize_kicad_module_footprints({
-  action: "import", schematicPath: modulePath, projectDir,
-  assignments: [{ references: ["U1"], footprintPath: archiveFootprintPath }]
+```js
+sch.importModule({
+  sourcePath: modulePath,
+  name: 'core',
+  offset: [25.4, 25.4],
+  nets: sharedNets,
 });
-// 或使用精确器件搜索候选，不能猜 manufacturer_id：
-// assignments: [{references:["U1"],manufacturer_id:manufacturer.id,mpn:exactMpn}]
+sch.save(outputDirectory);
 ```
 
-4. 将返回的 mappingPath 写入设计脚本，使用相对于脚本自身位置的路径。Schematic.importModule 支持 footprintMappingPath，会根据 importModule 的编号映射更新 Footprint，而不改变符号、引脚、连线和模块位置。
+平铺导入和层次组装按原图的 `Footprint` 引用匹配随包模型。有完整库名与封装名匹配时优先使用，退回名称匹配时要求候选内容唯一。生成器核对源符号引脚与编号焊盘集合，并在输出目录中登记 `fp-lib-table`、保存项目本地封装、写入新的封装引用。相同内容在多个模块中共用，同名不同内容使用不同库 ID。原源图、符号和连线保留。发布候选时随工程保留库表和 `libraries/`。
 
-`import` 返回 `stage: prepared` 和 `validationScope: source_with_mapping_applied` 表示映射及本地库就绪，**不表示源文件已更新**。对该来源使用 `action:"check_mapping"` 验证准备状态。不要对未改写的来源调用 `check` 并把 resolved:0 当作导入失败；`check` 只检查传入原理图的实际 Footprint 属性。失败批次返回 assignment 索引和短错误，验证全部通过前不写库；成功下载在当前进程缓存 15 分钟，修改失败项后重试整批可复用成功下载。网络准备最多 4 并发，项目库表写入串行；不需要拆成几十次单器件导入。缺少 manufacturer_id 时不可仅传 MPN 试探调用。
+`MODULE_FOOTPRINTS_UNAVAILABLE` 列出缺失、歧义或编号不匹配的位号。改选随包封装完整的模块。DNP 器件仍参与封装匹配，电源绘图符号及 `on_board=no` 对象无需实体封装。封装尺寸、电气适用性及 3D 模型需另行核对。
 
-```javascript
-const imported = sch.importModule({
-  sourcePath: modulePath, name: "core", offset: [30, 30], nets: sharedNets,
-  footprintMappingPath: mappingPath,
-});
-```
-
-映射文件保存到 project/libraries/mappings/，与准确来源内容哈希绑定。修改来源器件或原理图后需要重新生成映射；不能继续套用旧文件。局部布局只修改集成脚本、不改来源时，映射可直接复用。手动的最终编号映射接口为 `sch.assignFootprints({U1:"LocalLibrary:Footprint"})`；优先采用 importModule 的映射文件方式，避免固定最终编号在后续重建中失效。
-
-如需直接修改单页工作副本，可显式传 targetPath；工具仅更新 Footprint 属性。不要将不可变 sources 原文件作为 targetPath。I/O 失败可能留下部分库文件，按返回错误检查，不清空 project 重试。
-
-5. 需要检查生成候选或最终图的本地封装时，单独调用 `localize_kicad_module_footprints({action:"check",schematicPath,projectDir})`，层次工程逐页覆盖实际子页。普通预览和正式 delivery 不执行封装检查，也不返回 footprintCheck。同一原理图版本、库表及封装未变时复用已有检查结果；来源、映射或库改变后重查。检查 ready 只说明本地封装可解析；修复缺库不重画未变电路。
-
-项目 ZIP 递归包含本地封装和 libraries/mappings 下的映射记录。3D 模型并非本步骤保证项，上游外部模型路径可能仍不可用。
-
-公开返回精简：list 不展开 libId（必要时读取源图）；import 仅返回 mappingPath，不重复展开 mappings，完整映射及来源记录仍保存在文件中。问题列表 unresolved 每项只含 reference、footprintId、reason；正常成功省略 nextAction，未准备或未解决时保留恢复提示。stage、sourceUpdated、schematicPath、validationScope 和检查统计保持原语义。
+已有脚本可以继续传 `footprintMappingPath` 使用与源图哈希匹配的旧映射，并保留对应本地库。新加入的独立器件通过 `import_kicad_component_symbol_and_footprint` 成套入库，`addSymbol()` 可继承符号的默认封装。

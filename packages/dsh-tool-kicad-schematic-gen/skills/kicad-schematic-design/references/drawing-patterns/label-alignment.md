@@ -9,6 +9,8 @@
 
 首次使用左右/上下画法时，分别用 patternReaderPath 的 label-sides/label-vertical 读取短代码，并实际打开对应生成效果PNG；同版本已看过则沿用。先按实际符号引脚位置分组，分别调用 `attachPinLabels`；不按编号奇偶推断实际芯片的侧边。默认 textPosition="overWire"：名称放在线上，标签锚点位于导线上并从外端向符号方向展开；左右文字在水平线上方，上下文字沿竖线排列。length 默认 5.08 mm，作为最短长度；程序根据本组最长名称保守估计统一线长，不按每个名称分别拉长。导线外端同列/同行。需要原来的线外文字时显式传 textPosition:"outside"。必要时 alignAt 显式指定该列 x 或该行 y，使用与 target 一致的局部/全局坐标。
 
+并行模块的公共信号端口由运行时统一生成。只挂标签的同侧端口优先使用 5.08 mm 等长短线，空间受限时试 6.35 或 7.62 mm，标签朝外。已有电路连线的端口沿用脚本落点；需要固定角度和坐标时在端口返回 `labelLayout:'manual'`。
+
 ```js
 import { attachPinLabels } from '<实际安装路径>/skills/kicad-schematic-design/assets/runtime.mjs';
 const result = attachPinLabels(region, {

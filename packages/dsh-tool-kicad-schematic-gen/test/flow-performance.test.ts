@@ -6,10 +6,39 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {spawnSync} from 'node:child_process'
 import {fileURLToPath} from 'node:url'
-import {prepareBatch,downloadFootprint} from '../src/components/footprint-download.ts'
 import {summarizeFootprint} from '../src/components/models.ts'
 import {Schematic} from '../src/schematic/builder.ts'
+import {inspectSchematicText} from '../src/schematic/flat.ts'
 import {attachPinLabel} from '../src/schematic/label-leads.ts'
+import {summarizeReviewIssues} from '../src/schematic/review-plan.ts'
+import {packModuleColumns} from '../src/schematic/module-packing.ts'
+
+test('sheet packing aligns planned columns and keeps all translations on grid',()=>{
+ const items=[
+  {bounds:{left:50.8,top:38.1,right:101.6,bottom:76.2},reserved:{start:[25.4,25.4],end:[127,101.6]}},
+  {bounds:{left:38.1,top:139.7,right:114.3,bottom:165.1},reserved:{start:[25.4,127],end:[127,203.2]}},
+  {bounds:{left:177.8,top:50.8,right:254,bottom:127},reserved:{start:[152.4,25.4],end:[279.4,203.2]}},
+ ] as Parameters<typeof packModuleColumns>[0]
+ assert.deepEqual(packModuleColumns(items,[297,210]),[[-40.64,-27.94],[-27.94,-83.82],[-83.82,-40.64]])
+ assert.equal(packModuleColumns(items,[100,60]),undefined)
+})
+
+test('candidate feedback prioritizes required fixes and preserves field identities when bounded',()=>{
+ const report={
+  status:'passed',
+  layout:{reviewIssues:[
+   {code:'LAYOUT_OVERLAP_REVIEW',references:['U1','R1']},
+   {code:'MODULE_LAYOUT_OUTSIDE_FRAME',references:['C1']},
+  ]},
+  result:{fieldLayout:{unresolved:['R1:Value']}},
+ }
+ const summary=summarizeReviewIssues(report,2)
+ assert.deepEqual(summary.priorityCounts,{must_fix:1,visual_check:1,advisory:1})
+ assert.deepEqual(summary.issues.map(issue=>issue.priority),['must_fix','visual_check'])
+ assert.equal(summary.issues[1]?.field,'R1:Value')
+ assert.equal(summary.omittedIssues,1)
+ assert.equal(summary.repairPlan.fullReportRequired,true)
+})
 
 const legacy='(module "SOD-123" (layer F.Cu) (tedit 0) (fp_line (start -1 0) (end 1 0) (layer F.SilkS) (width 0.15)) (pad "1" smd rect (at -1 0) (size 1 1) (layers F.Cu F.Mask)) (pad "2" smd rect (at 1 0) (size 1 1) (layers F.Cu F.Mask)))'
 const footprint='(footprint "SOD-123" (layer "F.Cu") (pad "1" smd rect (at -1 0) (size 1 1) (layers "F.Cu" "F.Mask")) (pad "2" smd rect (at 1 0) (size 1 1) (layers "F.Cu" "F.Mask")))'
@@ -21,25 +50,6 @@ test('modern footprints are parsed and obsolete module roots are rejected',()=>{
  assert.throws(()=>summarizeFootprint(legacy),/Unsupported footprint format/)
 })
 
-test('preparation bounds concurrent work, settles failures, and preserves input order',async()=>{
- let active=0,max=0,finished=0
- await assert.rejects(prepareBatch([0,1,2,3,4,5],async n=>{active++;max=Math.max(max,active);await new Promise(r=>setTimeout(r,5));active--;finished++;if(n===2)throw new Error('invalid model');return n}),/FOOTPRINT_BATCH_FAILED/)
- assert.equal(max,4);assert.equal(active,0);assert.equal(finished,6)
- assert.deepEqual(await prepareBatch([3,2,1],async n=>n*2),[6,4,2])
-})
-test('successful downloads survive another item failing, with bounded cache and no failure caching',async()=>{
- let gets=0
- const fetcher=(async(url:any,init:any)=>{
-  gets++;if(String(url).endsWith('.kicad_mod'))return new Response(footprint)
-  const mpn=JSON.parse(init.body).mpn;if(mpn==='bad')throw new Error('network')
-  return Response.json({code:200000,result:{mpn,cadUrlList:[{type:'footprint',fileUrl:'https://example.test/model.kicad_mod'}]}})
- }) as typeof fetch
- const signal=new AbortController().signal,options={requestTimeoutMs:1000,maxModelBytes:10000}
- await assert.rejects(prepareBatch(['good','bad'],mpn=>downloadFootprint('7189',mpn,options,signal,fetcher)),/network/)
- const after=gets;await downloadFootprint('7189','good',options,signal,fetcher);assert.equal(gets,after)
- await assert.rejects(downloadFootprint('7189','bad',options,signal,fetcher));assert.equal(gets,after+1)
- await assert.rejects(downloadFootprint('7189','good',{...options,maxModelBytes:10},signal,fetcher),/exceeds/)
-})
 test('script launcher preserves Unicode UTF-8 reports, stderr and nonzero exit without shell parsing',async()=>{
  const root=await mkdtemp(join(tmpdir(),'design runner '))
  try{
@@ -83,9 +93,60 @@ test('label leads work in real region coordinates and reject invalid plans befor
   const library=join(root,'demo.kicad_sym');await writeFile(library,'(kicad_symbol_lib (version 20211014) (generator test) (symbol "Demo" (property "Reference" "U" (at 0 0 0) (effects (font (size 1 1)))) (symbol "Demo_1_1" (pin input line (at 0 0 0) (length 2.54) (name "IN" (effects (font (size 1 1)))) (number "1" (effects (font (size 1 1))))))))')
   const sch=new Schematic({designPlan:testDesignPlan,projectName:'demo',title:'demo',paper:'A4',templateDir:fileURLToPath(new URL('../skills/kicad-schematic-design/templates',import.meta.url))})
   const region=sch.region({name:'test',description:'test',origin:[30,30],size:[80,80]});region.addSymbol({libraryPath:library,libId:'Demo:Demo',reference:'U1',at:[20,20]})
+  region.addSymbol({libraryPath:library,libId:'Demo:Demo',reference:'U2',at:[40,40],angle:90,mirror:'x',
+   referenceAt:[38.1,36.83],hideReference:true})
+  const catalog=sch.pinCatalog({includeBounds:true})
+  assert.deepEqual(catalog.find(o=>o.reference==='U1')?.pins?.[0]?.outward,[-1,0])
+  const rotated=catalog.find(o=>o.reference==='U2')
+  assert.deepEqual(rotated?.pins?.[0]?.outward,[0,-1])
+  assert.deepEqual(rotated?.fields?.find(f=>f.name==='Reference'),{name:'Reference',at:region.at([38.1,36.83]),angle:90,hidden:true})
   const normalize=(text:string)=>text.replace(/[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/g,'UUID');const before=normalize(sch.render().schematic)
   assert.throws(()=>attachPinLabel(region,{reference:'U1',pin:'1',net:'NET',direction:'left',length:0}),/positive/);assert.equal(normalize(sch.render().schematic),before)
   attachPinLabel(region,{reference:'U1',pin:'1',net:'NET',direction:'left',lane:1})
   assert.match(sch.render().schematic,/\(label "NET"/);assert.equal((sch.render().schematic.match(/\(wire/g)??[]).length,2)
+  const planned=sch.render().resolvedFrames[0]!
+  sch.fitRegionFrame('test',catalog.map(o=>o.uuid))
+  const fitted=sch.render().resolvedFrames[0]!
+  assert.ok(fitted.start.every((n,i)=>n>=planned.start[i]!))
+  assert.ok(fitted.end.every((n,i)=>n<planned.end[i]!))
+  assert.deepEqual(sch.pin('U1','1'),region.at([20,20]))
+ }finally{await rm(root,{recursive:true,force:true})}
+})
+
+test('fixed resistor and capacitor fields follow the sheet orientation and preserve explicit offsets',async()=>{
+ const templates=new URL('../skills/kicad-schematic-design/templates/',import.meta.url)
+ const style=JSON.parse(await readFile(new URL('frame-style.json',templates),'utf8'))
+ const libraryPath=fileURLToPath(new URL('../skills/kicad-schematic-design/assets/drawing-patterns/reference-symbols.kicad_sym',import.meta.url))
+ const sch=new Schematic({designPlan:testDesignPlan,projectName:'fields',title:'fields',paper:'A4',templateDir:fileURLToPath(templates)})
+ for(const [index,angle,mirror] of [[1,0,undefined],[2,180,undefined],[3,0,'y'],[4,180,'y']] as const){
+  sch.addSymbol({libraryPath,libId:'Reference:C',reference:`C${index}`,value:'100nF',at:[index*25.4,50.8],angle,mirror})
+ }
+ sch.addSymbol({libraryPath,libId:'Reference:R',reference:'R1',value:'22R',at:[50.8,76.2],angle:90,referenceOffset:[0,-12.7]})
+ const texts=inspectSchematicText(sch.render().schematic,style)
+ const field=(reference:string,name:string)=>texts.find(item=>item.reference===reference&&item.field===name)!
+ for(const ref of ['C1','C2','C3','C4']){
+  const reference=field(ref,'Reference'),value=field(ref,'Value')
+  assert.equal(reference.bounds.left,value.bounds.left)
+  assert.equal(value.at[0],value.bounds.left)
+  assert.ok(reference.bounds.bottom<value.bounds.top)
+ }
+ assert.deepEqual(field('R1','Reference').at,[50.8,63.5])
+ assert.ok(field('R1','Value').bounds.bottom<76.2)
+})
+
+test('native NC pins get a blue marker while their library type is retained',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'native-nc-'))
+ try{
+  const library=join(root,'demo.kicad_sym')
+  await writeFile(library,'(kicad_symbol_lib (version 20211014) (generator test) (symbol "Demo" (property "Reference" "U" (at 0 0 0) (effects (font (size 1 1)))) (symbol "Demo_1_1" (pin no_connect line (at 0 0 0) (length 2.54) (name "NC" (effects (font (size 1 1)))) (number "1" (effects (font (size 1 1))))) (pin passive line (at 0 2.54 0) (length 2.54) (name "IO" (effects (font (size 1 1)))) (number "2" (effects (font (size 1 1))))))))')
+  const sch=new Schematic({designPlan:testDesignPlan,projectName:'demo',title:'demo',paper:'A4',templateDir:fileURLToPath(new URL('../skills/kicad-schematic-design/templates',import.meta.url))})
+  sch.addSymbol({libraryPath:library,libId:'Demo:Demo',reference:'U1',at:[50.8,50.8]})
+  const declared=[{reference:'U1',pin:'2'}]
+  assert.deepEqual(sch.ensureNoConnectMarkers(declared),sch.ensureNoConnectMarkers(declared))
+  const {schematic}=sch.render()
+  assert.match(schematic,/\(pin no_connect line/)
+  assert.equal((schematic.match(/\(no_connect \(at/g)??[]).length,2)
+  sch.wire([50.8,50.8],[45.72,50.8])
+  assert.throws(()=>sch.render(),/MODULE_NO_CONNECT_INVALID: U1\.1/)
  }finally{await rm(root,{recursive:true,force:true})}
 })

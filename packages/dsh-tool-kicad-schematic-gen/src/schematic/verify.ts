@@ -1,4 +1,4 @@
-/** Run KiCad's own netlist and ERC checks and return bounded, structured findings. */
+/** Export and check KiCad netlists and return bounded, structured findings. */
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -28,25 +28,14 @@ interface NetNode { reference: string; pin: string; pinName: string | null; pinT
 interface Net { name: string; nodes: NetNode[] }
 
 /** Summary returned to the model; total counts include entries omitted by output limits. */
-export interface VerificationResult {
+export interface NetlistVerificationResult {
   netCount: number
   nets: Array<{ name: string; nodeCount: number; nodes: NetNode[] }>
   netsTruncated: boolean
   mismatchCount: number
   mismatches: Array<{ reference: string; pin: string; expectedNet: string; actualNet: string | null }>
   mismatchesTruncated: boolean
-  erc: {
-    errors: number
-    warnings: number
-    exclusions: number
-    ignoredChecks: string[]
-    violations: Array<{ sheet: string; severity: string; type: string; description: string }>
-    violationsTruncated: boolean
-  }
 }
-
-/** Netlist-only result for workflows that do not request ERC. */
-export type NetlistVerificationResult = Omit<VerificationResult, 'erc'>
 
 function optionalValue(form: Form, head: string): string | null {
   const child = children(form, head)
@@ -68,48 +57,6 @@ export function parseNetlist(text: string): Net[] {
   }))
 }
 
-function object(input: unknown, name: string): Record<string, unknown> {
-  if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new Error(`${name} is not an object`)
-  return input as Record<string, unknown>
-}
-
-function string(input: unknown, name: string): string {
-  if (typeof input !== 'string') throw new Error(`${name} is not a string`)
-  return input
-}
-
-function entries(input: unknown, name: string): unknown[] {
-  if (!Array.isArray(input)) throw new Error(`${name} is not an array`)
-  return input as unknown[]
-}
-
-function parseErc(text: string): VerificationResult['erc'] {
-  const root = object(JSON.parse(text) as unknown, 'KiCad ERC report')
-  const sheets = entries(root.sheets, 'KiCad ERC sheets')
-  const ignoredChecks = entries(root.ignored_checks, 'KiCad ignored checks')
-    .map(item => string(object(item, 'KiCad ignored check').key, 'KiCad ignored check key'))
-  const violations: VerificationResult['erc']['violations'] = []
-  let errors = 0; let warnings = 0; let exclusions = 0
-  for (const sheetValue of sheets) {
-    const sheet = object(sheetValue, 'KiCad ERC sheet')
-    const path = string(sheet.path, 'KiCad ERC sheet path')
-    for (const violationValue of entries(sheet.violations, 'KiCad ERC violations')) {
-      const violation = object(violationValue, 'KiCad ERC violation')
-      const severity = string(violation.severity, 'KiCad ERC severity')
-      if (severity === 'error') errors++
-      else if (severity === 'warning') warnings++
-      else if (severity === 'exclusion') exclusions++
-      else throw new Error(`KiCad ERC reported unknown severity: ${severity}`)
-      violations.push({
-        sheet: path, severity,
-        type: string(violation.type, 'KiCad ERC violation type'),
-        description: string(violation.description, 'KiCad ERC description'),
-      })
-    }
-  }
-  return { errors, warnings, exclusions, ignoredChecks, violations, violationsTruncated: false }
-}
-
 function summarizeNetlist(nets: Net[], expectedPins: ExpectedPin[], limit: number): NetlistVerificationResult {
   const pinNets = new Map<string, string>()
   for (const net of nets) {
@@ -124,7 +71,7 @@ function summarizeNetlist(nets: Net[], expectedPins: ExpectedPin[], limit: numbe
     return actualNet === item.net ? [] : [{ reference: item.reference, pin: item.pin,
       expectedNet: item.net, actualNet }]
   })
-  const shownNets: VerificationResult['nets'] = []
+  const shownNets: NetlistVerificationResult['nets'] = []
   let remaining = limit
   for (const net of nets) {
     if (remaining === 0) break
@@ -140,12 +87,6 @@ function summarizeNetlist(nets: Net[], expectedPins: ExpectedPin[], limit: numbe
     mismatchCount: allMismatches.length, mismatches: allMismatches.slice(0, limit),
     mismatchesTruncated: allMismatches.length > limit,
   }
-}
-
-function summarize(nets: Net[], expectedPins: ExpectedPin[], erc: VerificationResult['erc'], limit: number): VerificationResult {
-  return { ...summarizeNetlist(nets, expectedPins, limit),
-    erc: { ...erc, violations: erc.violations.slice(0, limit),
-      violationsTruncated: erc.violations.length > limit } }
 }
 
 async function boundedFile(path: string, maxBytes: number): Promise<string> {
@@ -193,32 +134,6 @@ export async function verifyNetlist(
       config, signal, runner)
     const netlistText = await boundedFile(netlistPath, config.maxVerificationBytes)
     return { summary: summarizeNetlist(parseNetlist(netlistText), expectedPins, config.maxVerificationItems), netlistText }
-  } finally {
-    if (dirname(resolve(directory)) !== resolve(tmpdir())) throw new Error('KiCad verification temp directory escaped')
-    await rm(directory, { recursive: true, force: true })
-  }
-}
-
-/** Run read-only netlist and ERC checks and discard temporary CLI output after parsing. */
-export async function verifySchematic(
-  rootPath: string, expectedPins: ExpectedPin[], config: VerificationConfig, signal: AbortSignal,
-  runner: KiCadRunner = runProcess,
-): Promise<VerificationResult> {
-  const directory = await mkdtemp(join(tmpdir(), 'dsh-kicad-verify-'))
-  const netlistPath = join(directory, 'netlist.net')
-  const ercPath = join(directory, 'erc.json')
-  try {
-    await runKiCad(rootPath, 'netlist export',
-      ['sch', 'export', 'netlist', '--format', 'kicadsexpr', '--output', netlistPath, rootPath],
-      config, signal, runner)
-    await runKiCad(rootPath, 'ERC',
-      ['sch', 'erc', '--format', 'json', '--severity-all', '--output', ercPath, rootPath],
-      config, signal, runner)
-    const [netlist, erc] = await Promise.all([
-      boundedFile(netlistPath, config.maxVerificationBytes),
-      boundedFile(ercPath, config.maxVerificationBytes),
-    ])
-    return summarize(parseNetlist(netlist), expectedPins, parseErc(erc), config.maxVerificationItems)
   } finally {
     if (dirname(resolve(directory)) !== resolve(tmpdir())) throw new Error('KiCad verification temp directory escaped')
     await rm(directory, { recursive: true, force: true })

@@ -69,4 +69,4 @@ header、pullup-rc 使用上文相同字段，外加 kind。公共端口标签�
 
 ## 检查与提交
 
-沿用task.md的check_and_preview_kicad_module入口；它不是发布工具。先修真实连接错误，再读图集中修可读性缺陷。提交固定候选、报告、已读图片与未决项后结束；共享接口或空间不足报告主agent，不修改清单。
+沿用task.md的review_kicad_module_candidate入口；它不是发布工具。先修真实连接错误，再读图集中修可读性缺陷。提交固定候选、报告、已读图片与未决项后结束；共享接口或空间不足报告主agent，不修改清单。

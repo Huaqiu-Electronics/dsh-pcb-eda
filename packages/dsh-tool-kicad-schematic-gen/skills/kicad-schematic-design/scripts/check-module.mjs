@@ -30,7 +30,7 @@ try{
  const connectivity=await checkModuleConnections(contract,mod,result,output,options[1]);
  const connectivityMs=Math.round(performance.now()-connectionStarted);
  report={...report,result,connectivity,timings:{preflightMs,buildMs,connectivityMs}};
- if(connectivity.status==='failed')throw Object.assign(new Error('MODULE_CONNECTION_MISSING: fix listed wiring/name defects; do not rewire an already connected net merely to change its name'),{code:'MODULE_CONNECTION_MISSING',issues:connectivity.issues});
+ if(connectivity.status==='failed')throw Object.assign(new Error('MODULE_CONNECTION_MISSING: fix listed wiring, net names or no-connect markers; do not rewire an already connected net merely to change its name'),{code:'MODULE_CONNECTION_MISSING',issues:connectivity.issues});
  const current=await loadModulePlan(resolve(manifest));
  if(moduleInputs(current,id).sha256!==inputs.sha256)
   throw new Error('MODULE_RESULT_STALE: inputs changed during module checking');

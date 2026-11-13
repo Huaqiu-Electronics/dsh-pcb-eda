@@ -19,6 +19,9 @@ import {createOverview,registerOverview} from './overview.ts'
 import {previewConfig} from './preview-config.ts'
 import {assertSchematicGrid} from './grid-check.ts'
 import {designPlanReference,matchDesignPlan,DESIGN_PLAN_MAX_BYTES} from './design-plan.ts'
+import {assignFootprintText} from './footprint-links.ts'
+import {isDownloadedModule,moduleFootprintAssets,moduleFootprintIndex,planModuleFootprints,type ModuleFootprint} from './module-footprint-plan.ts'
+import {prepareProjectFootprint,writeProject} from '../components/project-footprint.ts'
 
 import type { Config } from './config.ts'
 
@@ -138,6 +141,7 @@ export async function publishAssembly(
   record?: { designPlan: {path: string; sha256: string}; sheets: Array<{
     sourcePath: string; connections: Array<{port: string; net: string}>; unconnectedPorts: string[]
   }> },
+  prepareLibraries?: (directory: WorkspacePath) => Promise<void>,
 ): Promise<{ rootPath: string; projectPath: string; childPaths: string[]; symbolLibraryPath: string; symbolTablePath: string }> {
   const root = await fs.resolve(workspace, { signal })
   const directory = await fs.resolve(targetDir, { cwd: workspace, signal })
@@ -181,6 +185,7 @@ export async function publishAssembly(
       })}
     targets.push({target, content: JSON.stringify(detail, null, 2) + '\n'})
   }
+  await prepareLibraries?.(directory)
   await writeOutputs(fs, targets, policy, signal)
   return paths
 }
@@ -280,34 +285,20 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
     throw new Error('kicad-schematic-tools: previewTrimThreshold must be an integer from 0 to 255')
   }
   const ports: ToolDefinition = {
-    name: 'get_kicad_module_ports',
-    description: 'Read distinct explicit hierarchy port names as passive ports for connection planning. Repeated names with conflicting source directions are reported separately. Assembly makes the copied child hierarchy labels passive; source files and component pin types stay unchanged.',
+    name: 'list_kicad_hierarchical_ports',
+    description: 'Read the distinct explicit hierarchical-label names in one KiCad schematic. Use the returned ports array to plan connections for create_kicad_hierarchy. An empty array means the sheet declares no hierarchical labels.',
     parameters: { type: 'object', additionalProperties: false,
       properties: { schematicPath: { type: 'string' } }, required: ['schematicPath'] },
     output: { schema: { type: 'object', additionalProperties: false,
-      properties: { schematicPath: { type: 'string' }, portCount: { type: 'integer' },
-        ports: { type: 'array', items: { type: 'object', additionalProperties: false,
-          properties: { name: { type: 'string' }, direction: { type: 'string' } },
-          required: ['name', 'direction'] } },
-        directionConflicts: { type: 'array', items: { type: 'object', additionalProperties: false,
-          properties: { name: { type: 'string' }, sourceDirections: { type: 'array', items: { type: 'string' } } },
-          required: ['name', 'sourceDirections'] } },
-        interpretation: { type: 'string' } },
-      required: ['schematicPath', 'portCount', 'ports', 'directionConflicts', 'interpretation'] },
+      properties: { ports: { type: 'array', items: { type: 'string' } } }, required: ['ports'] },
       render: (_args, output) => [{ type: 'text', text: JSON.stringify(output) }] },
     async execute(args, exec) {
-      const input = validateKeys(args, ['schematicPath'], 'get_kicad_module_ports')
+      const input = validateKeys(args, ['schematicPath'], 'list_kicad_hierarchical_ports')
       const workspace = workspaceRoot(exec.agent)
       const source = await readWorkspaceSchematic(ctx.fs, workspace,
         requiredString(input, 'schematicPath'), config.maxSchematicBytes, exec.signal)
-      const found = readModulePorts(parse(source.text))
-      return { schematicPath: source.path, portCount: found.ports.length, ports: found.ports,
-        directionConflicts: found.directionConflicts,
-        interpretation: found.ports.length === 0
-          ? 'No explicit hierarchical-label ports. Inspect the circuit in KiCad to identify intended external connections.'
-          : found.directionConflicts.length > 0
-            ? 'All hierarchy ports are passive for connection planning. Repeated source directions are reported; assembly normalizes copied labels and leaves the source unchanged.'
-            : 'All explicit hierarchy ports are passive for connection planning. Component pin types and the source file are unchanged.' }
+      const {ports} = readModulePorts(parse(source.text))
+      return {ports: ports.map(port => port.name)}
     },
     presentCall: args => ({ card: 'generic', title: 'Get KiCad module ports', kind: 'read', rawInput: args }),
   }
@@ -406,13 +397,13 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
   }
   const hierarchy: ToolDefinition = {
     name: 'create_kicad_hierarchy',
-    description: 'Create a KiCad 10 hierarchical schematic from 1-9 single-sheet modules with explicit hierarchy ports. Connect by port name and root net; all generated hierarchy pins and copied labels are passive. For every port, supply a connection or list it in unconnectedPorts. Preflight reports port and symbol problems across all sheets before writing. The tool does not choose electrical connections, add ports, export a netlist, or run ERC. targetDir is an existing design root, for example designs/alarm_clock (not its schematic subfolder). The schematic subfolder is created during publication; output filenames must be unused. Returns project/root and child paths; warnings and direction conflicts appear only when nonempty. Full assembly details are saved to targetDir/<projectName>.assembly.json.',
+    description: 'Create a KiCad 10 hierarchical schematic from one or more single-sheet modules with explicit hierarchy ports. All child sheets and their ports must fit on one root page (up to A0). Connect by port name and root net; all generated hierarchy pins and copied labels are passive. For every port, supply a connection or list it in unconnectedPorts. Preflight reports port and symbol problems across all sheets before writing. The tool does not choose electrical connections, add ports, or export a netlist. targetDir is an existing design root, for example designs/alarm_clock (not its schematic subfolder). The schematic subfolder is created during publication; output filenames must be unused. Returns project/root and child paths; warnings and direction conflicts appear only when nonempty. Full assembly details are saved to targetDir/<projectName>.assembly.json.',
     parameters: { type: 'object', additionalProperties: false,
       properties: {
         designPlan:designPlanSchema,
         projectName: { type: 'string', description: 'ASCII filename stem: letters, digits, underscores, and hyphens; starts with a letter.' },
         title: { type: 'string' }, targetDir: { type: 'string', description: 'Existing design root, e.g. designs/alarm_clock. Children go into targetDir/schematic, created automatically. Do not pass designs/alarm_clock/schematic.' },
-        sheets: { type: 'array', items: { type: 'object', additionalProperties: false,
+        sheets: { type: 'array', description: 'At least one child sheet. Capacity depends on the root-page layout.', items: { type: 'object', additionalProperties: false,
           properties: {
             name: { type: 'string' }, sourcePath: { type: 'string' },
             connections: { type: 'array', items: { type: 'object', additionalProperties: false,
@@ -440,8 +431,8 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
       }
       const title = requiredString(input, 'title', 200)
       const targetDir = requiredString(input, 'targetDir')
-      if (!Array.isArray(input.sheets) || input.sheets.length < 1 || input.sheets.length > 9) {
-        throw new Error('sheets must contain 1 to 9 modules')
+      if (!Array.isArray(input.sheets) || input.sheets.length < 1) {
+        throw new Error('sheets must contain at least one module')
       }
       const workspace = workspaceRoot(exec.agent)
       const designPlan=await readWorkspaceDesignPlan(ctx.fs,workspace,input.designPlan,exec.signal)
@@ -458,20 +449,42 @@ export function registerSchematicTools(ctx: Context, config: Config): void {
       if (schematicInfo !== undefined && schematicInfo.type !== 'directory') {
         throw new Error(`code=HIERARCHY_OUTPUT_DIRECTORY; retryUnchanged=false; targetDir=${directory.displayPath}; childOutputDir=${schematicDir.displayPath}; child output path is a file. Choose an existing design root with an available schematic subfolder.`)
       }
-      const sheets = await Promise.all(input.sheets.map(async (item, index) => {
+      const prepared = await Promise.all(input.sheets.map(async (item, index) => {
         const sheet = validateKeys(item, ['name', 'sourcePath', 'connections', 'unconnectedPorts'], `sheets[${index}]`)
         const source = await readWorkspaceSchematic(ctx.fs, workspace,
           requiredString(sheet, 'sourcePath'), config.maxSchematicBytes, exec.signal)
-        return { name: requiredString(sheet, 'name', 128), sourcePath: source.path,
-          source: source.text, connections: parsePortConnections(sheet.connections, `sheets[${index}].connections`),
-          unconnectedPorts: parseUnconnectedPorts(sheet.unconnectedPorts, `sheets[${index}].unconnectedPorts`) }
+        const signal = exec.signal
+        const footprintIndex = await ctx.fs.resolve(moduleFootprintIndex(source.path), {signal})
+        if (!ctx.fs.contains(workspacePath, footprintIndex)) throw new Error('Module footprint index escapes workspace')
+        const hasIndex = await ctx.fs.stat(footprintIndex, signal)
+        const assets = hasIndex ? moduleFootprintAssets(source.path, new TextDecoder('utf-8', {fatal:true}).decode(
+          await ctx.fs.readBytes(footprintIndex, signal, 2_000_000))) : []
+        const footprints = hasIndex || isDownloadedModule(source.path)
+          ? planModuleFootprints(source.text, await Promise.all(assets.map(async asset => {
+              const target = await ctx.fs.resolve(asset.path, {signal})
+              if (!ctx.fs.contains(workspacePath, target)) throw new Error('Module footprint escapes workspace')
+              return {...asset, raw: new TextDecoder('utf-8', {fatal:true}).decode(await ctx.fs.readBytes(target, signal, config.maxSchematicBytes))}
+            })))
+          : undefined
+        return { footprints, sheet: {name: requiredString(sheet, 'name', 128), sourcePath: source.path,
+          source: footprints ? assignFootprintText(source.text, footprints.mappings) : source.text,
+          connections: parsePortConnections(sheet.connections, `sheets[${index}].connections`),
+          unconnectedPorts: parseUnconnectedPorts(sheet.unconnectedPorts, `sheets[${index}].unconnectedPorts`)} }
       }))
+      const sheets = prepared.map(item => item.sheet)
+      const models = new Map<string, ModuleFootprint>(prepared.flatMap(item => [...(item.footprints?.models ?? [])]))
       const files = buildAssembly(projectName, title, sheets)
       assertSchematicGrid(files.root)
       for(const child of files.children)assertSchematicGrid(child.text)
       const paths = await publishAssembly(ctx.fs, workspace, targetDir, projectName, files,
         undefined, exec.signal, {designPlan: {path: designPlan.path, sha256: designPlan.sha256},
-          sheets: sheets.map(({sourcePath, connections, unconnectedPorts}) => ({sourcePath, connections, unconnectedPorts}))})
+          sheets: sheets.map(({sourcePath, connections, unconnectedPorts}) => ({sourcePath, connections, unconnectedPorts}))},
+        models.size ? target => writeProject(target.displayPath, exec.signal, async () => {
+          for (const {nickname, text} of models.values()) {
+            const footprint = await prepareProjectFootprint(target, nickname, text, ctx.fs, exec.signal)
+            await footprint.write(undefined)
+          }
+        }) : undefined)
       return {projectPath: paths.projectPath, rootPath: paths.rootPath,
         ...(files.warnings.length > 0 ? {warnings: files.warnings} : {}),
         sheets: sheets.map((sheet, index) => ({name: sheet.name, schematicPath: paths.childPaths[index]!,

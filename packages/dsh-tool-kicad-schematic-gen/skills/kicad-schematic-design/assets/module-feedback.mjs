@@ -11,7 +11,7 @@ export function moduleFeedback(report,reportPath,{includeIssues=true}={}){
    issueCount:issues.length,counts,...(includeIssues?{issues:issues.slice(0,8),omittedIssues:Math.max(0,issues.length-8)}:{}),
    warnings:(report.connectivity?.warnings??[]).slice(0,4).map(w=>includeIssues?w:typeof w==='string'?w.slice(0,300):{code:w.code,net:w.net})},
   reviewStatus:'pending',
-  layout:{status:report.layout?.status??'not_run',outsideCount:report.layout?.outside?.length??null,overlapCount:report.layout?.overlaps?.length??null,
+  layout:{status:report.layout?.status??'not_run',frame:report.layout?.frame,outsideCount:report.layout?.outside?.length??null,overlapCount:report.layout?.overlaps?.length??null,
    readability:report.layout?.readability?{status:report.layout.readability.status,checkedTexts:report.layout.readability.checkedTexts,
     issueCount:report.layout.readability.issues.length,...(includeIssues?{issues:report.layout.readability.issues.slice(0,6)}:{})}:{status:'not_run'},
    ...(includeIssues?{issues:(report.layout?.reviewIssues??[]).slice(0,6),regions:(report.layout?.regions??[]).slice(0,3)}:{}),

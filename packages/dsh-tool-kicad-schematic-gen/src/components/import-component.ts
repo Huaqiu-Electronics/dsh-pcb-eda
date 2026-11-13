@@ -34,7 +34,12 @@ export async function importComponent(mfgId: string, mpn: string, projectDir: st
     return (await pending).clone()
   }
   const urls = await getModelUrls(mfgId, mpn, options, signal, cachedFetch)
-  if (!urls.symbol || !urls.footprint) throw new Error('COMPONENT_MODELS_REQUIRED: both symbol and footprint URLs are required')
+  if (!urls.footprint) {
+    throw new Error(`FOOTPRINT_NOT_AVAILABLE: manufacturer_id=${mfgId}, mpn=${mpn}. Select a suitable alternative with a footprint.`)
+  }
+  if (!urls.symbol) {
+    throw new Error(`SYMBOL_NOT_AVAILABLE: manufacturer_id=${mfgId}, mpn=${mpn}.`)
+  }
   const [source, rawFootprint] = await Promise.all([
     fetchSymbolSource(mfgId, mpn, options, signal, cachedFetch),
     fetchModelText(urls.footprint, 'footprint', options, signal, cachedFetch),

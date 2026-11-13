@@ -15,16 +15,18 @@ function harness(host?:object,withSystemPrompt=true){
   return{tools,getProvider:()=>provider,sections,dispose:()=>cleanups.reverse().forEach(fn=>fn())}
 }
 
-test('schematic plugin owns fourteen tools while component search is a separate plugin',async()=>{
+test('schematic plugin owns twelve tools while component search is a separate plugin',async()=>{
   const h=harness()
   assert.equal(name,'@huaqiu/dsh-tool-kicad-schematic-gen')
   assert.deepEqual(inject,['tools','fs','sandboxPolicy','skills','webServer','systemPrompt'])
-  assert.equal(h.tools.size,14)
-  assert.ok(h.tools.has('analyze_kicad_module'))
+  assert.equal(h.tools.size,12)
+  assert.ok(h.tools.has('dispatch_kicad_module_tasks'))
+  assert.ok(h.tools.has('review_kicad_module_candidate'))
+  assert.ok(!h.tools.has('analyze_kicad_module'))
   assert.ok(!h.tools.has('search_kicad_parts'));assert.ok(!h.tools.has('get_kicad_supply_chain'))
   assert.ok(!h.tools.has('search_hqsch_parts'))
-  assert.ok(h.tools.has('import_kicad_symbol'));assert.ok(h.tools.has('download_eda_module_schematic'))
-  assert.ok(h.tools.has('edit_kicad_flat_schematic'))
+  assert.ok(h.tools.has('import_kicad_component_symbol_and_footprint'));assert.ok(h.tools.has('download_eda_module_schematic'))
+  assert.ok(!h.tools.has('import_kicad_module_footprints'))
   assert.equal((await h.getProvider().list())[0].name,'kicad-schematic-design')
   // The `@schematic-gen` token gets its meaning from exactly one section,
   // registered beside `eda:selection` and disposed with the plugin.
@@ -35,14 +37,14 @@ test('schematic plugin owns fourteen tools while component search is a separate 
 })
 test('a missing systemPrompt service degrades to no section, never a failed apply',()=>{
   const h=harness(undefined,false)
-  assert.equal(h.tools.size,14)
+  assert.equal(h.tools.size,12)
   assert.equal(h.sections.length,0)
   h.dispose();assert.equal(h.tools.size,0)
 })
 test('unavailable HQ Edge fails only module download, not plugin registration',async()=>{
   const h=harness()
   await assert.rejects(h.tools.get('download_eda_module_schematic').execute({moduleId:'1'},{signal:new AbortController().signal}),/Open KiCad with HQ Edge/)
-  assert.equal(h.tools.size,14);h.dispose()
+  assert.equal(h.tools.size,12);h.dispose()
 })
 test('partial configuration preserves unrelated limits and bundled template paths',()=>{
   const config=resolveConfig({components:{maxModelBytes:2000000},modules:{search:{maxResults:5}}})
