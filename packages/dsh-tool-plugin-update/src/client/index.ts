@@ -41,7 +41,7 @@ import {
 } from './api.js'
 import { COPY } from './copy.js'
 import { PLUGIN_ICON } from './icons.js'
-import { openUpdateView, type UpdateStoreLike } from './update-view.js'
+import { openUpdateView, takeOverUpdateView, type UpdateStoreLike } from './update-view.js'
 import { badgeCountFor } from './badge.js'
 
 /** Stable data attributes identifying the injected entry row. */
@@ -2127,6 +2127,28 @@ export class UpdateStore implements UpdateStoreLike {
   }
 
   /**
+   * Re-attach after this plugin's own bundle was swapped mid-install.
+   *
+   * The freshly re-mounted panel starts with no state at all. If the restarted
+   * DSH is not answering yet, one failed read leaves it on its skeleton until
+   * the next 60 s idle tick — indistinguishable from "the page never updated".
+   * Retry the durable-job read and the report a few times; both emit, so the
+   * panel converges as soon as the server is back.
+   */
+  async resync(attempts = 6, delayMs = 1_000): Promise<void> {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      await this.fetchStatus()
+      await this.refresh()
+      if (this.current !== null) return
+      if (attempt + 1 < attempts) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, delayMs)
+        })
+      }
+    }
+  }
+
+  /**
    * One read. While a job is being followed, ask `/activity` about THAT job
    * (survives the restart an update of this plugin causes); otherwise fall back
    * to the plain `/status` list. An older hq-edge without `/activity` 404s and
@@ -2355,8 +2377,24 @@ export function apply(ctx: ClientContext): () => void {
   // transient "installing" state with no job to follow.
   store.settleStaleInstall()
   store.startIdleRefresh()
-  void store.refresh()
-  void store.fetchStatus()
+
+  // A self-update (this plugin standalone, or the whole set including it)
+  // replaces THIS client bundle mid-install. The host disposes the old module
+  // — stopping its store and clearing its subscriptions — and applies a fresh
+  // one, but the open review panel's DOM survives. Left alone it stays frozen
+  // at "Updating…" forever, subscribed to the dead store. Re-create it against
+  // this instance's store so it re-reads the settled job and the report from
+  // the restarted DSH and shows the final state. When no panel was open (a
+  // normal boot) just do the usual mount reads.
+  if (takeOverUpdateView()) {
+    openView()
+    // The restarted DSH may not answer the first read; keep re-reading until
+    // it does rather than waiting for the 60 s idle tick (see resync()).
+    void store.resync()
+  } else {
+    void store.refresh()
+    void store.fetchStatus()
+  }
 
   const dispose = (): void => {
     try {

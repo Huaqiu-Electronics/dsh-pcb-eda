@@ -346,4 +346,42 @@ describe('store re-attach', () => {
       vi.useRealTimers()
     }
   })
+
+  it('resyncs a freshly re-mounted panel once the restarted DSH answers', async () => {
+    vi.useFakeTimers()
+    try {
+      // The replacement module starts with an empty store. Its first two
+      // reads land while DSH is still coming back up.
+      mocks.fetchReport
+        .mockRejectedValueOnce(new Error('connection refused'))
+        .mockRejectedValueOnce(new Error('connection refused'))
+      mocks.fetchJobStatus.mockResolvedValue({ activeJob: null, recentJobs: [] })
+
+      const pending = store.resync(6, 1_000)
+      await vi.runAllTimersAsync()
+      await pending
+
+      expect(mocks.fetchReport).toHaveBeenCalledTimes(3)
+      expect(store.report()).toBe(EMPTY_REPORT)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('bounds the re-sync retries so a dead server cannot spin forever', async () => {
+    vi.useFakeTimers()
+    try {
+      mocks.fetchReport.mockRejectedValue(new Error('connection refused'))
+      mocks.fetchJobStatus.mockResolvedValue({ activeJob: null, recentJobs: [] })
+
+      const pending = store.resync(3, 1_000)
+      await vi.runAllTimersAsync()
+      await pending
+
+      expect(mocks.fetchReport).toHaveBeenCalledTimes(3)
+      expect(store.report()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

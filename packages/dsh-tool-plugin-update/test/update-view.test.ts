@@ -25,7 +25,7 @@ import {
   type UpdateStep,
 } from '../src/client/api.js'
 import { COPY } from '../src/client/copy.js'
-import { openUpdateView, type UpdateStoreLike } from '../src/client/update-view.js'
+import { openUpdateView, takeOverUpdateView, type UpdateStoreLike } from '../src/client/update-view.js'
 import { normalizePluginUpdateReport } from '../src/client/version.js'
 
 // The view calls the API directly, so stub the calls it makes. Everything else
@@ -614,6 +614,42 @@ describe('decision band', () => {
   it('is absent when nothing is on offer', () => {
     openUpdateView(fakeStore(reportWith(runtimeEntry(), false)), zh)
     expect(document.querySelector('[data-role="decision-band"]')).toBeNull()
+  })
+})
+
+describe('panel takeover after a self-update', () => {
+  it('tears down the orphaned panel so the re-applied module can render the final state', () => {
+    // Updating this plugin replaces its client bundle: the old store is
+    // stopped, but the open modal's DOM survives. Left alone it would sit
+    // frozen at "更新中" forever.
+    const oldUnsubscribe = vi.fn()
+    const installingReport: PluginUpdateReport = {
+      ...reportWith(runtimeEntry(), false),
+      items: [
+        { name: '@huaqiu/dsh-a', currentVersion: '0.6.0', availableVersion: '0.6.1', state: 'update' },
+      ],
+    }
+    openUpdateView(
+      fakeStore(installingReport, {
+        installing: () => true,
+        subscribe: () => oldUnsubscribe,
+      }),
+      zh,
+    )
+    expect(document.querySelector('[data-hq-plugin-update-view]')).not.toBeNull()
+    expect(cta()?.textContent).toContain(zh.ui.ctaInstalling)
+
+    // The fresh module instance takes the DOM over. Its own close handle (not
+    // module memory) is what disposes the orphan's subscriptions + listeners.
+    expect(takeOverUpdateView()).toBe(true)
+    expect(oldUnsubscribe).toHaveBeenCalled()
+    expect(document.querySelector('[data-hq-plugin-update-view]')).toBeNull()
+    expect(takeOverUpdateView()).toBe(false)
+
+    // Re-opening against the replacement store shows the settled state.
+    openUpdateView(fakeStore(reportWith(runtimeEntry(), false)), zh)
+    expect(cta()?.textContent).not.toContain(zh.ui.ctaInstalling)
+    expect(cta()?.dataset.busy).toBe('false')
   })
 })
 

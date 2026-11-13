@@ -1038,6 +1038,36 @@ function showToast(message: string, tone: 'success' | 'error'): void {
 // ── Panel ─────────────────────────────────────────────────────────────────
 
 /**
+ * Installing a set that contains THIS plugin replaces its client bundle in the
+ * browser: the host tears down the old module's effects (stopping its store and
+ * clearing its subscriptions) and re-applies a fresh module instance. The open
+ * review panel's DOM is NOT part of that teardown — it stays on screen, but
+ * bound to the disposed store, so it never sees the settled job or the new
+ * report. The replacement module calls this to tear the orphan down and
+ * re-create the panel against its own store.
+ *
+ * The close handle lives ON the overlay element, not in module memory: by the
+ * time the replacement runs, this module's variables are gone, while
+ * document.body is not.
+ */
+interface PanelOverlay extends HTMLElement {
+  __hqpuClose?: () => void
+}
+
+/**
+ * Tear down a panel left open by a previous instance of this plugin.
+ * @returns true when a panel had been open and the caller should re-open it.
+ */
+export function takeOverUpdateView(): boolean {
+  const overlay = document.querySelector<HTMLElement>('[data-hq-plugin-update-view]')
+  if (overlay === null) return false
+  const close = (overlay as PanelOverlay).__hqpuClose
+  if (typeof close === 'function') close()
+  else overlay.remove()
+  return true
+}
+
+/**
  * Open (or focus) the update panel. Re-renders from the store; when the store
  * is stale the panel first refreshes the report.
  */
@@ -1892,6 +1922,11 @@ export function openUpdateView(store: UpdateStoreLike, copy: UpdateCopy): void {
     // Focus goes back where it came from — the sidebar row that opened this.
     if (previouslyFocused !== null && previouslyFocused.isConnected) previouslyFocused.focus()
   }
+
+  // Publish the teardown on the DOM node so a replacement module instance can
+  // dispose this panel properly (unsubscribe, drop listeners, remove the
+  // overlay) before re-opening it against its own store.
+  ;(overlay as PanelOverlay).__hqpuClose = onClose
 
   render()
 }
