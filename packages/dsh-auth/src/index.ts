@@ -5,7 +5,7 @@
  * mounts the browser→node credential routes on `ctx.webServer`.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
+import type { CredentialProvider, CredentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { getLogger } from '@huaqiu/dsh-plugin-log'
 import {
@@ -13,7 +13,12 @@ import {
   resolveHostConfig,
   type HuaqiuAuthConfig,
 } from './host.js'
-import { HuaqiuApiKeySync, HUAQIU_API_KEY_REF } from './apiKeySync.js'
+import {
+  HuaqiuApiKeySync,
+  HUAQIU_API_KEY_REF,
+  type CredentialStore,
+  type VolatileCredentialStore,
+} from './apiKeySync.js'
 import { InMemoryHuaqiuAuthService, type HuaqiuAuthService } from './service.js'
 import { AUTH_ROUTE_PREFIX, createAuthHandler } from './routes.js'
 
@@ -86,15 +91,26 @@ export function apply(ctx: Context, config?: Partial<HuaqiuAuthConfig>): void {
         // ... without inject" in that window; `ctx.get('credentials')`
         // returns undefined instead, so the round is skipped and the next
         // poll retries once the service is live (self-healing, no restart).
+        //
+        // The store prefers the mounted provider's in-memory `setVolatile`
+        // channel when it exists, so the HQ Edge token mirrors into RAM only —
+        // no `.credentials.yaml` write, no cross-process lock. When the mounted
+        // provider predates that channel the durable `set`/`unset` fallback is
+        // used (the previous persistent behavior).
         () => {
           const credentials = ctx.get('credentials') as
-            | { set(ref: string, value: string): Promise<void>; unset(ref: string): Promise<void> }
+            | (CredentialProvider & Partial<VolatileCredentialStore>)
             | undefined
           if (credentials === undefined) return null
-          return {
+          const store: CredentialStore & Partial<VolatileCredentialStore> = {
             set: (ref, value) => credentials.set(ref as CredentialRef, value),
             unset: (ref) => credentials.unset(ref as CredentialRef),
           }
+          if (typeof credentials.setVolatile === 'function') {
+            store.setVolatile = (ref, value) => credentials.setVolatile!(ref as CredentialRef, value)
+            store.unsetVolatile = (ref) => credentials.unsetVolatile!(ref as CredentialRef)
+          }
+          return store
         },
         {
           debug: (msg, ctx2) => log.debug(msg, ctx2),

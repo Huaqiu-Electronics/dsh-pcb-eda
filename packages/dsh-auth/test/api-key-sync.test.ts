@@ -25,6 +25,7 @@ import {
   type CredentialStore,
   type CredentialStoreProvider,
   type SyncLogger,
+  type VolatileCredentialStore,
 } from '../src/apiKeySync.js'
 
 const TOKEN_URL = 'http://localhost:18080/api/v1/auth/token'
@@ -47,9 +48,14 @@ function fetchStub(behavior: FetchBehavior = {}): typeof fetch {
 
 function makeHarness(behavior: FetchBehavior = {}) {
   const fetchImpl = fetchStub(behavior)
-  const credentials: CredentialStore & { set: ReturnType<typeof vi.fn>; unset: ReturnType<typeof vi.fn> } = {
+  const credentials: CredentialStore & {
+    set: ReturnType<typeof vi.fn>; unset: ReturnType<typeof vi.fn>
+    setVolatile: ReturnType<typeof vi.fn>; unsetVolatile: ReturnType<typeof vi.fn>
+  } = {
     set: vi.fn().mockResolvedValue(undefined),
     unset: vi.fn().mockResolvedValue(undefined),
+    setVolatile: vi.fn().mockResolvedValue(undefined),
+    unsetVolatile: vi.fn().mockResolvedValue(undefined),
   }
   const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn() } as unknown as SyncLogger & {
     debug: ReturnType<typeof vi.fn>
@@ -77,58 +83,62 @@ describe('HuaqiuApiKeySync', () => {
     vi.useRealTimers()
   })
 
-  it('mirrors an authenticated host session into the HUAQIU_API_KEY reference', async () => {
+  it('mirrors an authenticated host session into the HUAQIU_API_KEY reference (in memory)', async () => {
     const { sync, credentials } = makeHarness()
     await sync.syncNow()
-    expect(credentials.set).toHaveBeenCalledTimes(1)
-    expect(credentials.set).toHaveBeenCalledWith(HUAQIU_API_KEY_REF, 'tok-1')
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(1)
+    expect(credentials.setVolatile).toHaveBeenCalledWith(HUAQIU_API_KEY_REF, 'tok-1')
+    expect(credentials.set).not.toHaveBeenCalled()
     expect(credentials.unset).not.toHaveBeenCalled()
+    expect(credentials.unsetVolatile).not.toHaveBeenCalled()
   })
 
   it('does not rewrite the credential when the token is unchanged', async () => {
     const { sync, credentials } = makeHarness()
     await sync.syncNow()
     await sync.syncNow()
-    expect(credentials.set).toHaveBeenCalledTimes(1)
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(1)
   })
 
   it('rewrites the credential when the host token changes', async () => {
     const { sync, credentials } = makeHarness()
     await sync.syncNow()
-    expect(credentials.set).toHaveBeenCalledTimes(1)
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(1)
     // Host replaces the credential (version bump → different token).
     const next = makeHarness({ payload: { token: 'tok-2', userId: 'u1', authenticated: true, version: 2 } })
     ;(next.sync as unknown as { lastToken: string | null }).lastToken = lastTokenOf(sync)
     await next.sync.syncNow()
-    expect(next.credentials.set).toHaveBeenCalledTimes(1)
-    expect(next.credentials.set).toHaveBeenCalledWith(HUAQIU_API_KEY_REF, 'tok-2')
+    expect(next.credentials.setVolatile).toHaveBeenCalledTimes(1)
+    expect(next.credentials.setVolatile).toHaveBeenCalledWith(HUAQIU_API_KEY_REF, 'tok-2')
   })
 
   it('unsets on an explicit unauthenticated verdict (2xx + authenticated: false)', async () => {
     const { sync, credentials } = makeHarness()
     await sync.syncNow()
-    expect(credentials.set).toHaveBeenCalledTimes(1)
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(1)
     const loggedOut = makeHarness({ payload: { token: 'tok-1', userId: 'u1', authenticated: false, version: 2 } })
     ;(loggedOut.sync as unknown as { lastToken: string | null }).lastToken = 'tok-1'
     await loggedOut.sync.syncNow()
-    expect(loggedOut.credentials.unset).toHaveBeenCalledWith(HUAQIU_API_KEY_REF)
-    expect(loggedOut.credentials.set).not.toHaveBeenCalled()
+    expect(loggedOut.credentials.unsetVolatile).toHaveBeenCalledWith(HUAQIU_API_KEY_REF)
+    expect(loggedOut.credentials.setVolatile).not.toHaveBeenCalled()
   })
 
   it('unsets on a 2xx payload without a usable credential', async () => {
     const { sync, credentials } = makeHarness()
     await sync.syncNow()
-    expect(credentials.set).toHaveBeenCalledTimes(1)
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(1)
     const cleared = makeHarness({ payload: null, status: 200 })
     ;(cleared.sync as unknown as { lastToken: string | null }).lastToken = 'tok-1'
     await cleared.sync.syncNow()
-    expect(cleared.credentials.unset).toHaveBeenCalledWith(HUAQIU_API_KEY_REF)
-    expect(cleared.credentials.set).not.toHaveBeenCalled()
+    expect(cleared.credentials.unsetVolatile).toHaveBeenCalledWith(HUAQIU_API_KEY_REF)
+    expect(cleared.credentials.setVolatile).not.toHaveBeenCalled()
   })
 
   it('keeps the credential untouched on a non-2xx host answer (warn only)', async () => {
     const { sync, credentials, logger } = makeHarness({ status: 500 })
     await sync.syncNow()
+    expect(credentials.setVolatile).not.toHaveBeenCalled()
+    expect(credentials.unsetVolatile).not.toHaveBeenCalled()
     expect(credentials.set).not.toHaveBeenCalled()
     expect(credentials.unset).not.toHaveBeenCalled()
     expect(logger.warn).toHaveBeenCalled()
@@ -137,6 +147,8 @@ describe('HuaqiuApiKeySync', () => {
   it('keeps the credential untouched on a network error (warn only)', async () => {
     const { sync, credentials, logger } = makeHarness({ throwNetwork: true })
     await sync.syncNow()
+    expect(credentials.setVolatile).not.toHaveBeenCalled()
+    expect(credentials.unsetVolatile).not.toHaveBeenCalled()
     expect(credentials.set).not.toHaveBeenCalled()
     expect(credentials.unset).not.toHaveBeenCalled()
     expect(logger.warn).toHaveBeenCalled()
@@ -147,7 +159,7 @@ describe('HuaqiuApiKeySync', () => {
     const { sync, credentials } = makeHarness()
     sync.start()
     await vi.advanceTimersByTimeAsync(0) // flush the immediate syncNow round
-    expect(credentials.set).toHaveBeenCalledTimes(1)
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(1)
     sync.dispose()
   })
 
@@ -156,10 +168,10 @@ describe('HuaqiuApiKeySync', () => {
     const { sync, credentials } = makeHarness()
     sync.start()
     await vi.advanceTimersByTimeAsync(0) // immediate round settles first
-    const callsAfterStart = credentials.set.mock.calls.length
+    const callsAfterStart = credentials.setVolatile.mock.calls.length
     sync.dispose()
     await vi.advanceTimersByTimeAsync(DEFAULT_HUAQIU_API_KEY_SYNC_MS * 3)
-    expect(credentials.set.mock.calls.length).toBe(callsAfterStart)
+    expect(credentials.setVolatile.mock.calls.length).toBe(callsAfterStart)
   })
 
   it('poll rounds never overlap while a round is in flight', async () => {
@@ -173,9 +185,14 @@ describe('HuaqiuApiKeySync', () => {
       })
       return { ok: true, status: 200, json: async () => ({ token: 'tok-1', userId: 'u1', authenticated: true }) } as unknown as Response
     }) as unknown as typeof fetch
-    const credentials: CredentialStore & { set: ReturnType<typeof vi.fn> } = {
+    const credentials: CredentialStore & {
+      set: ReturnType<typeof vi.fn>; unset: ReturnType<typeof vi.fn>
+      setVolatile: ReturnType<typeof vi.fn>; unsetVolatile: ReturnType<typeof vi.fn>
+    } = {
       set: vi.fn().mockResolvedValue(undefined),
       unset: vi.fn().mockResolvedValue(undefined),
+      setVolatile: vi.fn().mockResolvedValue(undefined),
+      unsetVolatile: vi.fn().mockResolvedValue(undefined),
     }
     const sync = new HuaqiuApiKeySync(
       'http://localhost:18080',
@@ -190,10 +207,10 @@ describe('HuaqiuApiKeySync', () => {
     const pendingRound = (sync as unknown as { inFlight: boolean }).inFlight
     expect(pendingRound).toBe(true)
     await vi.advanceTimersByTimeAsync(200) // more ticks while still in flight
-    expect(credentials.set).toHaveBeenCalledTimes(0) // nothing completed yet
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(0) // nothing completed yet
     gate.release()
     await vi.advanceTimersByTimeAsync(0) // flush the released round
-    expect(credentials.set).toHaveBeenCalledTimes(1) // exactly one round completed
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(1) // exactly one round completed
     sync.dispose()
   })
 
@@ -225,9 +242,14 @@ describe('HuaqiuApiKeySync', () => {
     // Self-healing: a skipped round does not wedge the sync; the next round
     // writes the token as soon as the service is resolvable.
     let store: CredentialStore | null = null
-    const credentials: CredentialStore & { set: ReturnType<typeof vi.fn>; unset: ReturnType<typeof vi.fn> } = {
+    const credentials: CredentialStore & {
+      set: ReturnType<typeof vi.fn>; unset: ReturnType<typeof vi.fn>
+      setVolatile: ReturnType<typeof vi.fn>; unsetVolatile: ReturnType<typeof vi.fn>
+    } = {
       set: vi.fn().mockResolvedValue(undefined),
       unset: vi.fn().mockResolvedValue(undefined),
+      setVolatile: vi.fn().mockResolvedValue(undefined),
+      unsetVolatile: vi.fn().mockResolvedValue(undefined),
     }
     const sync = new HuaqiuApiKeySync(
       'http://localhost:18080',
@@ -240,8 +262,40 @@ describe('HuaqiuApiKeySync', () => {
     await sync.syncNow() // skipped: service unavailable
     store = credentials // service activates
     await sync.syncNow() // next round writes
+    expect(credentials.setVolatile).toHaveBeenCalledTimes(1)
+    expect(credentials.setVolatile).toHaveBeenCalledWith(HUAQIU_API_KEY_REF, 'tok-1')
+  })
+
+  it('falls back to the durable set/unset when the store lacks a volatile channel', async () => {
+    // Older bundles mount a credentials provider without `setVolatile`; the sync
+    // must still persist the token through the durable path rather than throw.
+    const credentials: CredentialStore = {
+      set: vi.fn().mockResolvedValue(undefined),
+      unset: vi.fn().mockResolvedValue(undefined),
+    }
+    const sync = new HuaqiuApiKeySync(
+      'http://localhost:18080',
+      '/api/v1/auth/token',
+      () => credentials,
+      { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
+      50,
+      fetchStub(),
+    )
+    await sync.syncNow()
     expect(credentials.set).toHaveBeenCalledTimes(1)
     expect(credentials.set).toHaveBeenCalledWith(HUAQIU_API_KEY_REF, 'tok-1')
+    // Explicit logout clears through the durable path.
+    const cleared = new HuaqiuApiKeySync(
+      'http://localhost:18080',
+      '/api/v1/auth/token',
+      () => credentials,
+      { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
+      50,
+      fetchStub({ payload: { token: 'tok-1', userId: 'u1', authenticated: false, version: 2 } }),
+    )
+    ;(cleared as unknown as { lastToken: string | null }).lastToken = 'tok-1'
+    await cleared.syncNow()
+    expect(credentials.unset).toHaveBeenCalledWith(HUAQIU_API_KEY_REF)
   })
 
   it('is disabled with an empty base URL', () => {

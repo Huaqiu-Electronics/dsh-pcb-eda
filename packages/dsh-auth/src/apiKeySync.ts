@@ -36,6 +36,37 @@ export interface CredentialStore {
 }
 
 /**
+ * A {@link CredentialStore} that can mirror a value in memory without
+ * persistence. When present, `HuaqiuApiKeySync` prefers it over the durable
+ * `set`/`unset` so the rotating HQ Edge token never reaches `.credentials.yaml`
+ * or its cross-process lock. The durable path remains the fallback for bundles
+ * whose mounted provider has not been upgraded to expose `setVolatile`.
+ */
+export interface VolatileCredentialStore {
+  setVolatile(ref: string, value: string): Promise<void>
+  unsetVolatile(ref: string): Promise<void>
+}
+
+/** Whether a store exposes the in-memory (non-persistent) mirror channel. */
+function isVolatileStore(store: CredentialStore): boolean {
+  return typeof (store as Partial<VolatileCredentialStore>).setVolatile === 'function'
+}
+
+/** Mirror a value, preferring the in-memory channel when the store supports it. */
+async function writeVolatile(store: CredentialStore, ref: string, value: string): Promise<void> {
+  const volatile = store as Partial<VolatileCredentialStore>
+  if (typeof volatile.setVolatile === 'function') await volatile.setVolatile(ref, value)
+  else await store.set(ref, value)
+}
+
+/** Clear a value, preferring the in-memory channel when the store supports it. */
+async function clearVolatile(store: CredentialStore, ref: string): Promise<void> {
+  const volatile = store as Partial<VolatileCredentialStore>
+  if (typeof volatile.unsetVolatile === 'function') await volatile.unsetVolatile(ref)
+  else await store.unset(ref)
+}
+
+/**
  * Resolves the credential store lazily on every sync round.
  *
  * The DSH `credentials` service may not be activated yet when this plugin
@@ -132,8 +163,8 @@ export class HuaqiuApiKeySync {
     if (info !== null && info.authenticated) {
       if (info.token !== this.lastToken) {
         this.lastToken = info.token
-        await store.set(HUAQIU_API_KEY_REF, info.token)
-        this.log.info('huaqiu api-key credential synced', { userId: info.id })
+        await writeVolatile(store, HUAQIU_API_KEY_REF, info.token)
+        this.log.info('huaqiu api-key credential synced', { userId: info.id, inMemory: isVolatileStore(store) })
       }
       return
     }
@@ -144,8 +175,8 @@ export class HuaqiuApiKeySync {
     if (res !== null && res.ok) {
       if (this.lastToken !== null) {
         this.lastToken = null
-        await store.unset(HUAQIU_API_KEY_REF)
-        this.log.info('huaqiu api-key credential cleared', { explicit: true })
+        await clearVolatile(store, HUAQIU_API_KEY_REF)
+        this.log.info('huaqiu api-key credential cleared', { explicit: true, inMemory: isVolatileStore(store) })
       }
       return
     }
