@@ -28,7 +28,6 @@ export const BUILTIN_TOOLS = [
   "get_selection_netlist",
   "import_kicad_component",
   "import_kicad_symbol",
-  "kicad_drc_run",
   "kicad_ipc_diagnose",
   "kicad_ipc_verify_live",
   "kicad_pcb_add_footprint_from_template",
