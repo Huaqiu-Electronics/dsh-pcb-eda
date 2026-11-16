@@ -1,8 +1,8 @@
 {
   "schemaVersion": 2,
-  "pluginSetVersion": "0.6.28",
+  "pluginSetVersion": "0.6.29",
   "release": {
-    "publishedAt": "2026-11-13T03:28:56.260Z",
+    "publishedAt": "2026-11-16T03:01:04.689Z",
     "channel": "stable",
     "requiresRestart": true,
     "summary": "EDA 主机拖拽放置稳定性修复，器件搜索与报价插件体验优化，以及插件更新面板的进度与发布说明展示。",
@@ -17,7 +17,7 @@
   },
   "plugins": {
     "@huaqiu/dsh-analytics": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -33,7 +33,7 @@
       ]
     },
     "@huaqiu/dsh-artifacts": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -49,7 +49,7 @@
       ]
     },
     "@huaqiu/dsh-auth": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -61,11 +61,12 @@
       "description": "登录与账号授权",
       "sizeBytes": 284110,
       "changes": [
-        "用户登录之后自动配置华秋 AI 网关"
+        "用户登录之后自动配置华秋 AI 网关",
+        "修复了多开DSH 实例周期性往本地认知文件写入文件时导致的文件损坏的问题"
       ]
     },
     "@huaqiu/dsh-eda-host": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -82,7 +83,7 @@
       ]
     },
     "@huaqiu/dsh-eda-selection": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -98,7 +99,7 @@
       ]
     },
     "@huaqiu/dsh-hqsch": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "hq-eda"
       ],
@@ -114,7 +115,7 @@
       ]
     },
     "@huaqiu/dsh-huaqiu-about": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -130,7 +131,7 @@
       ]
     },
     "@huaqiu/dsh-kicad": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "kicad"
       ],
@@ -178,7 +179,7 @@
       ]
     },
     "@huaqiu/dsh-tool-kicad-schematic-gen": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -194,7 +195,7 @@
       ]
     },
     "@huaqiu/dsh-tool-part-search": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -211,7 +212,7 @@
       ]
     },
     "@huaqiu/dsh-tool-pcb-viewer": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -227,7 +228,7 @@
       ]
     },
     "@huaqiu/dsh-tool-plugin-update": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -244,7 +245,7 @@
       ]
     },
     "@huaqiu/dsh-tool-quote": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -260,7 +261,7 @@
       ]
     },
     "@huaqiu/dsh-tool-symbol-footprint": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
@@ -276,7 +277,7 @@
       ]
     },
     "@huaqiu/dsh-ui-theme-huaqiu": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "all"
       ],
