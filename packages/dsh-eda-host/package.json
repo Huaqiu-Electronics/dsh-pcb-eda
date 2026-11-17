@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-eda-host",
-  "version": "0.6.30",
+  "version": "0.7.1",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.mts",
