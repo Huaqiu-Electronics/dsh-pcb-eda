@@ -7,7 +7,6 @@
   "files": [
     "plugins-release-manifest.json",
     "edge-headless-release-manifest.json",
-    "hq-edge-build-manifest.json",
     "README.md"
   ],
   "publishConfig": {

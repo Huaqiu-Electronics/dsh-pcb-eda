@@ -25,7 +25,6 @@ import {
 } from './utils/packages.mjs'
 import {
   validateEdgeHeadlessManifest,
-  validateHqEdgeBuildManifest,
   validateReleaseManifest,
 } from './utils/manifest-validation.mjs'
 
@@ -131,10 +130,11 @@ for (const pkg of pkgs) {
 }
 
 // 3. Canonical release manifests in @huaqiu/dsh-plugin-release-manifest —
-//    the machine-readable source of truth for plugin discovery, HQ Edge
-//    headless versions and build-time pins. They must never drift from the
-//    actual publishable set, the lockstep version, or the plugin patch
-//    contracts (`requiresHqEdge` == inject contains `hqEdge`).
+//    the machine-readable source of truth for plugin discovery and HQ Edge
+//    headless versions. They must never drift from the actual publishable
+//    set, the lockstep version, or the plugin patch contracts
+//    (`requiresHqEdge` == inject contains `hqEdge`). HQ Edge build pins are
+//    owned by the hq-edge repo and are not published here.
 const readCanonical = (file, validator, ctx) => {
   let value = null
   try {
@@ -155,7 +155,6 @@ const canonicalPlugins = readCanonical('plugins-release-manifest.json', validate
   pluginEntryInjects,
 })
 readCanonical('edge-headless-release-manifest.json', validateEdgeHeadlessManifest)
-readCanonical('hq-edge-build-manifest.json', validateHqEdgeBuildManifest)
 if (canonicalPlugins) {
   ok(`plugins-release-manifest.json: ${Object.keys(canonicalPlugins.plugins ?? {}).length} plugin entrie(s)`)
 }

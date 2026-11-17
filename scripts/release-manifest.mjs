@@ -11,8 +11,11 @@
  *   3. resolves standalone versions independently from npm,
  *   4. verifies each newly published artifact (tarball + sha512 integrity),
  *   5. re-checks dist-tags to guard against a concurrent manual release,
- *   6. writes the plugin, edge-headless and HQ Edge build manifests, and
+ *   6. writes the plugin and edge-headless release manifests, and
  *   7. publishes the immutable manifest version only with --publish.
+ *
+ * HQ Edge build pins are owned by the hq-edge repository and are deliberately
+ * not part of this published data package.
  *
  * Dry-run is the default. Nothing is published unless --publish is given.
  *
@@ -30,7 +33,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dshPlugins, pluginEntryInjects, repoRoot } from './utils/packages.mjs'
 import {
   validateEdgeHeadlessManifest,
-  validateHqEdgeBuildManifest,
   validateReleaseManifest,
 } from './utils/manifest-validation.mjs'
 
@@ -41,8 +43,7 @@ export const DEFAULT_JSDELIVR = 'https://cdn.jsdelivr.net/npm'
 export const DEFAULT_FASTLY_JSDELIVR = 'https://fastly.jsdelivr.net/npm'
 export const CATALOG_FILE = 'plugins-release-manifest.json'
 export const EDGE_HEADLESS_FILE = 'edge-headless-release-manifest.json'
-export const BUILD_MANIFEST_FILE = 'hq-edge-build-manifest.json'
-export const CANONICAL_FILES = [CATALOG_FILE, EDGE_HEADLESS_FILE, BUILD_MANIFEST_FILE]
+export const CANONICAL_FILES = [CATALOG_FILE, EDGE_HEADLESS_FILE]
 export const MANIFEST_DIR = join(repoRoot, 'release-manifest')
 
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
@@ -326,31 +327,6 @@ export function buildEdgeHeadlessCatalog({
 }
 
 /**
- * Stamp the build-pin manifest with the canonical package version and keep
- * plugin pins aligned with verified/standalone plugin versions.
- */
-export function buildHqEdgeBuildCatalog({ previous, versions = {}, manifestVersion } = {}) {
-  if (!previous || typeof previous !== 'object' || Array.isArray(previous)) {
-    throw new Error('previous build manifest must be an object')
-  }
-  if (!isSemver(manifestVersion)) throw new Error(`invalid manifestVersion: ${manifestVersion}`)
-  const catalog = structuredClone(previous)
-  catalog.schema = 2
-  catalog.manifestPackageVersion = manifestVersion
-  catalog.plugins = catalog.plugins && typeof catalog.plugins === 'object' ? catalog.plugins : {}
-  for (const [name, version] of Object.entries(versions)) {
-    if (!catalog.plugins[name]) continue
-    if (typeof catalog.plugins[name] === 'string') catalog.plugins[name] = version
-    else catalog.plugins[name] = { ...catalog.plugins[name], version }
-  }
-  const failures = validateHqEdgeBuildManifest(catalog)
-  if (failures.length > 0) {
-    throw new Error(`HQ Edge build manifest failed validation:\n- ${failures.join('\n- ')}`)
-  }
-  return catalog
-}
-
-/**
  * Build the complete next catalog: preserve everything already published,
  * apply verified candidates, refresh standalone versions from npm, and stamp
  * the manifest-package version so consumers can verify exact-version delivery.
@@ -538,15 +514,12 @@ export async function run(argv = process.argv.slice(2), deps = {}) {
 
   let previous
   let previousEdgeHeadless
-  let previousBuild
   if (opts.bootstrap) {
     previous = readLocal(CATALOG_FILE)
     previousEdgeHeadless = readLocal(EDGE_HEADLESS_FILE)
-    previousBuild = readLocal(BUILD_MANIFEST_FILE)
   } else {
     previous = await readPublished(CATALOG_FILE)
     previousEdgeHeadless = await readPublished(EDGE_HEADLESS_FILE)
-    previousBuild = await readPublished(BUILD_MANIFEST_FILE)
   }
 
   // 1. Resolve standalone versions from npm, independently of this monorepo.
@@ -591,12 +564,6 @@ export async function run(argv = process.argv.slice(2), deps = {}) {
     releaseInput: edgeHeadlessRelease,
     manifestVersion,
   })
-  const buildCatalog = buildHqEdgeBuildCatalog({
-    previous: previousBuild,
-    versions: { ...standalone, ...verified },
-    manifestVersion,
-  })
-
   // 3. Stale-catalog guard: a concurrent manual release must not be lost.
   if (!opts.bootstrap) {
     const recheck = await resolveCanonicalVersion({
@@ -614,7 +581,6 @@ export async function run(argv = process.argv.slice(2), deps = {}) {
   const outputs = {
     [CATALOG_FILE]: catalog,
     [EDGE_HEADLESS_FILE]: edgeCatalog,
-    [BUILD_MANIFEST_FILE]: buildCatalog,
   }
   const pkgPath = join(MANIFEST_DIR, 'package.json')
   if (opts.dryRun) {
@@ -624,7 +590,7 @@ export async function run(argv = process.argv.slice(2), deps = {}) {
         `${edgeCatalog.releases.length} runtime releases)`,
     )
     console.log('[dry-run] manifest package NOT published')
-    return { catalog, edgeCatalog, buildCatalog, manifestVersion, published: false }
+    return { catalog, edgeCatalog, manifestVersion, published: false }
   }
 
   for (const [file, value] of Object.entries(outputs)) {
@@ -637,7 +603,7 @@ export async function run(argv = process.argv.slice(2), deps = {}) {
 
   if (!opts.publish) {
     console.log('prepared only; pass --publish to publish the manifest package')
-    return { catalog, edgeCatalog, buildCatalog, manifestVersion, published: false }
+    return { catalog, edgeCatalog, manifestVersion, published: false }
   }
 
   const publishArgs = ['publish', '--no-git-checks', '--access', 'public']
@@ -649,7 +615,7 @@ export async function run(argv = process.argv.slice(2), deps = {}) {
     execFileSync('npm', publishArgs, { cwd: MANIFEST_DIR, stdio: 'inherit' })
   }
   console.log(`published @huaqiu/dsh-plugin-release-manifest@${manifestVersion}`)
-  return { catalog, edgeCatalog, buildCatalog, manifestVersion, published: true }
+  return { catalog, edgeCatalog, manifestVersion, published: true }
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href

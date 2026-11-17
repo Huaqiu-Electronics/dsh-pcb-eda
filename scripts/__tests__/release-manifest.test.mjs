@@ -9,7 +9,6 @@ import {
   MANIFEST_PACKAGE,
   buildCandidateCatalog,
   buildEdgeHeadlessCatalog,
-  buildHqEdgeBuildCatalog,
   fetchCatalogFromCdn,
   isSemver,
   loadPublishedCatalog,
@@ -218,7 +217,7 @@ describe('catalog merge', () => {
   })
 })
 
-describe('edge-headless + build catalog merge', () => {
+describe('edge-headless catalog merge', () => {
   const edgePrevious = () => ({
     schemaVersion: 2,
     manifestPackageVersion: '1.0.0',
@@ -271,22 +270,5 @@ describe('edge-headless + build catalog merge', () => {
       }),
       /sha256 must be 64 hex/,
     )
-  })
-
-  it('stamps build pins and aligns plugin versions with verified candidates', () => {
-    const merged = buildHqEdgeBuildCatalog({
-      previous: {
-        schema: 2,
-        manifestPackageVersion: '1.0.0',
-        plugins: { '@huaqiu/dsh-auth': '0.6.29', 'dsh-free-search': { version: '0.9.13', source: {} } },
-        deps: { zod: '4.6.5' },
-      },
-      versions: { '@huaqiu/dsh-auth': '0.6.30' },
-      manifestVersion: '1.0.1',
-    })
-    assert.equal(merged.manifestPackageVersion, '1.0.1')
-    assert.equal(merged.plugins['@huaqiu/dsh-auth'], '0.6.30')
-    assert.equal(merged.plugins['dsh-free-search'].version, '0.9.13')
-    assert.equal(merged.deps.zod, '4.6.5')
   })
 })

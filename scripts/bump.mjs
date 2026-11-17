@@ -20,11 +20,51 @@
 import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { discoverPackages, repoRoot, rootManifestPath } from './utils/packages.mjs'
 
+export const RELEASE_MANIFEST_PATH = join(repoRoot, 'release-manifest', 'plugins-release-manifest.json')
 
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'))
 const writeJson = (p, data) => writeFileSync(p, JSON.stringify(data, null, 2) + '\n')
+
+/**
+ * Apply a workspace version bump to the canonical plugin release catalog.
+ *
+ * The release-manifest npm package keeps its OWN version (managed by
+ * scripts/release-manifest.mjs); this only moves the plugin-set identity and
+ * the versions of plugins actually released from this workspace. Standalone
+ * plugins and edge-headless data are untouched.
+ */
+export function applyReleaseManifestBump(catalog, next, siblingNames, now = new Date().toISOString()) {
+  if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) {
+    throw new Error('canonical plugin release manifest must be an object')
+  }
+  const changes = {}
+  if (catalog.pluginSetVersion && catalog.pluginSetVersion !== next) {
+    changes.pluginSetVersion = [catalog.pluginSetVersion, next]
+    catalog.pluginSetVersion = next
+  }
+  if (catalog.release && typeof catalog.release === 'object' && catalog.release.publishedAt !== undefined) {
+    changes['release.publishedAt'] = [catalog.release.publishedAt, now]
+    catalog.release.publishedAt = now
+  }
+  const plugins = catalog.plugins && typeof catalog.plugins === 'object' ? catalog.plugins : {}
+  catalog.plugins = plugins
+  for (const name of siblingNames) {
+    const entry = plugins[name]
+    if (typeof entry === 'string') {
+      if (entry !== next) {
+        changes[`plugins.${name}`] = [entry, next]
+        plugins[name] = next
+      }
+    } else if (entry && typeof entry === 'object' && typeof entry.version === 'string' && entry.version !== next) {
+      changes[`plugins.${name}.version`] = [entry.version, next]
+      entry.version = next
+    }
+  }
+  return changes
+}
 
 function semverBump(current, kind) {
   const parts = String(current).split('.').map((n) => parseInt(n, 10) || 0)
@@ -53,8 +93,8 @@ function main() {
   // Sibling @huaqiu packages that must be rewritten when the version moves.
   const SIBLING_NAMES = pkgs.map((p) => p.name)
   // Manifests to bump: root marker + every discovered package. The canonical
-  // release catalog is published separately by `scripts/release-manifest.mjs`
-  // and is deliberately NOT mutated here.
+  // release catalog is a separate npm package, but its plugin versions follow
+  // this lockstep workspace bump (see applyReleaseManifestBump below).
   const manifestPaths = [rootManifestPath(), ...pkgs.map((p) => join(p.dir, 'package.json'))]
 
   // Current versions — normally all manifests agree.
@@ -77,6 +117,12 @@ function main() {
   const next = explicit ? target : semverBump(current, target)
   console.log(`bump: ${current} → ${next}\n`)
 
+  // Canonical plugin release catalog: keep the released plugin versions and
+  // plugin-set identity aligned with the lockstep workspace version.
+  const releaseManifest = readJson(RELEASE_MANIFEST_PATH)
+  const releaseChanges = applyReleaseManifestBump(releaseManifest, next, SIBLING_NAMES)
+  const releaseRel = RELEASE_MANIFEST_PATH.slice(repoRoot.length + 1)
+
   const plan = []
   for (const { path, data } of manifests) {
     const rel = path.slice(repoRoot.length + 1)
@@ -94,6 +140,7 @@ function main() {
     }
     if (Object.keys(changes).length > 0) plan.push({ rel, changes })
   }
+  if (Object.keys(releaseChanges).length > 0) plan.push({ rel: releaseRel, changes: releaseChanges })
 
   if (plan.length === 0) {
     console.log('  (no changes — every manifest is already on the target version)')
@@ -118,6 +165,7 @@ function main() {
     }
     writeJson(path, data)
   }
+  if (Object.keys(releaseChanges).length > 0) writeJson(RELEASE_MANIFEST_PATH, releaseManifest)
 
   // Refresh pnpm-lock.yaml so `--frozen-lockfile` CI stays green.
   console.log('\nrefreshing lockfile (pnpm install --no-frozen-lockfile)…')
@@ -131,4 +179,6 @@ function main() {
   console.log(`\nThe push of tag v${next} triggers .github/workflows/release.yml.`)
 }
 
-main()
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main()
+}

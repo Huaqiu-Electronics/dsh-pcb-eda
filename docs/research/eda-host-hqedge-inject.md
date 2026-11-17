@@ -149,9 +149,9 @@ deploy + test:
 
 1. From `dsh-pcb-eda`, pack the plugin:
    `pnpm --filter @huaqiu/dsh-eda-host pack --pack-destination <dist>` (or the
-   repo's `pack:check`/dist flow) — version must stay `0.3.20` to match
-   `hq-edge/config/dsh-plugins.lock.json` (exact-version pin; otherwise
-   `acquireHqPlugins` throws).
+   repo's `pack:check`/dist flow) — version must match the canonical plugin
+   release manifest (or HQ Edge's own build manifest for source-backed plugins);
+   otherwise `acquireHqPlugins` throws.
 2. Install the local tarball into the hq-edge dev plugins root:
    `cd hq-edge && pnpm dev:hq-plugins` (runs
    `tsx scripts/packaging/hq-plugins.ts --out apps/server/dsh-plugins`

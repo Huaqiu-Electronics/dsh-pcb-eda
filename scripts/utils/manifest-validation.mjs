@@ -230,36 +230,3 @@ export function validateEdgeHeadlessManifest(manifest) {
   })
   return failures
 }
-
-/** Validate the canonical HQ Edge build-pin manifest. */
-export function validateHqEdgeBuildManifest(manifest) {
-  const failures = []
-  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
-    return ['hq-edge-build-manifest.json: not an object']
-  }
-  if (manifest.schema !== 2) {
-    failures.push(`hq-edge-build-manifest.json: schema must be 2 (got ${JSON.stringify(manifest.schema)})`)
-  }
-  if (!EXACT_SEMVER.test(String(manifest.manifestPackageVersion ?? ''))) {
-    failures.push('hq-edge-build-manifest.json: manifestPackageVersion must be an exact semver string')
-  }
-  if (!manifest.plugins || typeof manifest.plugins !== 'object' || Array.isArray(manifest.plugins)) {
-    return [...failures, 'hq-edge-build-manifest.json: plugins must be an object']
-  }
-  for (const [name, entry] of Object.entries(manifest.plugins)) {
-    const version = typeof entry === 'string' ? entry : entry && typeof entry === 'object' ? entry.version : undefined
-    if (!EXACT_SEMVER.test(String(version ?? ''))) {
-      failures.push(`hq-edge-build-manifest.json: ${name} must be an exact version string`)
-    }
-  }
-  if (manifest.deps !== undefined && (typeof manifest.deps !== 'object' || Array.isArray(manifest.deps))) {
-    failures.push('hq-edge-build-manifest.json: deps must be an object')
-  } else {
-    for (const [name, version] of Object.entries(manifest.deps ?? {})) {
-      if (!EXACT_SEMVER.test(String(version ?? ''))) {
-        failures.push(`hq-edge-build-manifest.json: deps.${name} must be an exact version string`)
-      }
-    }
-  }
-  return failures
-}
