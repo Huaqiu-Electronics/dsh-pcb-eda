@@ -7,8 +7,11 @@
  * package.json as a release marker — on the same version, and rewrites the
  * in-workspace `@huaqiu/*` peer/dep references (which are hardcoded like
  * `^0.0.0` / `>=0.3.3` and would otherwise be stale at publish time) to
- * `^<newVersion>`. The package set is discovered from `packages/*`, so new
- * packages are picked up automatically.
+ * `^<newVersion>`. The canonical data package in `release-manifest/` follows
+ * the same version: its package.json and the `manifestPackageVersion` stamp
+ * in both published catalogs are bumped here, while plugin-set data is
+ * updated separately by `scripts/release-manifest.mjs`. The package set is
+ * discovered from `packages/*`, so new packages are picked up automatically.
  *
  * Usage:
  *   node scripts/bump.mjs [major|minor|patch]   # semver bump
@@ -21,9 +24,17 @@ import { execFileSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { discoverPackages, repoRoot, rootManifestPath } from './utils/packages.mjs'
+import {
+  canonicalManifestPath,
+  discoverPackages,
+  releaseManifestDir,
+  repoRoot,
+  rootManifestPath,
+} from './utils/packages.mjs'
 
-export const RELEASE_MANIFEST_PATH = join(repoRoot, 'release-manifest', 'plugins-release-manifest.json')
+export const RELEASE_MANIFEST_PATH = canonicalManifestPath('plugins-release-manifest.json')
+export const EDGE_HEADLESS_MANIFEST_PATH = canonicalManifestPath('edge-headless-release-manifest.json')
+export const RELEASE_MANIFEST_PACKAGE_PATH = join(releaseManifestDir(), 'package.json')
 
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'))
 const writeJson = (p, data) => writeFileSync(p, JSON.stringify(data, null, 2) + '\n')
@@ -31,16 +42,23 @@ const writeJson = (p, data) => writeFileSync(p, JSON.stringify(data, null, 2) + 
 /**
  * Apply a workspace version bump to the canonical plugin release catalog.
  *
- * The release-manifest npm package keeps its OWN version (managed by
- * scripts/release-manifest.mjs); this only moves the plugin-set identity and
- * the versions of plugins actually released from this workspace. Standalone
- * plugins and edge-headless data are untouched.
+ * The release-manifest npm package follows the lockstep workspace version, so
+ * `manifestPackageVersion` is stamped with the same target. This also moves
+ * the plugin-set identity and the versions of plugins actually released from
+ * this workspace. Standalone plugin data is untouched; edge-headless releases
+ * are stamped by {@link applyManifestVersionStamp} without changing versions.
  */
-export function applyReleaseManifestBump(catalog, next, siblingNames, now = new Date().toISOString()) {
+export function applyReleaseManifestBump(
+  catalog,
+  next,
+  siblingNames,
+  now = new Date().toISOString(),
+  manifestVersion = next,
+) {
   if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) {
     throw new Error('canonical plugin release manifest must be an object')
   }
-  const changes = {}
+  const changes = applyManifestVersionStamp(catalog, manifestVersion)
   if (catalog.pluginSetVersion && catalog.pluginSetVersion !== next) {
     changes.pluginSetVersion = [catalog.pluginSetVersion, next]
     catalog.pluginSetVersion = next
@@ -64,6 +82,20 @@ export function applyReleaseManifestBump(catalog, next, siblingNames, now = new 
     }
   }
   return changes
+}
+
+/** Stamp a published catalog with the canonical package version. */
+export function applyManifestVersionStamp(catalog, manifestVersion) {
+  if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) {
+    throw new Error('canonical manifest must be an object')
+  }
+  if (typeof manifestVersion !== 'string' || manifestVersion.length === 0) {
+    throw new Error('manifestVersion must be a version string')
+  }
+  if (catalog.manifestPackageVersion === manifestVersion) return {}
+  const previous = catalog.manifestPackageVersion
+  catalog.manifestPackageVersion = manifestVersion
+  return { manifestPackageVersion: [previous, manifestVersion] }
 }
 
 function semverBump(current, kind) {
@@ -93,8 +125,8 @@ function main() {
   // Sibling @huaqiu packages that must be rewritten when the version moves.
   const SIBLING_NAMES = pkgs.map((p) => p.name)
   // Manifests to bump: root marker + every discovered package. The canonical
-  // release catalog is a separate npm package, but its plugin versions follow
-  // this lockstep workspace bump (see applyReleaseManifestBump below).
+  // data package and both published catalogs follow this lockstep bump too;
+  // they are handled separately because they live outside packages/*.
   const manifestPaths = [rootManifestPath(), ...pkgs.map((p) => join(p.dir, 'package.json'))]
 
   // Current versions — normally all manifests agree.
@@ -117,11 +149,16 @@ function main() {
   const next = explicit ? target : semverBump(current, target)
   console.log(`bump: ${current} → ${next}\n`)
 
-  // Canonical plugin release catalog: keep the released plugin versions and
-  // plugin-set identity aligned with the lockstep workspace version.
+  // Canonical data package: its npm version and both manifest stamps move
+  // with the lockstep workspace version; plugin-set data follows below.
+  const canonicalPackage = readJson(RELEASE_MANIFEST_PACKAGE_PATH)
   const releaseManifest = readJson(RELEASE_MANIFEST_PATH)
+  const edgeHeadlessManifest = readJson(EDGE_HEADLESS_MANIFEST_PATH)
   const releaseChanges = applyReleaseManifestBump(releaseManifest, next, SIBLING_NAMES)
+  const edgeHeadlessChanges = applyManifestVersionStamp(edgeHeadlessManifest, next)
   const releaseRel = RELEASE_MANIFEST_PATH.slice(repoRoot.length + 1)
+  const edgeHeadlessRel = EDGE_HEADLESS_MANIFEST_PATH.slice(repoRoot.length + 1)
+  const canonicalPackageRel = RELEASE_MANIFEST_PACKAGE_PATH.slice(repoRoot.length + 1)
 
   const plan = []
   for (const { path, data } of manifests) {
@@ -140,7 +177,15 @@ function main() {
     }
     if (Object.keys(changes).length > 0) plan.push({ rel, changes })
   }
+  const canonicalPackageChanges =
+    canonicalPackage.version === next ? {} : { version: [canonicalPackage.version, next] }
+  if (Object.keys(canonicalPackageChanges).length > 0) {
+    plan.push({ rel: canonicalPackageRel, changes: canonicalPackageChanges })
+  }
   if (Object.keys(releaseChanges).length > 0) plan.push({ rel: releaseRel, changes: releaseChanges })
+  if (Object.keys(edgeHeadlessChanges).length > 0) {
+    plan.push({ rel: edgeHeadlessRel, changes: edgeHeadlessChanges })
+  }
 
   if (plan.length === 0) {
     console.log('  (no changes — every manifest is already on the target version)')
@@ -165,7 +210,12 @@ function main() {
     }
     writeJson(path, data)
   }
+  if (Object.keys(canonicalPackageChanges).length > 0) {
+    canonicalPackage.version = next
+    writeJson(RELEASE_MANIFEST_PACKAGE_PATH, canonicalPackage)
+  }
   if (Object.keys(releaseChanges).length > 0) writeJson(RELEASE_MANIFEST_PATH, releaseManifest)
+  if (Object.keys(edgeHeadlessChanges).length > 0) writeJson(EDGE_HEADLESS_MANIFEST_PATH, edgeHeadlessManifest)
 
   // Refresh pnpm-lock.yaml so `--frozen-lockfile` CI stays green.
   console.log('\nrefreshing lockfile (pnpm install --no-frozen-lockfile)…')

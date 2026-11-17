@@ -7,10 +7,10 @@
  * full gate, then publish every package in dependency order with idempotency —
  * a version already on npm is skipped, never re-published.
  *
- * The package set is discovered from `packages/*` (every non-private package
- * is published, since the repo is public), and the publish order is computed
- * by a topological sort over in-workspace `dependencies` so leaf packages go
- * first. Peer/dev/optional dependencies do not constrain order.
+ * The workspace packages are discovered from `packages/*`. The canonical data
+ * package in `release-manifest/` is appended LAST: its catalogs describe the
+ * exact versions of the packages that were just published. Both must be on
+ * the same lockstep version.
  *
  * Usage:
  *   node scripts/publish.mjs [--dry-run] [--provenance] [--tag vX.Y.Z]
@@ -23,14 +23,19 @@
  */
 import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
-import { publishablePackages, repoRoot } from './utils/packages.mjs'
+import { pathToFileURL } from 'node:url'
+import { publishablePackages, releaseManifestPackage, repoRoot } from './utils/packages.mjs'
 
-const argv = process.argv.slice(2)
-const dryRun = argv.includes('--dry-run')
-const provenance = argv.includes('--provenance')
-const tagIndex = argv.indexOf('--tag')
-const tagArg = argv.find((a) => a.startsWith('--tag='))?.split('=')[1]
-  ?? (tagIndex >= 0 ? argv[tagIndex + 1] : undefined)
+export function parsePublishArgs(argv = process.argv.slice(2)) {
+  const tagIndex = argv.indexOf('--tag')
+  const tagArg = argv.find((a) => a.startsWith('--tag='))?.split('=')[1]
+    ?? (tagIndex >= 0 ? argv[tagIndex + 1] : undefined)
+  return {
+    dryRun: argv.includes('--dry-run'),
+    provenance: argv.includes('--provenance'),
+    tagArg,
+  }
+}
 
 // On Windows, npm/pnpm are installed as `.cmd`/`.ps1` shims (no `.exe`), which
 // `execFileSync` cannot launch without a shell — it throws `spawnSync ... ENOENT`.
@@ -46,7 +51,7 @@ const run = (cmd, args, opts = {}) => {
  * back to alphabetical order when a dependency cycle exists among
  * `dependencies` (should not happen — peer/dev cycles are ignored by design).
  */
-function topoOrder(pkgs) {
+export function topoOrder(pkgs) {
   const byName = new Map(pkgs.map((p) => [p.name, p]))
   const names = new Set(byName.keys())
   const order = []
@@ -77,63 +82,88 @@ function topoOrder(pkgs) {
   return order.map((name) => byName.get(name))
 }
 
-// ── 1. Version validation ────────────────────────────────────────────────────
-const pkgs = publishablePackages()
-if (pkgs.length === 0) {
-  console.error('FATAL: no publishable packages discovered under packages/')
-  process.exit(1)
+/**
+ * Build the ordered publication set. The canonical data package is always
+ * last so it can only ever describe already-published plugin versions.
+ */
+export function buildPublicationPlan(argv = process.argv.slice(2), deps = {}) {
+  const opts = parsePublishArgs(argv)
+  const pkgs = deps.publishablePackages ? deps.publishablePackages() : publishablePackages()
+  if (pkgs.length === 0) {
+    throw new Error('no publishable packages discovered under packages/')
+  }
+  const canonical = deps.releaseManifestPackage ? deps.releaseManifestPackage() : releaseManifestPackage()
+  const versions = new Set([...pkgs.map((p) => p.version), canonical.version])
+  if (versions.size !== 1) {
+    throw new Error(`package versions out of sync: ${[...versions].join(', ')}`)
+  }
+  const version = canonical.version
+  if (!/^\d+\.\d+\.\d+/.test(version)) {
+    throw new Error(`invalid canonical package version: ${version}`)
+  }
+  return {
+    ...opts,
+    version,
+    workspaceCount: pkgs.length,
+    plan: [...topoOrder(pkgs), canonical],
+  }
 }
-const versions = new Set(pkgs.map((p) => p.version))
-if (versions.size !== 1) {
-  console.error('FATAL: package versions out of sync:', [...versions].join(', '))
-  process.exit(1)
-}
-const version = [...versions][0]
-if (tagArg) {
-  run('node', ['scripts/check-release-version.mjs', version, '--tag', tagArg])
-} else {
-  run('node', ['scripts/check-release-version.mjs', version])
-}
-console.log(`\nPublishing ${pkgs.map((p) => p.name).join(', ')} @${version} (${dryRun ? 'DRY-RUN' : 'LIVE'})`)
 
-// ── 2. Gate: build + integrity ───────────────────────────────────────────────
-run('pnpm', ['-r', 'build'])
-run('node', ['scripts/check-publish.mjs'])
+export function publishPlan({ plan, version, dryRun, provenance, tagArg }) {
+  // ── 1. Version validation ────────────────────────────────────────────────
+  if (tagArg) {
+    run('node', ['scripts/check-release-version.mjs', version, '--tag', tagArg])
+  } else {
+    run('node', ['scripts/check-release-version.mjs', version])
+  }
+  console.log(`\nPublishing ${plan.map((p) => p.name).join(', ')} @${version} (${dryRun ? 'DRY-RUN' : 'LIVE'})`)
 
-// ── 3. Publish (dependency order, idempotent) ────────────────────────────────
-for (const pkg of topoOrder(pkgs)) {
-  const manifest = pkg.manifest
-  const dir = pkg.dir
+  // ── 2. Gate: build + integrity ───────────────────────────────────────────
+  run('pnpm', ['-r', 'build'])
+  run('node', ['scripts/check-publish.mjs'])
 
-  // Skip if this exact version is already on the registry (idempotent).
-  if (!dryRun) {
-    try {
-      const existing = execFileSync('npm', ['view', `${pkg.name}@${version}`, 'version'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        shell: process.platform === 'win32',
-      }).trim()
-      if (existing.length > 0) {
-        console.log(`\nskip ${pkg.name}@${version} — already published`)
-        continue
+  // ── 3. Publish (dependency order, idempotent) ────────────────────────────
+  for (const pkg of plan) {
+    // Skip if this exact version is already on the registry (idempotent).
+    if (!dryRun) {
+      try {
+        const existing = execFileSync('npm', ['view', `${pkg.name}@${version}`, 'version'], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'ignore'],
+          shell: process.platform === 'win32',
+        }).trim()
+        if (existing.length > 0) {
+          console.log(`\nskip ${pkg.name}@${version} — already published`)
+          continue
+        }
+      } catch {
+        /* not found → publish */
       }
-    } catch {
-      /* not found → publish */
     }
+
+    run('pnpm', ['--dir', pkg.dir, 'pack', '--pack-destination', join(repoRoot, 'dist')])
+    if (dryRun) {
+      console.log(`\n[dry-run] would publish ${pkg.name}@${version}`)
+      continue
+    }
+
+    const args = ['--dir', pkg.dir, 'publish', '--no-git-checks', '--access', 'public']
+    if (provenance) args.push('--provenance')
+    const registry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY
+    if (registry) args.push('--registry', registry)
+    run('pnpm', args)
+    console.log(`✓ published ${pkg.name}@${version}`)
   }
 
-  run('pnpm', ['--dir', dir, 'pack', '--pack-destination', join(repoRoot, 'dist')])
-  if (dryRun) {
-    console.log(`\n[dry-run] would publish ${pkg.name}@${version}`)
-    continue
-  }
-
-  const args = ['--dir', dir, 'publish', '--no-git-checks', '--access', 'public']
-  if (provenance) args.push('--provenance')
-  const registry = process.env.npm_config_registry || process.env.NPM_CONFIG_REGISTRY
-  if (registry) args.push('--registry', registry)
-  run('pnpm', args)
-  console.log(`✓ published ${pkg.name}@${version}`)
+  console.log(`\nDone. ${plan.length} package(s) @${version} ${dryRun ? 'validated (nothing published)' : 'published'}.`)
 }
 
-console.log(`\nDone. ${pkgs.length} package(s) @${version} ${dryRun ? 'validated (nothing published)' : 'published'}.`)
+export function main(argv = process.argv.slice(2)) {
+  const publish = buildPublicationPlan(argv)
+  publishPlan(publish)
+}
+
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+if (isMain) {
+  main()
+}

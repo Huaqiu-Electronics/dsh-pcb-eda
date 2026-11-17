@@ -271,6 +271,39 @@ export function nextManifestVersion(current) {
   return `${match[1]}.${match[2]}.${Number(match[3]) + 1}${match[4]}`
 }
 
+function compareSemver(a, b) {
+  const pa = a.split(/[.-]/).map((n) => parseInt(n, 10) || 0)
+  const pb = b.split(/[.-]/).map((n) => parseInt(n, 10) || 0)
+  for (let i = 0; i < 3; i++) {
+    if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1
+  }
+  return 0
+}
+
+/**
+ * Determine the immutable version to write. `pnpm bump` is the authority for
+ * the canonical package version, so the local package.json wins; the already
+ * published version is only used to load the previous catalog and to reject a
+ * stale local version that npm would refuse to publish again.
+ */
+export function resolveCatalogWriteVersion({
+  localVersion,
+  publishedVersion,
+  bootstrap = false,
+} = {}) {
+  if (!isSemver(localVersion)) throw new Error(`invalid release-manifest package version: ${localVersion}`)
+  if (bootstrap) return localVersion
+  if (!isSemver(publishedVersion)) {
+    throw new Error(`invalid published manifest version: ${publishedVersion}`)
+  }
+  if (compareSemver(publishedVersion, localVersion) >= 0) {
+    throw new Error(
+      `release-manifest/package.json is v${localVersion}, but npm already has v${publishedVersion}; run pnpm bump first`,
+    )
+  }
+  return localVersion
+}
+
 function upsertRelease(releases, incoming) {
   const key = (r) => JSON.stringify([r.version, r.platform, r.arch ?? null])
   const index = releases.findIndex((r) => key(r) === key(incoming))
@@ -546,7 +579,11 @@ export async function run(argv = process.argv.slice(2), deps = {}) {
     throw new Error('no candidate artifact could be verified; previous canonical catalog is unchanged')
   }
 
-  const manifestVersion = opts.bootstrap ? resolved.version : nextManifestVersion(resolved.version)
+  const manifestVersion = resolveCatalogWriteVersion({
+    localVersion: localPackageVersion,
+    publishedVersion: resolved.version,
+    bootstrap: opts.bootstrap,
+  })
   const catalog = buildCandidateCatalog({
     previous,
     candidates: verified,

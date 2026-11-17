@@ -15,6 +15,7 @@ import {
   nextManifestVersion,
   parseArgs,
   resolveCanonicalVersion,
+  resolveCatalogWriteVersion,
   resolveStandaloneVersions,
   verifyArtifact,
 } from '../release-manifest.mjs'
@@ -53,6 +54,24 @@ describe('release-manifest argument and version helpers', () => {
     assert.equal(nextManifestVersion('2.3.9'), '2.3.10')
     assert.equal(isSemver('0.6.29'), true)
     assert.equal(isSemver('latest'), false)
+  })
+
+  it('uses the lockstep local package version for the next immutable catalog', () => {
+    assert.equal(
+      resolveCatalogWriteVersion({ localVersion: '0.6.30', publishedVersion: '0.6.29' }),
+      '0.6.30',
+    )
+    assert.equal(
+      resolveCatalogWriteVersion({ localVersion: '0.6.30', publishedVersion: '0.6.30', bootstrap: true }),
+      '0.6.30',
+    )
+  })
+
+  it('rejects a local catalog version npm would refuse to republish', () => {
+    assert.throws(
+      () => resolveCatalogWriteVersion({ localVersion: '0.6.30', publishedVersion: '0.6.31' }),
+      /run pnpm bump first/,
+    )
   })
 })
 

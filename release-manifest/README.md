@@ -21,9 +21,11 @@ Every change is published as a new immutable package version. The npm
 remain available for debugging and historical investigation.
 
 `manifestPackageVersion` in every JSON file must equal this package's
-`version`. HQ Edge resolves `dist-tags.latest` and rejects any delivery
-endpoint that does not serve that exact version (including a mirror serving an
-older catalog).
+`version`. `pnpm bump` keeps this package and both stamps on the same lockstep
+version as the workspace, and `pnpm publish:local` publishes this package last
+so it can only describe already-published plugin versions. HQ Edge resolves
+`dist-tags.latest` and rejects any delivery endpoint that does not serve that
+exact version (including a mirror serving an older catalog).
 
 ## Manual release
 
@@ -43,8 +45,9 @@ pnpm manifest:publish --candidates-file /path/to/candidates.json
 preserves all existing entries unless explicitly replaced, resolves
 standalone-plugin versions from npm, verifies newly published plugin artifacts,
 re-checks `dist-tags.latest` to guard against a concurrent release, and writes
-both JSON files here. `pnpm bump` keeps the plugin entries and
-`pluginSetVersion` aligned with the lockstep workspace version.
+both JSON files here. `pnpm bump` keeps the package version, both
+`manifestPackageVersion` stamps, the plugin entries and `pluginSetVersion`
+aligned with the lockstep workspace version.
 
 A candidates file may contain:
 

@@ -142,3 +142,28 @@ export function releaseManifestDir() {
 export function canonicalManifestPath(fileName) {
   return join(releaseManifestDir(), fileName)
 }
+
+/** npm identity of the canonical release-manifest data package. */
+export const RELEASE_MANIFEST_PACKAGE_NAME = '@huaqiu/dsh-plugin-release-manifest'
+
+/**
+ * The canonical data package as a publishable package descriptor.
+ *
+ * It lives outside `packages/*` because it has no build step, but it follows
+ * the same lockstep version and is published by `publish:local` after the
+ * workspace packages it describes.
+ */
+export function releaseManifestPackage() {
+  const dir = releaseManifestDir()
+  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+  if (manifest?.name !== RELEASE_MANIFEST_PACKAGE_NAME) {
+    throw new Error(`release-manifest/package.json name must be ${RELEASE_MANIFEST_PACKAGE_NAME}`)
+  }
+  return {
+    rel: 'release-manifest',
+    dir,
+    name: manifest.name,
+    version: String(manifest.version ?? ''),
+    manifest,
+  }
+}

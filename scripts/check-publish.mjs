@@ -22,6 +22,7 @@ import {
   pluginEntryInjects,
   repoRoot,
   canonicalManifestPath,
+  releaseManifestPackage,
 } from './utils/packages.mjs'
 import {
   validateEdgeHeadlessManifest,
@@ -129,6 +130,30 @@ for (const pkg of pkgs) {
   ok(`@huaqiu/${rel} v${version} — entry/types/exports/patch/clean`)
 }
 
+// The canonical data package is published by `publish:local` in the same
+// release, so it must carry the same lockstep version and stamp every catalog
+// with it. `pnpm bump` is responsible for keeping these aligned.
+let canonicalPackage = null
+try {
+  canonicalPackage = releaseManifestPackage()
+  ok(`${canonicalPackage.name} v${canonicalPackage.version} discovered`)
+} catch (e) {
+  fail(`release-manifest/package.json is missing or invalid: ${String(e?.message || e)}`)
+}
+if (canonicalPackage && pkgs.length > 0) {
+  const workspaceVersions = new Set(pkgs.map((p) => p.version))
+  if (workspaceVersions.size === 1) {
+    const workspaceVersion = [...workspaceVersions][0]
+    if (canonicalPackage.version !== workspaceVersion) {
+      fail(
+        `${canonicalPackage.name} version ${canonicalPackage.version} does not match workspace version ${workspaceVersion} — run pnpm bump`,
+      )
+    }
+  } else {
+    fail(`workspace versions are out of sync (${[...workspaceVersions].join(', ')})`)
+  }
+}
+
 // 3. Canonical release manifests in @huaqiu/dsh-plugin-release-manifest —
 //    the machine-readable source of truth for plugin discovery and HQ Edge
 //    headless versions. They must never drift from the actual publishable
@@ -145,6 +170,12 @@ const readCanonical = (file, validator, ctx) => {
     return
   }
   const failures = validator(value, ctx)
+  if (canonicalPackage && value.manifestPackageVersion !== canonicalPackage.version) {
+    failures.push(
+      `${file}: manifestPackageVersion ${JSON.stringify(value.manifestPackageVersion)} does not match ` +
+        `${canonicalPackage.name}@${canonicalPackage.version}`,
+    )
+  }
   for (const message of failures) fail(message)
   if (failures.length === 0) ok(`${file}: validated`)
   return value
