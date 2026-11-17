@@ -16,8 +16,18 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { publishablePackages, dshPlugins, pluginEntryInjects, repoRoot } from './utils/packages.mjs'
-import { validateReleaseManifest } from './utils/manifest-validation.mjs'
+import {
+  publishablePackages,
+  dshPlugins,
+  pluginEntryInjects,
+  repoRoot,
+  canonicalManifestPath,
+} from './utils/packages.mjs'
+import {
+  validateEdgeHeadlessManifest,
+  validateHqEdgeBuildManifest,
+  validateReleaseManifest,
+} from './utils/manifest-validation.mjs'
 
 const requireClean = process.argv.includes('--require-clean')
 
@@ -120,32 +130,34 @@ for (const pkg of pkgs) {
   ok(`@huaqiu/${rel} v${version} — entry/types/exports/patch/clean`)
 }
 
-// 3. Centralized plugin release manifest — the machine-readable source of
-//    truth for HQ Edge's remote plugin discovery
-//    (docs/tasks/dsh-plugin-discovery-and-update-with-hq-edge-update-reporting.md §4.1).
-//    It must never drift from the actual publishable set, the lockstep version,
-//    or the plugin patch contracts (`requiresHqEdge` == inject contains
-//    `hqEdge`). Utility/app packages never belong here.
-//    (The runtime manifest, `edge-headless-release-manifest.json`, is owned by
-//    the hq-edge release pipeline — it carries no plugin entries to validate.)
-const manifestPath = join(repoRoot, 'plugins-release-manifest.json')
-let manifest = null
-try {
-  manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  ok('plugins-release-manifest.json parsed')
-} catch (e) {
-  fail(`plugins-release-manifest.json is missing or not valid JSON: ${String(e?.message || e)}`)
+// 3. Canonical release manifests in @huaqiu/dsh-plugin-release-manifest —
+//    the machine-readable source of truth for plugin discovery, HQ Edge
+//    headless versions and build-time pins. They must never drift from the
+//    actual publishable set, the lockstep version, or the plugin patch
+//    contracts (`requiresHqEdge` == inject contains `hqEdge`).
+const readCanonical = (file, validator, ctx) => {
+  let value = null
+  try {
+    value = JSON.parse(readFileSync(canonicalManifestPath(file), 'utf8'))
+    ok(`${file} parsed`)
+  } catch (e) {
+    fail(`${file} is missing or not valid JSON: ${String(e?.message || e)}`)
+    return
+  }
+  const failures = validator(value, ctx)
+  for (const message of failures) fail(message)
+  if (failures.length === 0) ok(`${file}: validated`)
+  return value
 }
 
-if (manifest) {
-  const manifestFailures = validateReleaseManifest(manifest, {
-    dshPlugins: dshPlugins(),
-    pluginEntryInjects,
-  })
-  for (const message of manifestFailures) fail(message)
-  if (manifestFailures.length === 0) {
-    ok(`plugins-release-manifest.json: validated ${Object.keys(manifest.plugins ?? {}).length} plugin entrie(s)`)
-  }
+const canonicalPlugins = readCanonical('plugins-release-manifest.json', validateReleaseManifest, {
+  dshPlugins: dshPlugins(),
+  pluginEntryInjects,
+})
+readCanonical('edge-headless-release-manifest.json', validateEdgeHeadlessManifest)
+readCanonical('hq-edge-build-manifest.json', validateHqEdgeBuildManifest)
+if (canonicalPlugins) {
+  ok(`plugins-release-manifest.json: ${Object.keys(canonicalPlugins.plugins ?? {}).length} plugin entrie(s)`)
 }
 
 if (failures > 0) {

@@ -193,3 +193,73 @@ export function validateReleaseManifest(manifest, ctx) {
 
   return failures
 }
+
+const EXACT_SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/
+const SHA256 = /^[0-9a-f]{64}$/i
+
+/** Validate the canonical HQ Edge headless release manifest. */
+export function validateEdgeHeadlessManifest(manifest) {
+  const failures = []
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    return ['edge-headless-release-manifest.json: not an object']
+  }
+  if (manifest.schemaVersion !== 2) {
+    failures.push(`edge-headless-release-manifest.json: schemaVersion must be 2 (got ${JSON.stringify(manifest.schemaVersion)})`)
+  }
+  if (!EXACT_SEMVER.test(String(manifest.manifestPackageVersion ?? ''))) {
+    failures.push('edge-headless-release-manifest.json: manifestPackageVersion must be an exact semver string')
+  }
+  if (!Array.isArray(manifest.releases)) {
+    return [...failures, 'edge-headless-release-manifest.json: releases must be an array']
+  }
+  const seen = new Set()
+  manifest.releases.forEach((entry, i) => {
+    const where = `edge-headless-release-manifest.json: releases[${i}]`
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      failures.push(`${where}: entry must be an object`)
+      return
+    }
+    if (!EXACT_SEMVER.test(String(entry.version ?? ''))) failures.push(`${where}: invalid version`)
+    if (!SHA256.test(String(entry.sha256 ?? ''))) failures.push(`${where}: sha256 must be 64 hex characters`)
+    if (!['win', 'darwin', 'linux', 'all'].includes(entry.platform)) failures.push(`${where}: invalid platform`)
+    if (entry.arch !== undefined && !['x64', 'arm64'].includes(entry.arch)) failures.push(`${where}: invalid arch`)
+    if (typeof entry.url !== 'string' || !/^https:\/\//i.test(entry.url)) failures.push(`${where}: url must be HTTPS`)
+    const key = JSON.stringify([entry.version, entry.platform, entry.arch ?? null])
+    if (seen.has(key)) failures.push(`${where}: duplicate version/platform/arch entry`)
+    seen.add(key)
+  })
+  return failures
+}
+
+/** Validate the canonical HQ Edge build-pin manifest. */
+export function validateHqEdgeBuildManifest(manifest) {
+  const failures = []
+  if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+    return ['hq-edge-build-manifest.json: not an object']
+  }
+  if (manifest.schema !== 2) {
+    failures.push(`hq-edge-build-manifest.json: schema must be 2 (got ${JSON.stringify(manifest.schema)})`)
+  }
+  if (!EXACT_SEMVER.test(String(manifest.manifestPackageVersion ?? ''))) {
+    failures.push('hq-edge-build-manifest.json: manifestPackageVersion must be an exact semver string')
+  }
+  if (!manifest.plugins || typeof manifest.plugins !== 'object' || Array.isArray(manifest.plugins)) {
+    return [...failures, 'hq-edge-build-manifest.json: plugins must be an object']
+  }
+  for (const [name, entry] of Object.entries(manifest.plugins)) {
+    const version = typeof entry === 'string' ? entry : entry && typeof entry === 'object' ? entry.version : undefined
+    if (!EXACT_SEMVER.test(String(version ?? ''))) {
+      failures.push(`hq-edge-build-manifest.json: ${name} must be an exact version string`)
+    }
+  }
+  if (manifest.deps !== undefined && (typeof manifest.deps !== 'object' || Array.isArray(manifest.deps))) {
+    failures.push('hq-edge-build-manifest.json: deps must be an object')
+  } else {
+    for (const [name, version] of Object.entries(manifest.deps ?? {})) {
+      if (!EXACT_SEMVER.test(String(version ?? ''))) {
+        failures.push(`hq-edge-build-manifest.json: deps.${name} must be an exact version string`)
+      }
+    }
+  }
+  return failures
+}

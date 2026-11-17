@@ -290,7 +290,7 @@ describe('plugin-update forwarding routes', () => {
     const { status, json } = await driveRequest(
       'POST',
       `${UPDATE_ROUTE_PREFIX}/plugin-source`,
-      JSON.stringify({ url: 'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/plugins-release-manifest.json' }),
+      JSON.stringify({ url: 'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/plugins-release-manifest.json' }),
     )
     expect(status).toBe(200)
     expect(json).toMatchObject({
@@ -301,7 +301,7 @@ describe('plugin-update forwarding routes', () => {
     expect(seen[0]).toMatchObject({
       method: 'POST',
       url: '/api/v1/plugin-updates/source',
-      body: JSON.stringify({ url: 'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/plugins-release-manifest.json' }),
+      body: JSON.stringify({ url: 'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/plugins-release-manifest.json' }),
     })
   })
 

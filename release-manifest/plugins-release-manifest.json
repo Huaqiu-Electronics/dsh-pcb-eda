@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
+  "manifestPackageVersion": "1.0.0",
   "pluginSetVersion": "0.6.29",
   "release": {
-    "publishedAt": "2026-11-16T03:01:04.689Z",
+    "publishedAt": "2026-11-16T10:07:00.000Z",
     "channel": "stable",
     "requiresRestart": true,
     "summary": "EDA 主机拖拽放置稳定性修复，器件搜索与报价插件体验优化，以及插件更新面板的进度与发布说明展示。",
-    "notesUrl": "https://example.invalid/releases/dsh-plugin-set-0.6.14",
     "notes": [
       "修复 EDA 主机在拖拽放置元件时偶发的画布错位问题",
       "器件搜索支持按封装类型筛选",
@@ -147,7 +147,7 @@
       ]
     },
     "@huaqiu/dsh-kicad-drc": {
-      "version": "0.6.28",
+      "version": "0.6.29",
       "hosts": [
         "kicad"
       ],

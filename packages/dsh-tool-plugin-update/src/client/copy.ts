@@ -84,7 +84,7 @@ const zh = {
     saved: '更新源已保存，正在重新检查更新…',
     saveFailed: '保存更新源失败',
     sourceInputLabel: '运行时更新清单地址',
-    sourcePlaceholder: 'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/edge-headless-release-manifest.json',
+    sourcePlaceholder: 'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/edge-headless-release-manifest.json',
   },
   // ── Plugin release-manifest source editor ──
   pluginSource: {
@@ -96,7 +96,7 @@ const zh = {
     saved: '更新源已保存，正在重新检查更新…',
     saveFailed: '保存更新源失败',
     inputLabel: '插件更新清单地址',
-    placeholder: 'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/plugins-release-manifest.json',
+    placeholder: 'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/plugins-release-manifest.json',
   },
   // ── Durable update job (active / result / log drawer) ──
   job: {
@@ -312,7 +312,7 @@ const en: UpdateCopy = {
     saved: 'Update source saved — re-checking for updates…',
     saveFailed: 'Failed to save the update source',
     sourceInputLabel: 'Runtime update manifest URL',
-    sourcePlaceholder: 'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/edge-headless-release-manifest.json',
+    sourcePlaceholder: 'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/edge-headless-release-manifest.json',
   },
   pluginSource: {
     title: 'Plugin update source',
@@ -324,7 +324,7 @@ const en: UpdateCopy = {
     saveFailed: 'Failed to save the update source',
     inputLabel: 'Plugin update manifest URL',
     placeholder:
-      'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/plugins-release-manifest.json',
+      'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/plugins-release-manifest.json',
   },
   job: {
     kindPluginSet: 'Plugin-set update',

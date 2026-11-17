@@ -132,3 +132,13 @@ export function pluginEntryInjects(pkg) {
 export function rootManifestPath() {
   return join(repoRoot, 'package.json')
 }
+
+/** Directory holding the published @huaqiu/dsh-plugin-release-manifest data package. */
+export function releaseManifestDir() {
+  return join(repoRoot, 'release-manifest')
+}
+
+/** Absolute path to one canonical manifest file inside the data package. */
+export function canonicalManifestPath(fileName) {
+  return join(releaseManifestDir(), fileName)
+}

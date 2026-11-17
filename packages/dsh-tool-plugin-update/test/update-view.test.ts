@@ -55,7 +55,7 @@ const {
     url,
     origin: url.length > 0 ? ('override' as const) : ('config' as const),
     configuredUrl:
-      'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/plugins-release-manifest.json',
+      'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/plugins-release-manifest.json',
     override: url.length > 0,
   })),
   checkUpdates: vi.fn(async () => ({})),
@@ -293,10 +293,10 @@ describe('update source strip', () => {
     override: false,
   }
   const pluginConfigSource = {
-    url: 'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/plugins-release-manifest.json',
+    url: 'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/plugins-release-manifest.json',
     origin: 'config' as const,
     configuredUrl:
-      'https://gitee.com/huaqiu-electronics/dsh-pcb-eda/raw/main/plugins-release-manifest.json',
+      'https://cdn.jsdelivr.net/npm/@huaqiu/dsh-plugin-release-manifest@1.0.0/plugins-release-manifest.json',
     override: false,
   }
   const pluginInput = (): HTMLInputElement | null =>

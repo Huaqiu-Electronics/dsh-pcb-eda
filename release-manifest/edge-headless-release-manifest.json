@@ -1,5 +1,6 @@
 {
   "schemaVersion": 2,
+  "manifestPackageVersion": "1.0.0",
   "releases": [
     {
       "version": "0.3.10",
