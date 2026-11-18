@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import {
   HuaqiuTurnErrorSubscribeAction,
+  isHuaqiuMissingCredentialFailure,
   isHuaqiuQuotaFailure,
   type TurnErrorCtaNode,
 } from '../src/client/ui/turn-error-cta.jsx'
@@ -82,6 +83,12 @@ const quotaNode: TurnErrorCtaNode = {
   providerErrorCode: 'insufficient_user_quota',
 }
 
+const missingCredentialNode: TurnErrorCtaNode = {
+  code: 'MISSING_CREDENTIAL',
+  provider: 'huaqiu',
+  message: 'Missing API credential',
+}
+
 beforeEach(() => {
   document.body.innerHTML = ''
   document.body.removeAttribute(DARK_ATTRIBUTE)
@@ -128,6 +135,40 @@ describe('isHuaqiuQuotaFailure', () => {
       code: 'PI_AI_ERROR',
       message: 'quota exhausted: {"code":"insufficient_user_quota"}',
       provider: 'huaqiu',
+    })).toBe(false)
+  })
+})
+
+describe('isHuaqiuMissingCredentialFailure', () => {
+  it('matches the exact huaqiu missing-credential signature', () => {
+    expect(isHuaqiuMissingCredentialFailure(missingCredentialNode)).toBe(true)
+    // providerErrorCode is absent on this path; it must not be required.
+    expect(isHuaqiuMissingCredentialFailure({
+      code: 'MISSING_CREDENTIAL',
+      provider: 'huaqiu',
+      message: '',
+    })).toBe(true)
+  })
+
+  it('never matches another provider, even with a huaqiu-flavoured message', () => {
+    for (const provider of ['deepseek-official', 'openai', 'anthropic', 'Huaqiu', undefined]) {
+      expect(isHuaqiuMissingCredentialFailure({
+        code: 'MISSING_CREDENTIAL',
+        message: 'huaqiu HUAQIU_API_KEY not set for provider route "huaqiu"',
+        ...(provider === undefined ? {} : { provider }),
+      })).toBe(false)
+    }
+  })
+
+  it('does not match unrelated codes or the quota signature', () => {
+    expect(isHuaqiuMissingCredentialFailure(null)).toBe(false)
+    expect(isHuaqiuMissingCredentialFailure(undefined)).toBe(false)
+    expect(isHuaqiuMissingCredentialFailure({ ...missingCredentialNode, code: 'AUTH' })).toBe(false)
+    expect(isHuaqiuMissingCredentialFailure({
+      code: 'PI_AI_ERROR',
+      message: '',
+      provider: 'huaqiu',
+      providerErrorCode: 'insufficient_user_quota',
     })).toBe(false)
   })
 })
@@ -214,5 +255,108 @@ describe('HuaqiuTurnErrorSubscribeAction', () => {
     await flush()
     expect(container.textContent).not.toContain('无法打开订阅页面')
     expect(container.textContent).not.toContain('宿主未提供对话框服务')
+  })
+})
+
+describe('HuaqiuTurnErrorSubscribeAction — missing credential', () => {
+  it('renders a dedicated sign-in CTA that only calls login', async () => {
+    const auth = stubAuth()
+    registerAuth(auth as never)
+    const container = await render(missingCredentialNode)
+    const cta = button(container)
+    expect(cta).not.toBeNull()
+    expect(cta?.textContent).toBe('登录以恢复 AI 服务')
+    click(cta!)
+    await flush()
+    expect(auth.login).toHaveBeenCalledTimes(1)
+    expect(auth.login).toHaveBeenCalledWith({ lang: 'zh', theme: 'light' })
+    expect(auth.openSubscriptionDialog).not.toHaveBeenCalled()
+  })
+
+  it('uses the English credential copy and follows a host locale switch', async () => {
+    registerAuth(stubAuth() as never)
+    const container = await render(missingCredentialNode)
+    expect(button(container)?.textContent).toBe('登录以恢复 AI 服务')
+    document.documentElement.setAttribute('lang', 'en')
+    await act(async () => {
+      syncUiEnv()
+    })
+    expect(button(container)?.textContent).toBe('Sign in to restore AI access')
+  })
+
+  // Mandatory regression: authState.authenticated reflects the HQ Edge host
+  // session, which can still be valid while the DSH child lacks HUAQIU_API_KEY.
+  it('still calls login when the host session reports authenticated', async () => {
+    const auth = stubAuth({ authenticated: true })
+    registerAuth(auth as never)
+    const container = await render({
+      code: 'MISSING_CREDENTIAL',
+      provider: 'huaqiu',
+      message: 'huaqiu credential missing',
+    })
+    expect(button(container)).not.toBeNull()
+    click(button(container)!)
+    await flush()
+    expect(auth.login).toHaveBeenCalledTimes(1)
+    expect(auth.openSubscriptionDialog).not.toHaveBeenCalled()
+  })
+
+  it('never renders a Huaqiu CTA for another provider’s missing credential', async () => {
+    for (const provider of ['deepseek-official', 'openai', 'anthropic']) {
+      const auth = stubAuth()
+      registerAuth(auth as never)
+      const container = await render({
+        code: 'MISSING_CREDENTIAL',
+        provider,
+        message: 'huaqiu HUAQIU_API_KEY not set',
+      })
+      expect(button(container)).toBeNull()
+      expect(auth.login).not.toHaveBeenCalled()
+      expect(auth.openSubscriptionDialog).not.toHaveBeenCalled()
+    }
+  })
+
+  it('does not render a CTA when the provider is missing or unknown', async () => {
+    for (const node of [
+      { code: 'MISSING_CREDENTIAL', message: 'no key' },
+      { code: 'MISSING_CREDENTIAL', message: 'no key', provider: 'unknown-provider' },
+    ]) {
+      const auth = stubAuth()
+      registerAuth(auth as never)
+      const container = await render(node)
+      expect(button(container)).toBeNull()
+      expect(auth.login).not.toHaveBeenCalled()
+      expect(auth.openSubscriptionDialog).not.toHaveBeenCalled()
+    }
+  })
+
+  it('never derives the provider from the message text', async () => {
+    const auth = stubAuth()
+    registerAuth(auth as never)
+    const unrelated = await render({
+      code: 'MISSING_CREDENTIAL',
+      provider: 'openai',
+      message: 'huaqiu: no credential for provider route "huaqiu"; HUAQIU_API_KEY is not set',
+    })
+    expect(button(unrelated)).toBeNull()
+
+    const huaqiu = await render({
+      code: 'MISSING_CREDENTIAL',
+      provider: 'huaqiu',
+      message: 'totally unrelated wording',
+    })
+    expect(button(huaqiu)?.textContent).toBe('登录以恢复 AI 服务')
+    expect(auth.login).not.toHaveBeenCalled()
+  })
+
+  it('keeps quota failures on the subscription path', async () => {
+    const auth = stubAuth()
+    registerAuth(auth as never)
+    const container = await render(quotaNode)
+    expect(button(container)?.textContent).toBe('升级获取更多 AI 额度')
+    click(button(container)!)
+    await flush()
+    expect(auth.openSubscriptionDialog).toHaveBeenCalledTimes(1)
+    expect(auth.login).not.toHaveBeenCalled()
   })
 })

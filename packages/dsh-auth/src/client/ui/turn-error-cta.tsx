@@ -11,6 +11,12 @@
  * auth client (`openSubscriptionDialog`), which is the same path the sidebar
  * upgrade entry uses.
  *
+ * A second, mutually exclusive case is a `huaqiu` `MISSING_CREDENTIAL` failure:
+ * in host mode the API key is mirrored from the HQ Edge session into the DSH
+ * child, so the host session can be authenticated while the child key is
+ * absent. That case renders a sign-in CTA that always calls `auth.login()`
+ * (never the subscription dialog), even when the host session is authenticated.
+ *
  * Fallbacks stay inside the card: no host dialog service → the existing
  * "host provides no dialog service" copy; transport failure → retry copy; no
  * credential → the auth client's login surface. The entry never throws, so a
@@ -33,6 +39,8 @@ export interface TurnErrorCtaNode {
 const QUOTA_PROVIDER = 'huaqiu'
 /** The gateway's own code for a token balance that can be topped up. */
 const HUAQIU_QUOTA_SIGNATURE = 'insufficient_user_quota'
+/** The harness code for a provider whose credential reference did not resolve. */
+const HUAQIU_MISSING_CREDENTIAL = 'MISSING_CREDENTIAL'
 
 /**
  * Whether a durable failure is the huaqiu gateway's exhausted token balance.
@@ -52,6 +60,24 @@ export function isHuaqiuQuotaFailure(node: TurnErrorCtaNode | null | undefined):
   if (node.code !== 'PI_AI_ERROR' && node.code !== 'QUOTA') return false
   if (node.providerErrorCode === HUAQIU_QUOTA_SIGNATURE) return true
   return node.provider === QUOTA_PROVIDER && node.code === 'QUOTA'
+}
+
+/**
+ * Whether a durable failure is huaqiu's unresolved API credential.
+ *
+ * `MISSING_CREDENTIAL` is a generic harness code (DeepSeek and other providers
+ * raise it too), so the provider must match exactly. On this path the failure
+ * carries no `providerErrorCode` and the message text is explicitly ignored —
+ * gating on either would misroute other providers' credential failures.
+ * @param node - durable turn-error node, possibly absent at runtime boundaries.
+ * @returns true only for the huaqiu missing-credential signature.
+ */
+export function isHuaqiuMissingCredentialFailure(node: TurnErrorCtaNode | null | undefined): boolean {
+  return (
+    node != null &&
+    node.code === HUAQIU_MISSING_CREDENTIAL &&
+    node.provider === QUOTA_PROVIDER
+  )
 }
 
 const ctaStyle: CSSProperties = {
@@ -97,6 +123,8 @@ export const HuaqiuTurnErrorSubscribeAction = memo(function HuaqiuTurnErrorSubsc
   // stale copy.
   const nodeKey = node.message
   const visibleNotice = notice !== null && notice.key === nodeKey ? notice.text : null
+  const isQuotaFailure = isHuaqiuQuotaFailure(node)
+  const isMissingCredential = isHuaqiuMissingCredentialFailure(node)
 
   const open = useCallback(() => {
     if (busy) return
@@ -116,6 +144,15 @@ export const HuaqiuTurnErrorSubscribeAction = memo(function HuaqiuTurnErrorSubsc
         fail()
       }
     }
+    // A huaqiu missing credential is diagnosed in the DSH child, not the host
+    // session: the two diverge because the key mirrors asynchronously. Sign in
+    // unconditionally, before any authenticated check, and never offer a
+    // subscription for this failure.
+    if (isMissingCredential) {
+      setNotice(null)
+      requestLogin()
+      return
+    }
     if (!authState.authenticated) {
       requestLogin()
       return
@@ -132,15 +169,17 @@ export const HuaqiuTurnErrorSubscribeAction = memo(function HuaqiuTurnErrorSubsc
       })
       .catch(fail)
       .finally(() => setBusy(false))
-  }, [auth, authState.authenticated, busy, dark, locale, nodeKey, t])
+  }, [auth, authState.authenticated, busy, dark, isMissingCredential, locale, nodeKey, t])
 
-  if (!isHuaqiuQuotaFailure(node)) return null
+  if (!isQuotaFailure && !isMissingCredential) return null
 
-  const label = busy
-    ? t('subscription.subscribing')
-    : authState.authenticated
-      ? t('turnError.aiQuotaCta')
-      : t('turnError.aiQuotaSignIn')
+  const label = isMissingCredential
+    ? t('turnError.aiCredentialSignIn')
+    : busy
+      ? t('subscription.subscribing')
+      : authState.authenticated
+        ? t('turnError.aiQuotaCta')
+        : t('turnError.aiQuotaSignIn')
 
   return (
     <>
