@@ -5,6 +5,7 @@ import {placementHost,placeOverview,type PlacementHost} from './place.ts'
 import {registerSchematicGenSourceWhenReady} from './schematic-ref.ts'
 import {mountSchematicGenSidebarEntry} from './sidebar-entry.ts'
 import {insertSchematicChip,currentSessionId,resolveSessionScope,type ChipInserterDeps,type ConversationLike,type SessionsLike} from './composer-chip.ts'
+import {importingHost,openInKiCad,readProjectsDirectory,changeProjectsDirectory,type ImportHost,type ProjectsDirectory} from './open-in-eda.ts'
 
 interface ClientContext {
  get?:(name:string)=>unknown
@@ -14,22 +15,52 @@ interface ClientContext {
 const loader=(window as unknown as {__ModuleLoader__:{load:(options:unknown)=>void}}).__ModuleLoader__
 loader.load({id:'@huaqiu/dsh-tool-kicad-schematic-gen',factory:(require:(name:string)=>typeof ReactTypes)=>{
  const React=require('react'),{createElement:h,useState,useEffect}=React
- let getHost:(()=>PlacementHost|undefined)|undefined
+ // One service, two capabilities: placement (editor-side) and the hq-edge API
+ // bridge (project import + settings). Both read it lazily.
+ type HqEdgeHost=PlacementHost&ImportHost
+ let getHost:(()=>HqEdgeHost|undefined)|undefined
  function Card(props:{turn?:OverviewTurn;sessionId?:string;useChat?:<T>(select:(snapshot:OverviewChat)=>T)=>T}){
   // The hook belongs to this slot's session binding. Read synchronously so history replay,
   // session switches and completion cannot race a separate watcher/effect cache.
   const chat=props.useChat?.(snapshot=>snapshot)
   const state=chat?overviewForTurn(props.turn,chat):NO_OVERVIEW,result=state.result
   const [page,setPage]=useState(0),[zoom,setZoom]=useState(1),[message,setMessage]=useState(''),[busy,setBusy]=useState(false)
+  // Where the NEXT project lands. Read once per mount from HQ Edge (the owner
+  // of that setting) so the user can see and change it before opening.
+  const [directory,setDirectory]=useState<ProjectsDirectory|undefined>(undefined)
+  const [editing,setEditing]=useState(false),[draft,setDraft]=useState('')
+  useEffect(()=>{const bridge=importingHost(getHost);if(!bridge)return;let live=true
+   readProjectsDirectory(bridge).then(d=>{if(live)setDirectory(d)}).catch(()=>{/* optional: the action still works */})
+   return()=>{live=false}},[])
   useEffect(()=>{setPage(0);setZoom(1);setMessage('')},[result?.downloadUrl])
   if(state.kind==='review'||state.kind==='running'||(state.kind==='error'&&!state.formal))return null
   if(state.kind!=='delivery'||!result)return h('div',{role:'alert',style:{padding:12}},state.message)
   const current=result.pages[page]??result.pages[0]!
-  const host=placementHost(getHost)
+  const host=placementHost(getHost),bridge=importingHost(getHost)
   async function place(){
    const currentHost=placementHost(getHost);if(!currentHost||!result||busy)return
    setBusy(true);setMessage('')
    try{await placeOverview(currentHost,result.downloadUrl);setMessage('已发送到 KiCad，请在原理图编辑器中完成放置。')}
+   catch(error){setMessage(error instanceof Error?error.message:String(error))}finally{setBusy(false)}
+  }
+  // Open the delivered project in KiCad: HQ Edge extracts the same immutable
+  // snapshot the card shows, moves it into the projects directory and asks the
+  // EDA to open it. `props.sessionId` is the conversation that generated the
+  // design — HQ Edge forks it into the new project's workspace, so the AI panel
+  // there continues this conversation instead of starting blank.
+  async function openInEda(){
+   const bridge=importingHost(getHost);if(!bridge||!result||busy)return
+   setBusy(true);setMessage('正在打开到 KiCad…')
+   try{
+    const opened=await openInKiCad(bridge,{downloadUrl:result.downloadUrl,projectName:result.title,sessionId:props.sessionId})
+    setMessage(`已在 KiCad 中打开：${opened.projectDir}${opened.sessionForked?'（已接续生成该设计的对话）':''}`)
+    if(opened.projectsDir)setDirectory(d=>d===undefined?d:{...d,directory:opened.projectsDir!,isDefault:opened.projectsDir===d.defaultDirectory})
+   }catch(error){setMessage(error instanceof Error?error.message:String(error))}finally{setBusy(false)}
+  }
+  async function saveDirectory(directory:string|null){
+   const bridge=importingHost(getHost);if(!bridge||busy)return
+   setBusy(true);setMessage('')
+   try{const next=await changeProjectsDirectory(bridge,directory);setDirectory(next);setEditing(false);setMessage(`新的工程将保存到：${next.directory}`)}
    catch(error){setMessage(error instanceof Error?error.message:String(error))}finally{setBusy(false)}
   }
   async function download(){
@@ -52,12 +83,28 @@ loader.load({id:'@huaqiu/dsh-tool-kicad-schematic-gen',factory:(require:(name:st
     h('button',{type:'button',style:buttonStyle,onClick:()=>setZoom(z=>Math.min(4,z+.5)),disabled:zoom===4,'aria-label':'放大'},'+'),
     h('button',{type:'button',style:buttonStyle,onClick:()=>setZoom(1)},'适合窗口')),
    h('div',{style:{overflow:'auto',maxHeight:540,background:'#fff',borderRadius:6}},h('img',{key:current.imageUrl,src:current.imageUrl,alt:`${result.title} — ${current.name}`,onError:()=>setMessage('预览图片不可用，请检查本地正式预览。'),style:{display:'block',width:`${zoom*100}%`,maxWidth:'none',height:zoom===1?480:'auto',objectFit:'contain'}})),
-   h('div',{style:{marginTop:12,display:'flex',gap:12,alignItems:'center'}},h('button',{type:'button',style:buttonStyle,onClick:download,disabled:busy},'下载工程 ZIP'),host?h('button',{type:'button',style:buttonStyle,onClick:place,disabled:busy},busy?'处理中…':'放置到编辑器'):null,h('span',{style:{fontSize:12}},`${result.fileCount} 个工程和库文件`)),
+   h('div',{style:{marginTop:12,display:'flex',gap:12,alignItems:'center',flexWrap:'wrap'}},
+    h('button',{type:'button',style:buttonStyle,onClick:download,disabled:busy},'下载工程 ZIP'),
+    // Opening the design needs HQ Edge (it owns the project directory and the
+    // EDA hand-off); placement needs an editor that accepts schematic content.
+    bridge?h('button',{type:'button',style:buttonStyle,onClick:openInEda,disabled:busy},busy?'处理中…':'打开到 KiCad'):null,
+    host?h('button',{type:'button',style:buttonStyle,onClick:place,disabled:busy},busy?'处理中…':'放置到编辑器'):null,
+    h('span',{style:{fontSize:12}},`${result.fileCount} 个工程和库文件`)),
    result.status!=='ok'?h('p',null,'存在未渲染页面或预览警告，请结合工具结果检查。'):null,
+   // The projects directory is HQ Edge's setting, not this card's: it is shown
+   // and changed here because this is where the user decides to open a project.
+   directory?h('div',{style:{marginTop:10,fontSize:12,display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}},
+    editing?h('input',{type:'text',value:draft,placeholder:directory.defaultDirectory,'aria-label':'工程保存目录',onChange:(event:ReactTypes.ChangeEvent<HTMLInputElement>)=>setDraft(event.target.value),style:{flex:'1 1 260px',padding:'5px 8px',border:'1px solid #aaa',borderRadius:6,background:'transparent',color:'inherit'}})
+     :h('span',null,`工程保存目录：${directory.directory}${directory.isDefault?'（默认）':''}`),
+    editing?h('button',{type:'button',style:buttonStyle,onClick:()=>void saveDirectory(draft.trim()===''?null:draft.trim()),disabled:busy},'保存')
+     :h('button',{type:'button',style:buttonStyle,onClick:()=>{setDraft(directory.isDefault?'':directory.directory);setEditing(true);setMessage('')},disabled:busy},'更改'),
+    editing?h('button',{type:'button',style:buttonStyle,onClick:()=>void saveDirectory(null),disabled:busy||directory.isDefault},'恢复默认'):null,
+    editing?h('button',{type:'button',style:buttonStyle,onClick:()=>{setEditing(false);setMessage('')},disabled:busy},'取消'):null
+   ):null,
    message?h('p',{role:'alert'},message):null)
  }
  return {inject:['slots','inputTriggers'],apply:(ctx:ClientContext)=>{
-  getHost=()=>ctx.get?.('hqEdge') as PlacementHost|undefined
+  getHost=()=>ctx.get?.('hqEdge') as HqEdgeHost|undefined
   // Trace the two things that decide whether the plugin is visible at all:
   // the trigger registry (the `@` menu) and the mounted sidebar row. When the
   // node half fails to import, DSH never loads this file — so silence here
