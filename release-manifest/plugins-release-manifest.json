@@ -163,7 +163,7 @@
       ]
     },
     "@huaqiu/dsh-tool-freerouting": {
-      "version": "0.6.15",
+      "version": "0.6.16",
       "hosts": [
         "all"
       ],
@@ -175,7 +175,7 @@
       "description": "Freerouting 自动布线集成",
       "sizeBytes": 445210,
       "changes": [
-        "布线进度回传修复"
+        "修复了一些问题"
       ]
     },
     "@huaqiu/dsh-tool-kicad-schematic-gen": {
