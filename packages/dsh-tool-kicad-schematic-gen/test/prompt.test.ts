@@ -7,8 +7,9 @@
  *     `PLAN_POLICY` (500) and `TEAM_POLICY` (600), beside `eda:selection`;
  *   - content: the section DEFINES the `@schematic-gen` token, pins the
  *     `kicad-schematic-design` skill, forbids hand-written KiCad files, and
- *     defers requirements to the user's own words — and it never claims the
- *     token carries design content, nor names a retired tool;
+ *     requires real user confirmation — while leaving detailed procedure to
+ *     the skill. It never claims the token carries design content, nor names
+ *     a retired tool;
  *   - registration is guarded: a missing `systemPrompt` service, a duplicate
  *     registration (hot reload) or a disposer-less `section()` must not throw.
  */
@@ -52,13 +53,13 @@ test('the section defines the token, pins the skill, and carries the guardrails'
   // Defines the token as an explicit user choice.
   assert.match(text, /@schematic-gen/)
   assert.match(text, /explicitly chose/)
-  // Pins the local skill entry point.
+  // Pins the local skill entry point and the user's own description.
   assert.match(text, /kicad-schematic-design/)
-  assert.match(text, /hardware design brief/)
+  assert.match(text, /own words/)
   // Guardrails: no hand-written KiCad files; requirements come from the user.
   assert.match(text, /Never hand-write \.kicad_sch files/)
-  assert.match(text, /user's own words/)
-  assert.match(text, /ask for the requirements/)
+  assert.match(text, /confirm requirements with the user/)
+  assert.match(text, /wait for a real reply/)
   // Follow-ups continue without repeating the token.
   assert.match(text, /Follow-up messages/)
   // Never claims the token carries design content, and never names a tool —
@@ -66,6 +67,14 @@ test('the section defines the token, pins the skill, and carries the guardrails'
   assert.doesNotMatch(text, /generate_schematic_from_description/)
   assert.doesNotMatch(text, /generate_system_module_graph/)
   assert.doesNotMatch(text, /the circuit is/)
+})
+
+test('the section stays short and does not duplicate the skill procedure', () => {
+  const text = schematicGenSectionText()
+  assert.ok(text.length < 1000, `section grew to ${text.length} chars`)
+  assert.doesNotMatch(text, /run-design\.mjs --read-plan/)
+  assert.doesNotMatch(text, /plan layout before the first build/)
+  assert.doesNotMatch(text, /Silence, timeout, cancellation/)
 })
 
 test('registration forwards the section and its disposer', () => {

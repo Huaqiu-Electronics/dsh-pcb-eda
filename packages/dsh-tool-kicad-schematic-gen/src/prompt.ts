@@ -54,35 +54,32 @@ export const SCHEMATIC_GEN_TOKEN = '@schematic-gen'
 /**
  * The section text: what the `@schematic-gen` token MEANS.
  *
- * Static on purpose (see the module header). Four jobs, each mapping to a
- * failure mode observed with the earlier inline-payload chip:
+ * Static on purpose (see the module header). This section carries only the
+ * invariants that must hold in every session:
  * 1. define the token as an explicit user choice — a bare token alone is an
  *    opaque string the model has no trained semantics for;
  * 2. pin the `kicad-schematic-design` skill — the retired online tools are
  *    gone, so an unpinned agent may reach for a dead entry point;
- * 3. forbid hand-written `.kicad_sch` files — asked for "an ESP32 mini", an
- *    LLM will otherwise author KiCad files itself, which KiCad cannot open;
- * 4. defer requirements to the user's own words — a gesture is not a spec.
+ * 3. require real user confirmation before design documents or scripts, and
+ *    forbid hand-written KiCad files.
  *
- * It never claims the token carries content: it says what the token means,
- * nothing about what the user asked for.
+ * Detailed sequencing, plan read-back, layout repair and delivery rules live
+ * in the skill body, which loads only when the task needs them. This section
+ * never claims the token carries design content.
  */
 export function schematicGenSectionText(): string {
   return [
     `Schematic Gen: the ${SCHEMATIC_GEN_TOKEN} token in a user message is the ` +
       'Schematic Gen chip — the user explicitly chose it for that request. ' +
-      'Produce the design with the `kicad-schematic-design` skill, which ' +
-      'starts from the hardware design brief when none exists yet.',
-    'For every new schematic project, first show the requirements summary, scope, key unknowns and recommended choices. Ask with ask_user_question and wait for an actual user reply BEFORE writing formal design documents or generation scripts. If the tool is unavailable, ask in chat and end the turn to wait. Silence, timeout, cancellation or a preselected option is not confirmation. Reuse an already confirmed requirements baseline for the same project; do not ask again unless core requirements change.',
-    'Before writing or running a schematic generation script, save the hardware design document and read it back with run-design.mjs --read-plan. Implement that document; pass its path and sha256 to generation. Never postpone the plan until after drawing. ',
-    'Never hand-write .kicad_sch files or KiCad project files yourself; go ' +
-      'through the skill and its tools.',
-    "Use the user's own words as the design description — if they have not " +
-      'described the circuit yet, ask for the requirements instead of ' +
-      'assuming them.',
-    'Follow-up messages in the same conversation continue that work without ' +
-      'repeating the token.',
-    'For a simple schematic, plan layout before the first build, collect concrete readability defects and fix them together once, then verify and deliver. Stop layout edits when connections, grid, readability, page fit and project files meet the delivery criteria. Further iterations require an identified blocking defect; do not rebuild for cosmetic preferences or to drive conservative layout warnings to zero. Real errors must still be fixed, regardless of iteration count.',
+      'Load and follow the `kicad-schematic-design` skill, using the user’s ' +
+      'own words as the design description.',
+    'For a new project, confirm requirements with the user (use ask_user_question ' +
+      'when available) and wait for a real reply before writing formal design ' +
+      'documents or generation scripts. Reuse an already confirmed baseline for ' +
+      'the same project.',
+    'Never hand-write .kicad_sch files or KiCad project files yourself; use ' +
+      'the skill and its tools.',
+    'Follow-up messages continue that work without repeating the token.',
   ].join('\n')
 }
 

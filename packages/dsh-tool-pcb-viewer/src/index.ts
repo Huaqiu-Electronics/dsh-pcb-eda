@@ -8,7 +8,7 @@
  * - 只读路由 /pcb-viewer/api/file?key=…：把登记的板文件文本发给浏览器半边
  *   （文件可能上百 MB，不走工具结果本体）。
  * - /pcb-viewer/view + /pcb-viewer/standalone.js：「浏览器打开」整页。
- * - systemPrompt 段：告诉模型何时调用 pcb_preview。
+ * - pcb_preview 的工具描述承担调用时机与结果汇报规则；不再占用全局 system prompt。
  *
  * 渲染全部发生在浏览器半边（lib/client.js，经 exports["./client"] + dsh.client 加载）。
  *
@@ -30,7 +30,7 @@ export const name = '@huaqiu/dsh-tool-pcb-viewer'
 /**
  * Cordis services this half depends on.
  */
-export const inject = ['tools', 'systemPrompt', 'webServer', 'sessions'] as const
+export const inject = ['tools', 'webServer', 'sessions'] as const
 
 export interface PcbViewerPluginConfig {
   /** max .kicad_pcb file size in bytes (default 120MB). */
@@ -45,12 +45,6 @@ const bundleRev = (() => {
     return `${st.size.toString(36)}-${Math.floor(st.mtimeMs).toString(36)}`
   } catch { return '' }
 })()
-
-const GUIDANCE = `## pcb_preview 工具
-- 当用户给出 .kicad_pcb 文件路径、或要求查看/预览/渲染 PCB 板子时，调用 pcb_preview。
-- path 支持绝对路径，或相对会话工作目录的路径。
-- 调用成功后用户会在右侧面板看到实时的「2D 走线视图 + 3D 渲染」大屏，可点击放大到全屏。
-- 不要在回复里粘贴文件内容；只需告诉用户已打开预览即可。`
 
 // key → absolute file path（已校验）。
 // 有意决策：registry 有界（32 条 FIFO 逐出最旧），key 用不可枚举的 randomUUID。
@@ -212,14 +206,13 @@ export function apply(ctx: Context, config: PcbViewerPluginConfig = {}): () => v
     }), 'dsh-tool-pcb-viewer: /pcb-viewer routes')
   }
 
-  ctx.systemPrompt.section({ name: 'tool:pcb_preview', order: 107, text: GUIDANCE })
-
   const tool = defineTool({
     name: 'pcb_preview',
     description:
       'Render a KiCad .kicad_pcb file as an interactive 2D layout + 3D board view ' +
       'embedded in the conversation. Use whenever the user gives a .kicad_pcb path ' +
-      'or asks to view/preview/render a PCB board.',
+      'or asks to view/preview/render a PCB board. After success, tell the user the ' +
+      'preview opened in the right panel; do not paste board file contents.',
     parameters: {
       path: {
         type: 'string',

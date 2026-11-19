@@ -14,7 +14,7 @@
 
 ```
                     ┌─────────────── src/index.ts (302) ───────────────┐
-   host 半边        │ pcb_preview 工具 · /pcb-viewer/* 路由 · 提示词段 │
+   host 半边        │ pcb_preview 工具 · /pcb-viewer/* 路由            │
                     └──────────────────────┬──────────────────────────┘
                                            │ 只依赖解析层
                     ┌──────────────────────▼──────────────────────────┐
@@ -179,8 +179,8 @@ Edge.Cuts 段（line/arc/rect/circle）
 |---|---|---|
 | 工具 | `pcb_preview` | `defineTool`：参数 `{ path }`；`output.render` 回两块文本 |
 | 即时卡片 | `presentCall` / `presentResult` | 工具事件到达即渲染（标题 + 参数行） |
-| 服务 | `inject = ['tools','systemPrompt','webServer','sessions']` | host 依赖 |
-| 提示词段 | `systemPrompt.section({ name:'tool:pcb_preview', order:107 })` | 何时调用 |
+| 服务 | `inject = ['tools','webServer','sessions']` | host 依赖 |
+| 工具描述 | `pcb_preview.description` | 何时调用、结果如何汇报；不再占用全局 system prompt |
 | 路由 | `/pcb-viewer/api/file?key=` | 只读板文本（localhost Host/Origin 守卫） |
 | 路由 | `/pcb-viewer/view` · `/pcb-viewer/standalone.js` | 独立整页 + 自包含 bundle（rev 按 mtime） |
 | 槽位 | `conversation.session.header.actions` | 观察器（渲染 null，维护回合索引） |
