@@ -7,7 +7,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { CredentialProvider, CredentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { getLogger } from '@huaqiu/dsh-plugin-log'
+import { getLogger, type PluginLogger } from '@huaqiu/dsh-plugin-log'
 import {
   DEFAULT_HOST_AUTH_PATH,
   resolveHostConfig,
@@ -124,4 +124,76 @@ export function apply(ctx: Context, config?: Partial<HuaqiuAuthConfig>): void {
   }
 
   log.info('dsh-auth node half ready', { routes: AUTH_ROUTE_PREFIX, hostMode: service.hostMode })
+
+  // React to a LIVE failed Huaqiu request, not to the durable turn/end node:
+  // Cordis events are in-memory and are not replayed when a session is restored,
+  // so reopening DSH can never pop the native login dialog for an old failure.
+  // The harness owns the `agent/request-error` event typings and dsh-auth does
+  // not depend on them, so register through the narrow structural view below.
+  ;(ctx as unknown as {
+    on(event: 'agent/request-error', listener: RequestErrorListenerView): unknown
+  }).on('agent/request-error', createHuaqiuMissingCredentialLoginListener(service))
+}
+
+/**
+ * Narrow structural view of the harness `agent/request-error` waterfall. Only
+ * the fields this plugin reads are modelled; the real payload also carries
+ * `agent`, `turn`, `step`, `retryPolicy` and a required `signal`.
+ */
+export interface RequestErrorPayloadView {
+  readonly provider: string
+  readonly failure: { readonly code: string }
+  readonly signal?: AbortSignal
+}
+
+export type RequestErrorActionView = { readonly kind: 'retry' } | undefined
+
+export type RequestErrorListenerView = (
+  payload: RequestErrorPayloadView,
+  next: () => Promise<RequestErrorActionView>,
+) => Promise<RequestErrorActionView>
+
+/** The slice of `HuaqiuAuthService` the automatic-login hook depends on. */
+export interface AutoLoginAuthView {
+  readonly hostMode: boolean
+  readonly auth: { login(): Promise<void> }
+}
+
+/**
+ * Build the live-failure login hook. One instance per running DSH process, so
+ * `loginInFlight` coalesces simultaneous failures and is cleared once login
+ * settles — successfully or otherwise — without ever retrying the model turn.
+ */
+export function createHuaqiuMissingCredentialLoginListener(
+  service: AutoLoginAuthView,
+  warn: PluginLogger['warn'] = (message, fields) => log.warn(message, fields),
+): RequestErrorListenerView {
+  let loginInFlight: Promise<void> | undefined
+
+  return async (payload, next) => {
+    // Delegate first: an inner retry policy may own this failure, in which
+    // case the dialog must not open and the original action is preserved.
+    const action = await next()
+    if (action?.kind === 'retry') return action
+
+    if (
+      service.hostMode &&
+      payload.provider === 'huaqiu' &&
+      payload.failure.code === 'MISSING_CREDENTIAL' &&
+      payload.signal?.aborted !== true &&
+      loginInFlight === undefined
+    ) {
+      // Fire and forget: the host login route can block for minutes, while the
+      // failed turn must close immediately. Catching here keeps a login error
+      // from replacing the original LLM failure in the waterfall.
+      loginInFlight = service.auth.login()
+        .catch((error: unknown) => {
+          warn('automatic Huaqiu login failed', { error: String(error) })
+        })
+        .finally(() => {
+          loginInFlight = undefined
+        })
+    }
+    return action
+  }
 }

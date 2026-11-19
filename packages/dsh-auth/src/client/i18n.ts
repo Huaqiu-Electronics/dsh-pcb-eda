@@ -55,9 +55,6 @@ const zh = {
   'turnError.aiQuotaCta': '升级获取更多 AI 额度',
   'turnError.aiQuotaSignIn': '登录后升级',
   'turnError.aiQuotaOpenFailed': '无法打开订阅页面，请稍后重试。',
-  // Turn-error sign-in CTA for a huaqiu MISSING_CREDENTIAL failure: the host
-  // session may be valid while the DSH child's mirrored API key is absent.
-  'turnError.aiCredentialSignIn': '登录以恢复 AI 服务',
 
   'card.title': '华秋 EDA AI（eda.cn）登录',
   'card.desc': '工具「{tool}」需要登录华秋 EDA AI 账号才能继续。请在下方的登录框完成登录（或点击左侧「华秋EDA AI登录」按钮）；登录完成后，回复助手「已登录，请重试」，助手会自动重新调用该工具。',
@@ -113,7 +110,6 @@ const en: Record<AuthCopyKey, string> = {
   'turnError.aiQuotaCta': 'Upgrade for more AI tokens',
   'turnError.aiQuotaSignIn': 'Sign in to upgrade',
   'turnError.aiQuotaOpenFailed': 'Could not open the subscription page. Please try again later.',
-  'turnError.aiCredentialSignIn': 'Sign in to restore AI access',
 
   'card.title': 'Huaqiu EDA AI (eda.cn) login',
   // The reply phrase used to be hardcoded to the Chinese "已登录，请重试" even
