@@ -36,19 +36,6 @@
         "运行时替换失败时自动回滚到旧版本"
       ],
       "breaking": []
-    },
-    {
-      "version": "0.4.10",
-      "sha256": "b481d46c3f2a91e7d8c6b5a439271f08e7d6c5b4a392817654f43e2d1c0b9a87",
-      "platform": "win",
-      "arch": "x64",
-      "url": "https://down.eda.cn/data/kicad-release/edge-headless-0.3.10-win-x64.zip",
-      "channel": "stable",
-      "publishedAt": "2026-11-17T06:30:00Z",
-      "sizeBytes": 503316480,
-      "summary": "Add Huaqiu AI Gateway",
-      "notes": [],
-      "breaking": []
     }
   ]
 }
