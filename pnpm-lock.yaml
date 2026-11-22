@@ -496,6 +496,45 @@ importers:
         specifier: ^18.3.1
         version: 18.3.1(react@18.3.1)
 
+  packages/hardware-engineering:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.1
+        version: 4.0.5
+      '@huaqiu/dsh-artifacts':
+        specifier: workspace:*
+        version: link:../dsh-artifacts
+      '@huaqiu/dsh-auth':
+        specifier: workspace:*
+        version: link:../dsh-auth
+      '@huaqiu/dsh-eda-selection':
+        specifier: workspace:*
+        version: link:../dsh-eda-selection
+      '@huaqiu/dsh-huaqiu-about':
+        specifier: workspace:*
+        version: link:../dsh-huaqiu-about
+      '@huaqiu/dsh-kicad':
+        specifier: workspace:*
+        version: link:../dsh-kicad
+      '@huaqiu/dsh-tool-kicad-schematic-gen':
+        specifier: workspace:*
+        version: link:../dsh-tool-kicad-schematic-gen
+      '@huaqiu/dsh-tool-part-search':
+        specifier: workspace:*
+        version: link:../dsh-tool-part-search
+      '@huaqiu/dsh-tool-pcb-viewer':
+        specifier: workspace:*
+        version: link:../dsh-tool-pcb-viewer
+      '@huaqiu/dsh-tool-quote':
+        specifier: workspace:*
+        version: link:../dsh-tool-quote
+      '@huaqiu/dsh-tool-symbol-footprint':
+        specifier: workspace:*
+        version: link:../dsh-tool-symbol-footprint
+      '@huaqiu/dsh-ui-theme-huaqiu':
+        specifier: workspace:*
+        version: link:../dsh-ui-theme-huaqiu
+
 packages:
 
   '@asamuzakjp/css-color@3.2.0':
