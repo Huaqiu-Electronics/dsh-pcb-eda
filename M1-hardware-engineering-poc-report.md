@@ -308,6 +308,28 @@ No excluded package is silently loaded, and no included package injects `hqEdge`
 
 ---
 
+## 15. Commit IDs
+
+`dsh-pcb-eda` (logical units, oldest first):
+
+| Commit | Contents |
+|---|---|
+| `21b5be1` | Product bundle package and HQ Edge migrations |
+| `c0fa9c5` | 0.7.10 release metadata, lockfile and manifests |
+| `27dec19` | M1 report, evidence, matrix, register and host artifacts |
+
+`deepseek-harness` (logical units, oldest first):
+
+| Commit | Contents |
+|---|---|
+| `d883451aa1` | Installation dependency, desktop template, profile upgrade and static gates |
+| `30511a631b` | Reproducible activation fixture and E2E runner |
+| `b8f5d78dcd` | Typecheck fix for the branded E2E tool-call id |
+
+Nothing was published to npm and no production release channel was changed.
+
+---
+
 ## Artifact index
 
 - `dist/huaqiu-hardware-engineering-0.7.10.tgz` — product tarball.
