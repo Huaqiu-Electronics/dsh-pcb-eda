@@ -1,0 +1,2333 @@
+{
+  "family": "desktop",
+  "version": "0.7.10",
+  "installAnchor": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/apps/cli/package.json",
+  "profileDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/home/profiles/hardware-engineering",
+  "home": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/home",
+  "bundles": [
+    "@deepseek-ai/dsh-base",
+    "@deepseek-ai/dsh-web-app",
+    "@huaqiu/hardware-engineering"
+  ],
+  "closure": [
+    {
+      "name": "@huaqiu/hardware-engineering",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-artifacts",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-eda-selection",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-huaqiu-about",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-auth",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-part-search",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-kicad-schematic-gen",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-pcb-viewer",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-quote",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-symbol-footprint",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-ui-theme-huaqiu",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-kicad",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-plugin-log",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/part-search",
+      "kind": "published",
+      "version": "0.2.6"
+    },
+    {
+      "name": "@huaqiu/dsh-sidebar-entry",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/kicad-sexpr-parser",
+      "kind": "published",
+      "version": "0.1.1"
+    },
+    {
+      "name": "@huaqiu/component-gen-server",
+      "kind": "packed",
+      "version": "0.7.10"
+    }
+  ],
+  "installed": [
+    {
+      "name": "@huaqiu/hardware-engineering",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/hardware-engineering"
+    },
+    {
+      "name": "@huaqiu/dsh-artifacts",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-artifacts"
+    },
+    {
+      "name": "@huaqiu/dsh-eda-selection",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-eda-selection"
+    },
+    {
+      "name": "@huaqiu/dsh-huaqiu-about",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-huaqiu-about"
+    },
+    {
+      "name": "@huaqiu/dsh-auth",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-auth"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-part-search",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-part-search"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-kicad-schematic-gen",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-pcb-viewer",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-quote",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-quote"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-symbol-footprint",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint"
+    },
+    {
+      "name": "@huaqiu/dsh-ui-theme-huaqiu",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu"
+    },
+    {
+      "name": "@huaqiu/dsh-kicad",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-kicad"
+    },
+    {
+      "name": "@huaqiu/dsh-plugin-log",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-plugin-log"
+    },
+    {
+      "name": "@huaqiu/dsh-sidebar-entry",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-sidebar-entry"
+    },
+    {
+      "name": "@huaqiu/component-gen-server",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/component-gen-server"
+    }
+  ],
+  "bundleDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/hardware-engineering",
+  "bundleVersion": "0.7.10",
+  "productRows": [
+    "huaqiu-auth",
+    "huaqiu-artifacts",
+    "huaqiu-dsh-kicad",
+    "dsh-tool-kicad-schematic-gen",
+    "dsh-tool-pcb-viewer",
+    "huaqiu-tool-part-search",
+    "huaqiu-eda-selection",
+    "huaqiu-tool-quote",
+    "huaqiu-tool-symbol-footprint",
+    "ui-theme-huaqiu",
+    "dsh-huaqiu-about"
+  ],
+  "rows": [
+    {
+      "id": "include",
+      "rawId": "include",
+      "module": "cordis:include",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-plugin-manager",
+      "rawId": "tool-plugin-manager",
+      "module": "@deepseek-ai/dsh-plugin-manager/tools",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-plugin-manager",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:plugin-manager",
+      "rawId": "plugin-manager",
+      "module": "@deepseek-ai/dsh-plugin-manager",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-plugin-manager",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:timer",
+      "rawId": "timer",
+      "module": "@deepseek-ai/cordis-plugin-timer",
+      "version": "1.2.0",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/cordis-plugin-timer",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:hmr",
+      "rawId": "hmr",
+      "module": "@deepseek-ai/dsh-hmr",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-hmr",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:llm",
+      "rawId": "llm",
+      "module": "@deepseek-ai/dsh-llm",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-llm",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:deepseek-llm-api-extensions",
+      "rawId": "deepseek-llm-api-extensions",
+      "module": "@deepseek-ai/dsh-deepseek-llm-api-extensions",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-deepseek-llm-api-extensions",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session",
+      "rawId": "session",
+      "module": "@deepseek-ai/dsh-session",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-log-deepseek",
+      "rawId": "session-log-deepseek",
+      "module": "@deepseek-ai/dsh-session-log-deepseek",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-log-deepseek",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:typert",
+      "rawId": "typert",
+      "module": "@deepseek-ai/dsh-typert-registry",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-typert-registry",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:typert-loader",
+      "rawId": "typert-loader",
+      "module": "@deepseek-ai/dsh-typert-loader",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-typert-loader",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:typert-gateway",
+      "rawId": "typert-gateway",
+      "module": "@deepseek-ai/dsh-api-gateway",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-api-gateway",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:remote-access",
+      "rawId": "remote-access",
+      "module": "@deepseek-ai/dsh-api-remote-access",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-api-remote-access",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-title",
+      "rawId": "session-title",
+      "module": "@deepseek-ai/dsh-session-title",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-title",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-title-llm",
+      "rawId": "session-title-llm",
+      "module": "@deepseek-ai/dsh-session-title-first-prompt-llm",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-title-first-prompt-llm",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:user-questions",
+      "rawId": "user-questions",
+      "module": "@deepseek-ai/dsh-user-questions",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-user-questions",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:agent",
+      "rawId": "agent",
+      "module": "@deepseek-ai/dsh-agent",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-agent",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:plugin-package-inventory-deepseek",
+      "rawId": "plugin-package-inventory-deepseek",
+      "module": "@deepseek-ai/dsh-plugin-package-inventory-deepseek",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-plugin-package-inventory-deepseek",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:agent-default-model",
+      "rawId": "agent-default-model",
+      "module": "@deepseek-ai/dsh-agent-default-model",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-agent-default-model",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:jobs",
+      "rawId": "jobs",
+      "module": "@deepseek-ai/dsh-jobs-local",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-jobs-local",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:llm-retry",
+      "rawId": "llm-retry",
+      "module": "@deepseek-ai/dsh-llm-retry",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-llm-retry",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:config-editor",
+      "rawId": "config-editor",
+      "module": "@deepseek-ai/dsh-config-editor",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-config-editor",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:settings",
+      "rawId": "settings",
+      "module": "@deepseek-ai/dsh-settings",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-settings",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:authorization",
+      "rawId": "authorization",
+      "module": "@deepseek-ai/dsh-authorization",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-authorization",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:deepseek-account",
+      "rawId": "deepseek-account",
+      "module": "@deepseek-ai/dsh-deepseek-account-platform",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-deepseek-account-platform",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:credentials",
+      "rawId": "credentials",
+      "module": "@deepseek-ai/dsh-credentials-local",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-credentials-local",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:llm-pi-ai",
+      "rawId": "llm-pi-ai",
+      "module": "@deepseek-ai/dsh-llm-pi-ai",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-llm-pi-ai",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-persistence-jsonl",
+      "rawId": "session-persistence-jsonl",
+      "module": "@deepseek-ai/dsh-session-persistence-jsonl",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-persistence-jsonl",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:attachment-local",
+      "rawId": "attachment-local",
+      "module": "@deepseek-ai/dsh-attachment-local",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-attachment-local",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-query-sqlite",
+      "rawId": "session-query-sqlite",
+      "module": "@deepseek-ai/dsh-session-query-sqlite",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-query-sqlite",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:working-directory",
+      "rawId": "working-directory",
+      "module": "@deepseek-ai/dsh-working-directory",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-working-directory",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-working-directory",
+      "rawId": "tool-working-directory",
+      "module": "@deepseek-ai/dsh-tool-working-directory",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-working-directory",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-projection",
+      "rawId": "session-projection",
+      "module": "@deepseek-ai/dsh-session-projection",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-projection",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:storage",
+      "rawId": "storage",
+      "module": "@deepseek-ai/dsh-storage",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-storage",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:storage-json",
+      "rawId": "storage-json",
+      "module": "@deepseek-ai/dsh-storage-json",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-storage-json",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:storage-domain",
+      "rawId": "storage-domain",
+      "module": "@deepseek-ai/dsh-storage-domain",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-storage-domain",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-projection-cache",
+      "rawId": "session-projection-cache",
+      "module": "@deepseek-ai/dsh-session-projection-cache",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-projection-cache",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:otel",
+      "rawId": "otel",
+      "module": "@deepseek-ai/dsh-otel",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-otel",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-telemetry-otel",
+      "rawId": "session-telemetry-otel",
+      "module": "@deepseek-ai/dsh-session-telemetry-otel",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-telemetry-otel",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:subprocess",
+      "rawId": "subprocess",
+      "module": "@deepseek-ai/dsh-subprocess-local",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-subprocess-local",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:sandbox",
+      "rawId": "sandbox",
+      "module": "@deepseek-ai/dsh-sandbox-local",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-sandbox-local",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:sandbox-policy",
+      "rawId": "sandbox-policy",
+      "module": "@deepseek-ai/dsh-sandbox-policy",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-sandbox-policy",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:bash-sandbox",
+      "rawId": "bash-sandbox",
+      "module": "@deepseek-ai/dsh-bash-sandbox",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-bash-sandbox",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:pwsh-sandbox",
+      "rawId": "pwsh-sandbox",
+      "module": "@deepseek-ai/dsh-pwsh-sandbox",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-pwsh-sandbox",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:approval",
+      "rawId": "approval",
+      "module": "@deepseek-ai/dsh-user-approval",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-user-approval",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:permission",
+      "rawId": "permission",
+      "module": "@deepseek-ai/dsh-permission-presets",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-permission-presets",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:shell-env",
+      "rawId": "shell-env",
+      "module": "@deepseek-ai/dsh-shell-env",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-shell-env",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-bash",
+      "rawId": "tool-bash",
+      "module": "@deepseek-ai/dsh-tool-bash",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-bash",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-pwsh",
+      "rawId": "tool-pwsh",
+      "module": "@deepseek-ai/dsh-tool-pwsh",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-pwsh",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-jobs",
+      "rawId": "tool-jobs",
+      "module": "@deepseek-ai/dsh-tool-jobs",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-jobs",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:fs-observation-policy",
+      "rawId": "fs-observation-policy",
+      "module": "@deepseek-ai/dsh-fs-observation-policy",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-fs-observation-policy",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-fs",
+      "rawId": "tool-fs",
+      "module": "@deepseek-ai/dsh-tool-fs",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-fs",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-fs-search",
+      "rawId": "tool-fs-search",
+      "module": "@deepseek-ai/dsh-tool-fs-search",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-fs-search",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:agent-instructions",
+      "rawId": "agent-instructions",
+      "module": "@deepseek-ai/dsh-agent-instructions",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-agent-instructions",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:skill",
+      "rawId": "skill",
+      "module": "@deepseek-ai/dsh-skill",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-skill",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:skill-filesystem",
+      "rawId": "skill-filesystem",
+      "module": "@deepseek-ai/dsh-skill-filesystem",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-skill-filesystem",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-skill",
+      "rawId": "tool-skill",
+      "module": "@deepseek-ai/dsh-tool-skill",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-skill",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:commands",
+      "rawId": "commands",
+      "module": "@deepseek-ai/dsh-commands",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-commands",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:command-feedback",
+      "rawId": "command-feedback",
+      "module": "@deepseek-ai/dsh-command-feedback",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-command-feedback",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:goal",
+      "rawId": "goal",
+      "module": "@deepseek-ai/dsh-goal",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-goal",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:goal-round-driver",
+      "rawId": "goal-round-driver",
+      "module": "@deepseek-ai/dsh-goal-round-driver",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-goal-round-driver",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:command-goal",
+      "rawId": "command-goal",
+      "module": "@deepseek-ai/dsh-command-goal",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-command-goal",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:plan-mode",
+      "rawId": "plan-mode",
+      "module": "@deepseek-ai/dsh-plan-mode",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-plan-mode",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:token-meter",
+      "rawId": "token-meter",
+      "module": "@deepseek-ai/dsh-token-meter",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-token-meter",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:compaction-basic",
+      "rawId": "compaction-basic",
+      "module": "@deepseek-ai/dsh-compaction-basic",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-compaction-basic",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:command-compact",
+      "rawId": "command-compact",
+      "module": "@deepseek-ai/dsh-command-compact",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-command-compact",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:subagent",
+      "rawId": "subagent",
+      "module": "@deepseek-ai/dsh-subagent",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-subagent",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:agent-team",
+      "rawId": "agent-team",
+      "module": "@deepseek-ai/dsh-agent-team",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-agent-team",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-agent-team",
+      "rawId": "tool-agent-team",
+      "module": "@deepseek-ai/dsh-tool-agent-team",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-agent-team",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:subagent-spawn-in-process",
+      "rawId": "subagent-spawn-in-process",
+      "module": "@deepseek-ai/dsh-subagent-spawn-in-process",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-subagent-spawn-in-process",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:subagent-fork-in-process",
+      "rawId": "subagent-fork-in-process",
+      "module": "@deepseek-ai/dsh-subagent-fork-in-process",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-subagent-fork-in-process",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-subagent-control",
+      "rawId": "tool-subagent-control",
+      "module": "@deepseek-ai/dsh-tool-subagent-control",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-subagent-control",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-subagent",
+      "rawId": "tool-subagent",
+      "module": "@deepseek-ai/dsh-tool-subagent",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-subagent",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-subagent-fork",
+      "rawId": "tool-subagent-fork",
+      "module": "@deepseek-ai/dsh-tool-subagent",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-subagent",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:ptc-runtime",
+      "rawId": "ptc-runtime",
+      "module": "@deepseek-ai/dsh-ptc-runtime-node",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-ptc-runtime-node",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:workflow-ptc",
+      "rawId": "workflow-ptc",
+      "module": "@deepseek-ai/dsh-workflow-ptc",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-workflow-ptc",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-workflow",
+      "rawId": "tool-workflow",
+      "module": "@deepseek-ai/dsh-tool-workflow",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-workflow",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:timeout-policy",
+      "rawId": "timeout-policy",
+      "module": "@deepseek-ai/dsh-tool-call-timeout-policy",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-call-timeout-policy",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:spill-local",
+      "rawId": "spill-local",
+      "module": "@deepseek-ai/dsh-spill-local",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-spill-local",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:spill-policy",
+      "rawId": "spill-policy",
+      "module": "@deepseek-ai/dsh-spill-policy",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-spill-policy",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-checkpoint-policy",
+      "rawId": "session-checkpoint-policy",
+      "module": "@deepseek-ai/dsh-session-checkpoint-policy",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-session-checkpoint-policy",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-result-pruner",
+      "rawId": "tool-result-pruner",
+      "module": "@deepseek-ai/dsh-compaction-tool-result-pruner",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-compaction-tool-result-pruner",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:image-offload",
+      "rawId": "image-offload",
+      "module": "@deepseek-ai/dsh-compaction-image-offload",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-compaction-image-offload",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-todo",
+      "rawId": "tool-todo",
+      "module": "@deepseek-ai/dsh-tool-todo",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-todo",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:tool-goal",
+      "rawId": "tool-goal",
+      "module": "@deepseek-ai/dsh-tool-goal",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-goal",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:repeat-tool-reminder",
+      "rawId": "repeat-tool-reminder",
+      "module": "@deepseek-ai/dsh-repeat-tool-reminder",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-repeat-tool-reminder",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:web",
+      "rawId": "web",
+      "module": "@deepseek-ai/dsh-web",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-web",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:web-search-deepseek",
+      "rawId": "web-search-deepseek",
+      "module": "@deepseek-ai/dsh-web-search-deepseek",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-web-search-deepseek",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:web-deepseek-api",
+      "rawId": "web-deepseek-api",
+      "module": "@deepseek-ai/dsh-web-deepseek-api",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-web-deepseek-api",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:web-fetch-http",
+      "rawId": "web-fetch-http",
+      "module": "@deepseek-ai/dsh-web-fetch-http",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-web-fetch-http",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-web",
+      "rawId": "tool-web",
+      "module": "@deepseek-ai/dsh-tool-web",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-web",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:mcp-resources",
+      "rawId": "mcp-resources",
+      "module": "@deepseek-ai/dsh-mcp-resources",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-mcp-resources",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tools",
+      "rawId": "tools",
+      "module": "@deepseek-ai/dsh-tools",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tools",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-executor-native",
+      "rawId": "tool-executor-native",
+      "module": "@deepseek-ai/dsh-tool-executor-native",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-executor-native",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:tool-executor-ptc",
+      "rawId": "tool-executor-ptc",
+      "module": "@deepseek-ai/dsh-tool-executor-ptc",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-executor-ptc",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:system-prompt",
+      "rawId": "system-prompt",
+      "module": "@deepseek-ai/dsh-system-prompt",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-system-prompt",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:agent-loop",
+      "rawId": "agent-loop",
+      "module": "@deepseek-ai/dsh-agent-loop",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-agent-loop",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:fs-sandbox",
+      "rawId": "fs-sandbox",
+      "module": "@deepseek-ai/dsh-fs-sandbox",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-fs-sandbox",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:llm-deepseek",
+      "rawId": "llm-deepseek",
+      "module": "@deepseek-ai/dsh-llm-deepseek-api-key",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-llm-deepseek-api-key",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:llm-deepseek-account",
+      "rawId": "llm-deepseek-account",
+      "module": "@deepseek-ai/dsh-llm-deepseek-account",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-llm-deepseek-account",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:desktop-product-telemetry",
+      "rawId": "desktop-product-telemetry",
+      "module": "@deepseek-ai/dsh-host-product-telemetry-otel",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-host-product-telemetry-otel",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:product-analytics",
+      "rawId": "product-analytics",
+      "module": "@deepseek-ai/dsh-client-product-analytics",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-product-analytics",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:subagent-model-selection-settings",
+      "rawId": "subagent-model-selection-settings",
+      "module": "@deepseek-ai/dsh-tool-subagent/model-selection-settings",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/base/node_modules/@deepseek-ai/dsh-tool-subagent",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:message-feedback",
+      "rawId": "message-feedback",
+      "module": "@deepseek-ai/dsh-message-feedback",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-message-feedback",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-log-download",
+      "rawId": "session-log-download",
+      "module": "@deepseek-ai/dsh-session-log-export",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-session-log-export",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:open-in-app",
+      "rawId": "open-in-app",
+      "module": "@deepseek-ai/dsh-host-open-in-app",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-host-open-in-app",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-file-actions",
+      "rawId": "ui-file-actions",
+      "module": "@deepseek-ai/dsh-client-ui-file-actions",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-file-actions",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-context-menu",
+      "rawId": "ui-context-menu",
+      "module": "@deepseek-ai/dsh-client-ui-context-menu",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-context-menu",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-open-in-app",
+      "rawId": "ui-open-in-app",
+      "module": "@deepseek-ai/dsh-client-ui-open-in-app",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-open-in-app",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:workspace",
+      "rawId": "workspace",
+      "module": "@deepseek-ai/dsh-workspace",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-workspace",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-reference",
+      "rawId": "session-reference",
+      "module": "@deepseek-ai/dsh-session-reference",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-session-reference",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:file-reference-local",
+      "rawId": "file-reference-local",
+      "module": "@deepseek-ai/dsh-file-reference-local",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-file-reference-local",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-stats",
+      "rawId": "session-stats",
+      "module": "@deepseek-ai/dsh-session-stats",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-session-stats",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-turn-outline",
+      "rawId": "session-turn-outline",
+      "module": "@deepseek-ai/dsh-session-turn-outline",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-session-turn-outline",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:directory-picker",
+      "rawId": "directory-picker",
+      "module": "@deepseek-ai/dsh-host-directory-picker-auto",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-host-directory-picker-auto",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:plugin-inventory",
+      "rawId": "plugin-inventory",
+      "module": "@deepseek-ai/dsh-host-plugin-inventory",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-host-plugin-inventory",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:session-controller",
+      "rawId": "session-controller",
+      "module": "@deepseek-ai/dsh-api-session-controller",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-api-session-controller",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:job-controller",
+      "rawId": "job-controller",
+      "module": "@deepseek-ai/dsh-api-job-controller",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-api-job-controller",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:terminal-controller",
+      "rawId": "terminal-controller",
+      "module": "@deepseek-ai/dsh-api-terminal-controller",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-api-terminal-controller",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:workspace-files",
+      "rawId": "workspace-files",
+      "module": "@deepseek-ai/dsh-api-workspace-files",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-api-workspace-files",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:schedule",
+      "rawId": "schedule",
+      "module": "@deepseek-ai/dsh-schedule",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-schedule",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-account",
+      "rawId": "ui-settings-account",
+      "module": "@deepseek-ai/dsh-client-ui-settings-account",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-account",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:account-controller",
+      "rawId": "account-controller",
+      "module": "@deepseek-ai/dsh-api-account-controller",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-api-account-controller",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:settings-controller",
+      "rawId": "settings-controller",
+      "module": "@deepseek-ai/dsh-api-settings-controller",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-api-settings-controller",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:mcp-manager",
+      "rawId": "mcp-manager",
+      "module": "@deepseek-ai/dsh-mcp-manager",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-mcp-manager",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:workspace-controller",
+      "rawId": "workspace-controller",
+      "module": "@deepseek-ai/dsh-api-workspace-controller",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-api-workspace-controller",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:cordis-host-runner",
+      "rawId": "cordis-host-runner",
+      "module": "@deepseek-ai/dsh-cordis-host-runner",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-cordis-host-runner",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:cordis-inspect-providers",
+      "rawId": "cordis-inspect-providers",
+      "module": "@deepseek-ai/dsh-tool-cordis/host",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-tool-cordis",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:web-startup",
+      "rawId": "web-startup",
+      "module": "@deepseek-ai/dsh-web-app/startup",
+      "version": "0.2.2-rc.1",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@deepseek-ai/dsh-web-app",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:webserver",
+      "rawId": "webserver",
+      "module": "@deepseek-ai/dsh-host-webserver",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-host-webserver",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:web-runtime",
+      "rawId": "web-runtime",
+      "module": "@deepseek-ai/dsh-web-app",
+      "version": "0.2.2-rc.1",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@deepseek-ai/dsh-web-app",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:harness-dev-context",
+      "rawId": "harness-dev-context",
+      "module": "@deepseek-ai/dsh-harness-dev-context",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-harness-dev-context",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:client-hmr",
+      "rawId": "client-hmr",
+      "module": "@deepseek-ai/dsh-client-hmr",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-hmr",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:modules",
+      "rawId": "modules",
+      "module": "@deepseek-ai/dsh-client-modules",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-modules",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:connection",
+      "rawId": "connection",
+      "module": "@deepseek-ai/dsh-client-connection",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-connection",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:file-upload",
+      "rawId": "file-upload",
+      "module": "@deepseek-ai/dsh-client-file-upload",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-file-upload",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:api-remotes",
+      "rawId": "api-remotes",
+      "module": "@deepseek-ai/dsh-api-remotes",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-api-remotes",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:cordis-client-runner",
+      "rawId": "cordis-client-runner",
+      "module": "@deepseek-ai/dsh-cordis-client-runner",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-cordis-client-runner",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-theme",
+      "rawId": "ui-theme",
+      "module": "@deepseek-ai/dsh-client-ui-theme",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-theme",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:locale",
+      "rawId": "locale",
+      "module": "@deepseek-ai/dsh-client-locale",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-locale",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:shortcuts",
+      "rawId": "shortcuts",
+      "module": "@deepseek-ai/dsh-client-shortcuts",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-shortcuts",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-shortcuts",
+      "rawId": "ui-shortcuts",
+      "module": "@deepseek-ai/dsh-client-ui-shortcuts",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-shortcuts",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-layout",
+      "rawId": "ui-layout",
+      "module": "@deepseek-ai/dsh-client-ui-layout",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-layout",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-renderer",
+      "rawId": "ui-renderer",
+      "module": "@deepseek-ai/dsh-client-ui-renderer",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-renderer",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-session",
+      "rawId": "ui-session",
+      "module": "@deepseek-ai/dsh-client-ui-session",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-session",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:resources",
+      "rawId": "resources",
+      "module": "@deepseek-ai/dsh-client-resources",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-resources",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-sidebar",
+      "rawId": "ui-sidebar",
+      "module": "@deepseek-ai/dsh-client-ui-sidebar",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-sidebar",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-sidebar-right",
+      "rawId": "ui-sidebar-right",
+      "module": "@deepseek-ai/dsh-client-ui-sidebar-right",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-sidebar-right",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:office-to-pdf",
+      "rawId": "office-to-pdf",
+      "module": "@deepseek-ai/dsh-office-to-pdf",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-office-to-pdf",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-sidebar-documentpreview",
+      "rawId": "ui-sidebar-documentpreview",
+      "module": "@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-sidebar-documentpreview",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-sidebar-browser",
+      "rawId": "ui-sidebar-browser",
+      "module": "@deepseek-ai/dsh-client-ui-sidebar-browser",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-sidebar-browser",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:ui-sidebar-terminal",
+      "rawId": "ui-sidebar-terminal",
+      "module": "@deepseek-ai/dsh-client-ui-sidebar-terminal",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-sidebar-terminal",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-sidebar-files",
+      "rawId": "ui-sidebar-files",
+      "module": "@deepseek-ai/dsh-client-ui-sidebar-files",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-sidebar-files",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings",
+      "rawId": "ui-settings",
+      "module": "@deepseek-ai/dsh-client-ui-settings",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-general",
+      "rawId": "ui-settings-general",
+      "module": "@deepseek-ai/dsh-client-ui-settings-general",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-general",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-models",
+      "rawId": "ui-settings-models",
+      "module": "@deepseek-ai/dsh-client-ui-settings-models",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-models",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-plugin-manager",
+      "rawId": "ui-plugin-manager",
+      "module": "@deepseek-ai/dsh-client-ui-plugin-manager",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-plugin-manager",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-plugin-inventory",
+      "rawId": "ui-settings-plugin-inventory",
+      "module": "@deepseek-ai/dsh-client-ui-settings-plugin-inventory",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-plugin-inventory",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-conversation",
+      "rawId": "ui-conversation",
+      "module": "@deepseek-ai/dsh-client-ui-conversation",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-conversation",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-approval",
+      "rawId": "ui-approval",
+      "module": "@deepseek-ai/dsh-client-ui-approval",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-approval",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:message-quotes",
+      "rawId": "message-quotes",
+      "module": "@deepseek-ai/dsh-message-quotes",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-message-quotes",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-chat",
+      "rawId": "ui-chat",
+      "module": "@deepseek-ai/dsh-client-ui-chat",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-chat",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-brand-official",
+      "rawId": "ui-brand-official",
+      "module": "@deepseek-ai/dsh-client-ui-brand-official",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-brand-official",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:ui-attachment",
+      "rawId": "ui-attachment",
+      "module": "@deepseek-ai/dsh-client-ui-attachment",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-attachment",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-file-drag",
+      "rawId": "ui-file-drag",
+      "module": "@deepseek-ai/dsh-client-ui-file-drag",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-file-drag",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-tool",
+      "rawId": "ui-tool",
+      "module": "@deepseek-ai/dsh-client-ui-tool",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-tool",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-cordis",
+      "rawId": "ui-cordis",
+      "module": "@deepseek-ai/dsh-client-ui-cordis",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-cordis",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:deliverable-file-references",
+      "rawId": "deliverable-file-references",
+      "module": "@deepseek-ai/dsh-deliverable-file-references",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-deliverable-file-references",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-deliverables",
+      "rawId": "ui-deliverables",
+      "module": "@deepseek-ai/dsh-client-ui-deliverables",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-deliverables",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:workspace-changes",
+      "rawId": "workspace-changes",
+      "module": "@deepseek-ai/dsh-workspace-changes",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-workspace-changes",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-workspace",
+      "rawId": "ui-workspace",
+      "module": "@deepseek-ai/dsh-client-ui-workspace",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-workspace",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-workflow-run",
+      "rawId": "ui-workflow-run",
+      "module": "@deepseek-ai/dsh-client-ui-workflow-run",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-workflow-run",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-input-trigger",
+      "rawId": "ui-input-trigger",
+      "module": "@deepseek-ai/dsh-client-ui-input-trigger",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-input-trigger",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-commands",
+      "rawId": "ui-commands",
+      "module": "@deepseek-ai/dsh-client-ui-commands",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-commands",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-skill",
+      "rawId": "ui-skill",
+      "module": "@deepseek-ai/dsh-client-ui-skill",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-skill",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-agent-team",
+      "rawId": "ui-agent-team",
+      "module": "@deepseek-ai/dsh-client-ui-agent-team",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-agent-team",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-subagent",
+      "rawId": "ui-subagent",
+      "module": "@deepseek-ai/dsh-client-ui-subagent",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-subagent",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-reference",
+      "rawId": "ui-reference",
+      "module": "@deepseek-ai/dsh-client-ui-reference",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-reference",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-secret-mask",
+      "rawId": "ui-secret-mask",
+      "module": "@deepseek-ai/dsh-client-ui-secret-mask",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-secret-mask",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-jobs",
+      "rawId": "ui-jobs",
+      "module": "@deepseek-ai/dsh-client-ui-jobs",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-jobs",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-schedule",
+      "rawId": "ui-schedule",
+      "module": "@deepseek-ai/dsh-client-ui-schedule",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-schedule",
+      "state": "disabled",
+      "missing": []
+    },
+    {
+      "id": "include:ui-goal",
+      "rawId": "ui-goal",
+      "module": "@deepseek-ai/dsh-client-ui-goal",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-goal",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-message-feedback",
+      "rawId": "ui-message-feedback",
+      "module": "@deepseek-ai/dsh-client-ui-message-feedback",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-message-feedback",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-model-selection",
+      "rawId": "ui-model-selection",
+      "module": "@deepseek-ai/dsh-client-ui-model-selection",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-model-selection",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-permission",
+      "rawId": "ui-permission",
+      "module": "@deepseek-ai/dsh-client-ui-permission-presets",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-permission-presets",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-agent-preset",
+      "rawId": "ui-agent-preset",
+      "module": "@deepseek-ai/dsh-client-ui-agent-preset",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-agent-preset",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:entry-customization",
+      "rawId": "entry-customization",
+      "module": "@deepseek-ai/dsh-client-ui-entry-customization",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-entry-customization",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-session-log",
+      "rawId": "ui-settings-session-log",
+      "module": "@deepseek-ai/dsh-client-ui-settings-session-log",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-session-log",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-plugins",
+      "rawId": "ui-settings-plugins",
+      "module": "@deepseek-ai/dsh-client-ui-settings-plugins",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-plugins",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-shell",
+      "rawId": "ui-settings-shell",
+      "module": "@deepseek-ai/dsh-client-ui-settings-shell",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-shell",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-agent-loop",
+      "rawId": "ui-settings-agent-loop",
+      "module": "@deepseek-ai/dsh-client-ui-settings-agent-loop",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-agent-loop",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-subagent",
+      "rawId": "ui-settings-subagent",
+      "module": "@deepseek-ai/dsh-client-ui-settings-subagent",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-subagent",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-settings-web-search",
+      "rawId": "ui-settings-web-search",
+      "module": "@deepseek-ai/dsh-client-ui-settings-web-search",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-settings-web-search",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-plan",
+      "rawId": "ui-plan",
+      "module": "@deepseek-ai/dsh-client-ui-plan",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-plan",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-user-questions",
+      "rawId": "ui-user-questions",
+      "module": "@deepseek-ai/dsh-client-ui-user-questions",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-user-questions",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:ui-trajectory",
+      "rawId": "ui-trajectory",
+      "module": "@deepseek-ai/dsh-client-ui-trajectory",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-trajectory",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:agent-preset-registry",
+      "rawId": "agent-preset-registry",
+      "module": "@deepseek-ai/dsh-agent-preset-registry",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-agent-preset-registry",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:preset-standard",
+      "rawId": "preset-standard",
+      "module": "@deepseek-ai/dsh-agent-preset",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-agent-preset",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:preset-ptc",
+      "rawId": "preset-ptc",
+      "module": "@deepseek-ai/dsh-agent-preset",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-agent-preset",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:preset-minimal",
+      "rawId": "preset-minimal",
+      "module": "@deepseek-ai/dsh-agent-preset",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-agent-preset",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:preset-cordis",
+      "rawId": "preset-cordis",
+      "module": "@deepseek-ai/dsh-agent-preset",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-agent-preset",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:huaqiu-auth",
+      "rawId": "huaqiu-auth",
+      "module": "@huaqiu/dsh-auth",
+      "state": "failed",
+      "missing": []
+    },
+    {
+      "id": "include:huaqiu-artifacts",
+      "rawId": "huaqiu-artifacts",
+      "module": "@huaqiu/dsh-artifacts",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-artifacts",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:huaqiu-dsh-kicad",
+      "rawId": "huaqiu-dsh-kicad",
+      "module": "@huaqiu/dsh-kicad",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-kicad",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:dsh-tool-kicad-schematic-gen",
+      "rawId": "dsh-tool-kicad-schematic-gen",
+      "module": "@huaqiu/dsh-tool-kicad-schematic-gen",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:dsh-tool-pcb-viewer",
+      "rawId": "dsh-tool-pcb-viewer",
+      "module": "@huaqiu/dsh-tool-pcb-viewer",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:huaqiu-tool-part-search",
+      "rawId": "huaqiu-tool-part-search",
+      "module": "@huaqiu/dsh-tool-part-search",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-part-search",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:huaqiu-eda-selection",
+      "rawId": "huaqiu-eda-selection",
+      "module": "@huaqiu/dsh-eda-selection",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-eda-selection",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:huaqiu-tool-quote",
+      "rawId": "huaqiu-tool-quote",
+      "module": "@huaqiu/dsh-tool-quote",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-quote",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:huaqiu-tool-symbol-footprint",
+      "rawId": "huaqiu-tool-symbol-footprint",
+      "module": "@huaqiu/dsh-tool-symbol-footprint",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint",
+      "state": "pending",
+      "missing": [
+        "huaqiuAuth"
+      ]
+    },
+    {
+      "id": "include:ui-theme-huaqiu",
+      "rawId": "ui-theme-huaqiu",
+      "module": "@huaqiu/dsh-ui-theme-huaqiu",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "include:dsh-huaqiu-about",
+      "rawId": "dsh-huaqiu-about",
+      "module": "@huaqiu/dsh-huaqiu-about",
+      "version": "0.7.10",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-huaqiu-about",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "2a73cef2",
+      "rawId": "2a73cef2",
+      "module": "@deepseek-ai/dsh-host-directory-picker-native",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-host-directory-picker-native",
+      "state": "active",
+      "missing": []
+    },
+    {
+      "id": "8b042380",
+      "rawId": "8b042380",
+      "module": "@deepseek-ai/dsh-client-ui-directory-picker-native",
+      "version": "0.2.2-rc.1",
+      "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-directory-picker-native",
+      "state": "active",
+      "missing": []
+    }
+  ],
+  "tools": [
+    "analyze_kicad_module",
+    "create_kicad_hierarchy",
+    "download_eda_module_schematic",
+    "eda_module_category_search",
+    "eda_module_precise_search",
+    "eda_module_rag_search",
+    "edit_kicad_flat_schematic",
+    "get_hqsch_part",
+    "get_hqsch_part_models",
+    "get_hqsch_supply_chain",
+    "get_kicad_component_models",
+    "get_kicad_datasheet",
+    "get_kicad_module_ports",
+    "import_kicad_component",
+    "import_kicad_symbol",
+    "kicad_ipc_diagnose",
+    "kicad_ipc_verify_live",
+    "kicad_pcb_add_footprint_from_template",
+    "kicad_pcb_create_copper_zone",
+    "kicad_pcb_create_track",
+    "kicad_pcb_create_via",
+    "kicad_pcb_move_rotate_footprint",
+    "kicad_pcb_refill_zones",
+    "kicad_pcb_remove_selected_items",
+    "kicad_pcb_update_selected_track_width",
+    "localize_kicad_module_footprints",
+    "pcb_preview",
+    "place_pcb_order",
+    "place_smt_order",
+    "quote_pcb",
+    "quote_smt",
+    "render_kicad_module_preview",
+    "search_hqsch_parts",
+    "team_task_create",
+    "team_task_get",
+    "team_task_list",
+    "team_task_update",
+    "working_directory"
+  ],
+  "skills": [
+    "hardware-design-brief",
+    "kicad-ipc",
+    "kicad-schematic-design",
+    "pcb-copper-pour",
+    "pcb-initial-placement"
+  ],
+  "services": [
+    "webServer",
+    "tools",
+    "skills",
+    "systemPrompt",
+    "sandboxPolicy",
+    "sessions",
+    "fs",
+    "huaqiuArtifacts"
+  ],
+  "sandboxDefaultMode": "danger-full-access",
+  "teardown": {
+    "error": "did not settle within 1000 ms"
+  },
+  "network": {
+    "total": 1,
+    "blocked": []
+  },
+  "stderr": [
+    "[dsh-tool-quote] no quote service configured — quote_pcb/quote_smt/place_*_order will report FAILED_PRECONDITION until hqEdge is provided or HQ_EDGE_BASE_URL / HUAQIU_QUOTE_BASE_URL is set {",
+    "  time: 1795372973973,",
+    "  ts: '2026-11-22T18:42:53.973Z',",
+    "  level: 'warn',",
+    "  pluginId: 'dsh-tool-quote',",
+    "  component: 'dsh-tool-quote',",
+    "  installationId: null,",
+    "  hostType: null,",
+    "  hostInstanceId: null,",
+    "  edgeInstanceId: null,",
+    "  dshInstanceId: '76723c9d-9f32-42a3-84b6-670bb817df44',",
+    "  pid: 66791",
+    "}",
+    "dsh: warning: 2 entries did not activate",
+    "huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/home/profiles/hardware-engineering/",
+    "    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)",
+    "    at packageResolve (node:internal/modules/esm/resolve:768:81)",
+    "    at moduleResolve (node:internal/modules/esm/resolve:855:18)",
+    "    at defaultResolve (node:internal/modules/esm/resolve:985:11)",
+    "    at nextResolve (node:internal/modules/esm/hooks:748:28)",
+    "    at resolveBase (file:///Users/admin/code/deepseek-harness/node_modules/.pnpm/tsx@4.23.13/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:10334)",
+    "    at resolveDirectory (file:///Users/admin/code/deepseek-harness/node_modules/.pnpm/tsx@4.23.13/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:11421)",
+    "    at resolveTsPaths (file:///Users/admin/code/deepseek-harness/node_modules/.pnpm/tsx@4.23.13/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:13062)",
+    "    at resolve (file:///Users/admin/code/deepseek-harness/node_modules/.pnpm/tsx@4.23.13/node_modules/tsx/dist/register-SoqaU4rg.mjs:2:14748)",
+    "    at nextResolve (node:internal/modules/esm/hooks:748:28)",
+    "huaqiu-tool-symbol-footprint (@huaqiu/dsh-tool-symbol-footprint): pending (waiting for service: huaqiuAuth)"
+  ],
+  "checks": [
+    {
+      "id": "no-skipped-bundles",
+      "ok": true,
+      "detail": "every selected bundle loaded"
+    },
+    {
+      "id": "bundle-layer-present",
+      "ok": true,
+      "detail": "layers: @deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app, @huaqiu/hardware-engineering"
+    },
+    {
+      "id": "bundle-resolves-from-installation",
+      "ok": true,
+      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)"
+    },
+    {
+      "id": "bundle-patch-shipped",
+      "ok": true,
+      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml"
+    },
+    {
+      "id": "bundle-version-is-packed",
+      "ok": true,
+      "detail": "resolved 0.7.10, packed 0.7.10"
+    },
+    {
+      "id": "no-row-requires-hq-edge",
+      "ok": true,
+      "detail": "no composed row injects hqEdge"
+    },
+    {
+      "id": "expected-rows-mounted",
+      "ok": true,
+      "detail": "all 11 product rows are in the Loader tree"
+    },
+    {
+      "id": "expected-rows-active",
+      "ok": false,
+      "detail": "include:huaqiu-auth=failed, include:huaqiu-tool-symbol-footprint=pending missing huaqiuAuth"
+    },
+    {
+      "id": "rows-resolve-into-fixture-installation",
+      "ok": false,
+      "detail": "10/11 product rows and 10/214 total rows resolved inside the fixture installation"
+    },
+    {
+      "id": "tools-registered:@huaqiu/dsh-kicad",
+      "ok": true,
+      "detail": "all 6 tools present"
+    },
+    {
+      "id": "tools-registered:@huaqiu/dsh-tool-kicad-schematic-gen",
+      "ok": true,
+      "detail": "all 4 tools present"
+    },
+    {
+      "id": "tools-registered:@huaqiu/dsh-tool-pcb-viewer",
+      "ok": true,
+      "detail": "all 1 tools present"
+    },
+    {
+      "id": "tools-registered:@huaqiu/dsh-tool-part-search",
+      "ok": true,
+      "detail": "all 4 tools present"
+    },
+    {
+      "id": "tools-registered:@huaqiu/dsh-tool-quote",
+      "ok": true,
+      "detail": "all 4 tools present"
+    },
+    {
+      "id": "tools-registered:@huaqiu/dsh-tool-symbol-footprint",
+      "ok": false,
+      "detail": "missing: generate_symbol_from_image, generate_footprint_from_image, generate_footprint_from_dimensions"
+    },
+    {
+      "id": "skills-registered",
+      "ok": true,
+      "detail": "kicad-ipc, kicad-schematic-design"
+    },
+    {
+      "id": "service-provided:huaqiuAuth",
+      "ok": false,
+      "detail": "absent"
+    },
+    {
+      "id": "service-provided:huaqiuArtifacts",
+      "ok": true,
+      "detail": "present"
+    },
+    {
+      "id": "service-provided:webServer",
+      "ok": true,
+      "detail": "present"
+    },
+    {
+      "id": "service-provided:tools",
+      "ok": true,
+      "detail": "present"
+    },
+    {
+      "id": "service-provided:sandboxPolicy",
+      "ok": true,
+      "detail": "present"
+    },
+    {
+      "id": "sandbox-default-preserved",
+      "ok": true,
+      "detail": "sandboxPolicy.defaultMode=danger-full-access (DSH_PERMISSION_MODE unset)"
+    },
+    {
+      "id": "activated-without-network",
+      "ok": true,
+      "detail": "1 connect attempts, 0 blocked"
+    },
+    {
+      "id": "startup-reported-no-failures",
+      "ok": false,
+      "detail": "dsh: warning: 2 entries did not activate | huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/home/profiles/hardware-engineering/"
+    }
+  ],
+  "ok": false
+}

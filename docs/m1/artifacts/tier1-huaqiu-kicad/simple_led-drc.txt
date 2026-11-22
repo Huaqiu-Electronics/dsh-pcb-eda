@@ -1,0 +1,64 @@
+** Drc report for simple_led.kicad_pcb **
+** Created on 2026-11-23T02:46:13 **
+** Report includes: Errors, Warnings **
+
+** Found 15 DRC violations **
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(37.7950 mm, 28.3275 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(37.7950 mm, 29.8525 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(38.5575 mm, 27.5650 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(38.5575 mm, 29.0900 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(38.5575 mm, 30.6150 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(39.3200 mm, 28.3275 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(39.3200 mm, 29.8525 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(40.0825 mm, 27.5650 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(40.0825 mm, 29.0900 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(40.0825 mm, 30.6150 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(40.8450 mm, 28.3275 mm): U1 的PTH 焊盘 39 [<no net>]
+[drill_out_of_range]: 孔径超出范围 (电路板配置约束 最小孔径 0.3000 mm; 实际 0.2000 mm)
+    Rule: 电路板配置约束; error
+    @(40.8450 mm, 29.8525 mm): U1 的PTH 焊盘 39 [<no net>]
+[silk_edge_clearance]: Silkscreen clipped by board edge
+    Rule: <电路板配置> 中的 "丝印" 约束; warning
+    @(80.0000 mm, 60.0000 mm): Edge.Cuts 上的 线段
+    @(55.8100 mm, 44.5000 mm): U4 的 矩形, 位于 F.Silkscreen
+[lib_footprint_issues]: 当前配置中不包含封装库 'Connector_USB'
+    Local override; warning
+    @(8.0000 mm, 45.0000 mm): 封装 J1
+[lib_footprint_issues]: 当前配置中不包含封装库 'RF_Module'
+    Local override; warning
+    @(40.0000 mm, 30.0000 mm): 封装 U1
+
+** Found 0 unconnected pads **
+
+** Found 0 Footprint errors **
+
+** Ignored checks **
+    - Footprint has no courtyard defined
+    - Track endpoint not centered on via
+    - Tuning profile track geometries
+    - Footprint doesn't match symbol's footprint filters
+    - Footprint component type doesn't match footprint pads
+
+** End of Report **
