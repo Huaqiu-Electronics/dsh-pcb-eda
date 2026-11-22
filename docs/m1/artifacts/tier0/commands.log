@@ -1,0 +1,29 @@
+CMD: /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli version
+10.0.7
+EXIT: 0
+
+CMD: /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb export svg --layers F.Cu --output /Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/simple_led_svg /Users/admin/code/dsh-pcb-eda/packages/dsh-tool-pcb-viewer/test/fixtures/simple_led.kicad_pcb
+[33;1m此命令的行为在 KiCad 9.0 中已被弃用, 未来版本中此命令的默认行为将发生更改。[0m
+[33;1m新行为将与 --mode-multi 相匹配[0m
+已绘制到 '/Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/simple_led_svg'。
+完成。
+EXIT: 0
+
+CMD: /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli pcb drc --output /Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/simple_led-drc.txt /Users/admin/code/dsh-pcb-eda/packages/dsh-tool-pcb-viewer/test/fixtures/simple_led.kicad_pcb
+发现 15 条违规项
+发现 0 个未连接的项目
+保存 DRC 报告到 /Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/simple_led-drc.txt
+EXIT: 0
+
+CMD: /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch export netlist --output /Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/basic_test.net /Users/admin/code/kicad/qa/data/cli/basic_test/basic_test.kicad_sch
+EXIT: 0
+
+CMD: /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch erc --output /Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/basic_test-erc.txt /Users/admin/code/kicad/qa/data/cli/basic_test/basic_test.kicad_sch
+发现 15 条违规项
+已将 ERC 报告保存到文件 /Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/basic_test-erc.txt
+EXIT: 0
+
+CMD: /Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli sch export bom --output /Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/basic_test-bom.csv /Users/admin/code/kicad/qa/data/cli/basic_test/basic_test.kicad_sch
+写入物料清单到 '/Users/admin/code/dsh-pcb-eda/docs/m1/artifacts/tier0/basic_test-bom.csv'。
+EXIT: 0
+

@@ -1,0 +1,21 @@
+$ pnpm -r typecheck
+Scope: 21 of 22 workspace projects
+packages/component-gen-app typecheck$ tsc --noEmit
+packages/dsh-huaqiu-about typecheck$ tsc --noEmit
+packages/dsh-plugin-log typecheck$ tsc --noEmit
+packages/dsh-sidebar-entry typecheck$ tsc --noEmit
+packages/dsh-sidebar-entry typecheck: Done
+packages/dsh-tool-pcb-viewer typecheck$ tsc -p tsconfig.json
+packages/dsh-huaqiu-about typecheck: Done
+packages/dsh-tool-uncollapse typecheck$ tsc --noEmit
+packages/dsh-plugin-log typecheck: Done
+packages/dsh-ui-theme-huaqiu typecheck$ tsc --noEmit
+packages/component-gen-app typecheck: Done
+packages/dsh-tool-uncollapse typecheck: Done
+packages/dsh-ui-theme-huaqiu typecheck: src/client/index.ts(16,16): error TS2664: Invalid module name in augmentation, module '@deepseek-ai/dsh-client-ui-slots' cannot be found.
+packages/dsh-ui-theme-huaqiu typecheck: src/client/index.ts(56,40): error TS2345: Argument of type '"brand.huaqiu"' is not assignable to parameter of type 'keyof LocaleNamespaceMap'.
+packages/dsh-ui-theme-huaqiu typecheck: Failed
+/Users/admin/code/dsh-pcb-eda/packages/dsh-ui-theme-huaqiu:
+[ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL] @huaqiu/dsh-ui-theme-huaqiu@0.7.10 typecheck: `tsc --noEmit`
+Exit status 2
+[ELIFECYCLE] Command failed with exit code 2.

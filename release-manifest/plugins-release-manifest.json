@@ -291,22 +291,6 @@
       "changes": [
         "深色模式对比度微调"
       ]
-    },
-    "@huaqiu/hardware-engineering": {
-      "version": "0.7.10",
-      "hosts": [
-        "all"
-      ],
-      "requiresHqEdge": false,
-      "minHqEdge": null,
-      "maxHqEdge": null,
-      "minDsh": "^0.2.2-rc.1",
-      "displayName": "华秋硬件工程",
-      "description": "硬件工程产品套件：随安装分发的插件集合，随配置档一次激活",
-      "sizeBytes": 0,
-      "changes": [
-        "首个产品套件包：以单个安装依赖携带 11 个华秋插件"
-      ]
     }
   }
 }

@@ -15,7 +15,7 @@ dependency with no artifact is a hard build error.
 | `engines.dsh` | `^0.2.2-rc.1` |
 | Peer | `@deepseek-ai/cordis@^4.0.1` |
 | Tarball | `dist/huaqiu-hardware-engineering-0.7.10.tgz` |
-| SHA-256 | `601d8053dab8fbd446669ad112462bec9f16180fdb932d06e08cc6ae875a768a` |
+| SHA-256 | `ed1c14ad80e8078c580e04549bcf179c4bb0c6c6088b5cbcce1ecb9084ec551b` |
 
 Source manifests use the repository's lockstep `workspace:*` convention.
 `pnpm pack` rewrites every one of them to the exact version `0.7.10`; the

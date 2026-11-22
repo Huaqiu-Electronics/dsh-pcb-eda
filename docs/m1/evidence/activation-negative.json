@@ -1,9 +1,9 @@
 {
   "family": "desktop",
   "version": "0.7.10",
-  "installAnchor": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/apps/cli/package.json",
-  "profileDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/home/profiles/hardware-engineering",
-  "home": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/home",
+  "installAnchor": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/apps/cli/package.json",
+  "profileDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/home/profiles/hardware-engineering",
+  "home": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/home",
   "bundles": [
     "@deepseek-ai/dsh-base",
     "@deepseek-ai/dsh-web-app",
@@ -21,12 +21,12 @@
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-eda-selection",
+      "name": "@huaqiu/dsh-huaqiu-about",
       "kind": "packed",
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-huaqiu-about",
+      "name": "@huaqiu/dsh-eda-selection",
       "kind": "packed",
       "version": "0.7.10"
     },
@@ -36,17 +36,17 @@
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-tool-part-search",
-      "kind": "packed",
-      "version": "0.7.10"
-    },
-    {
       "name": "@huaqiu/dsh-tool-kicad-schematic-gen",
       "kind": "packed",
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-tool-pcb-viewer",
+      "name": "@huaqiu/dsh-kicad",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-part-search",
       "kind": "packed",
       "version": "0.7.10"
     },
@@ -61,12 +61,12 @@
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-ui-theme-huaqiu",
+      "name": "@huaqiu/dsh-tool-pcb-viewer",
       "kind": "packed",
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-kicad",
+      "name": "@huaqiu/dsh-ui-theme-huaqiu",
       "kind": "packed",
       "version": "0.7.10"
     },
@@ -86,94 +86,94 @@
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/kicad-sexpr-parser",
-      "kind": "published",
-      "version": "0.1.1"
-    },
-    {
       "name": "@huaqiu/component-gen-server",
       "kind": "packed",
       "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/kicad-sexpr-parser",
+      "kind": "published",
+      "version": "0.1.1"
     }
   ],
   "installed": [
     {
       "name": "@huaqiu/hardware-engineering",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/hardware-engineering"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/hardware-engineering"
     },
     {
       "name": "@huaqiu/dsh-artifacts",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-artifacts"
-    },
-    {
-      "name": "@huaqiu/dsh-eda-selection",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-eda-selection"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-artifacts"
     },
     {
       "name": "@huaqiu/dsh-huaqiu-about",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-huaqiu-about"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-huaqiu-about"
+    },
+    {
+      "name": "@huaqiu/dsh-eda-selection",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-eda-selection"
     },
     {
       "name": "@huaqiu/dsh-auth",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-auth"
-    },
-    {
-      "name": "@huaqiu/dsh-tool-part-search",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-part-search"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-auth"
     },
     {
       "name": "@huaqiu/dsh-tool-kicad-schematic-gen",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen"
-    },
-    {
-      "name": "@huaqiu/dsh-tool-pcb-viewer",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer"
-    },
-    {
-      "name": "@huaqiu/dsh-tool-quote",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-quote"
-    },
-    {
-      "name": "@huaqiu/dsh-tool-symbol-footprint",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint"
-    },
-    {
-      "name": "@huaqiu/dsh-ui-theme-huaqiu",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen"
     },
     {
       "name": "@huaqiu/dsh-kicad",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-kicad"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-kicad"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-part-search",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-part-search"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-quote",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-quote"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-symbol-footprint",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-pcb-viewer",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer"
+    },
+    {
+      "name": "@huaqiu/dsh-ui-theme-huaqiu",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu"
     },
     {
       "name": "@huaqiu/dsh-plugin-log",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-plugin-log"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-plugin-log"
     },
     {
       "name": "@huaqiu/dsh-sidebar-entry",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-sidebar-entry"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-sidebar-entry"
     },
     {
       "name": "@huaqiu/component-gen-server",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/component-gen-server"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/component-gen-server"
     }
   ],
-  "bundleDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/hardware-engineering",
+  "bundleDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/hardware-engineering",
   "bundleVersion": "0.7.10",
   "productRows": [
     "huaqiu-auth",
@@ -1344,7 +1344,7 @@
       "rawId": "web-startup",
       "module": "@deepseek-ai/dsh-web-app/startup",
       "version": "0.2.2-rc.1",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@deepseek-ai/dsh-web-app",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@deepseek-ai/dsh-web-app",
       "state": "active",
       "missing": []
     },
@@ -1362,7 +1362,7 @@
       "rawId": "web-runtime",
       "module": "@deepseek-ai/dsh-web-app",
       "version": "0.2.2-rc.1",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@deepseek-ai/dsh-web-app",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@deepseek-ai/dsh-web-app",
       "state": "active",
       "missing": []
     },
@@ -2008,7 +2008,7 @@
       "rawId": "huaqiu-artifacts",
       "module": "@huaqiu/dsh-artifacts",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-artifacts",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-artifacts",
       "state": "active",
       "missing": []
     },
@@ -2017,7 +2017,7 @@
       "rawId": "huaqiu-dsh-kicad",
       "module": "@huaqiu/dsh-kicad",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-kicad",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-kicad",
       "state": "active",
       "missing": []
     },
@@ -2026,7 +2026,7 @@
       "rawId": "dsh-tool-kicad-schematic-gen",
       "module": "@huaqiu/dsh-tool-kicad-schematic-gen",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen",
       "state": "active",
       "missing": []
     },
@@ -2035,7 +2035,7 @@
       "rawId": "dsh-tool-pcb-viewer",
       "module": "@huaqiu/dsh-tool-pcb-viewer",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer",
       "state": "active",
       "missing": []
     },
@@ -2044,7 +2044,7 @@
       "rawId": "huaqiu-tool-part-search",
       "module": "@huaqiu/dsh-tool-part-search",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-part-search",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-part-search",
       "state": "active",
       "missing": []
     },
@@ -2053,7 +2053,7 @@
       "rawId": "huaqiu-eda-selection",
       "module": "@huaqiu/dsh-eda-selection",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-eda-selection",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-eda-selection",
       "state": "active",
       "missing": []
     },
@@ -2062,7 +2062,7 @@
       "rawId": "huaqiu-tool-quote",
       "module": "@huaqiu/dsh-tool-quote",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-quote",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-quote",
       "state": "active",
       "missing": []
     },
@@ -2071,7 +2071,7 @@
       "rawId": "huaqiu-tool-symbol-footprint",
       "module": "@huaqiu/dsh-tool-symbol-footprint",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint",
       "state": "pending",
       "missing": [
         "huaqiuAuth"
@@ -2082,7 +2082,7 @@
       "rawId": "ui-theme-huaqiu",
       "module": "@huaqiu/dsh-ui-theme-huaqiu",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu",
       "state": "active",
       "missing": []
     },
@@ -2091,13 +2091,13 @@
       "rawId": "dsh-huaqiu-about",
       "module": "@huaqiu/dsh-huaqiu-about",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/dsh-huaqiu-about",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/dsh-huaqiu-about",
       "state": "active",
       "missing": []
     },
     {
-      "id": "2a73cef2",
-      "rawId": "2a73cef2",
+      "id": "81e4c7ee",
+      "rawId": "81e4c7ee",
       "module": "@deepseek-ai/dsh-host-directory-picker-native",
       "version": "0.2.2-rc.1",
       "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-host-directory-picker-native",
@@ -2105,8 +2105,8 @@
       "missing": []
     },
     {
-      "id": "8b042380",
-      "rawId": "8b042380",
+      "id": "a09df211",
+      "rawId": "a09df211",
       "module": "@deepseek-ai/dsh-client-ui-directory-picker-native",
       "version": "0.2.2-rc.1",
       "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-directory-picker-native",
@@ -2176,13 +2176,13 @@
     "error": "did not settle within 1000 ms"
   },
   "network": {
-    "total": 1,
+    "total": 2,
     "blocked": []
   },
   "stderr": [
     "[dsh-tool-quote] no quote service configured — quote_pcb/quote_smt/place_*_order will report FAILED_PRECONDITION until hqEdge is provided or HQ_EDGE_BASE_URL / HUAQIU_QUOTE_BASE_URL is set {",
-    "  time: 1795372973973,",
-    "  ts: '2026-11-22T18:42:53.973Z',",
+    "  time: 1795374294456,",
+    "  ts: '2026-11-22T19:04:54.456Z',",
     "  level: 'warn',",
     "  pluginId: 'dsh-tool-quote',",
     "  component: 'dsh-tool-quote',",
@@ -2190,11 +2190,11 @@
     "  hostType: null,",
     "  hostInstanceId: null,",
     "  edgeInstanceId: null,",
-    "  dshInstanceId: '76723c9d-9f32-42a3-84b6-670bb817df44',",
-    "  pid: 66791",
+    "  dshInstanceId: 'f30ba2cf-19a4-4cac-ac3d-86ec841b312e',",
+    "  pid: 96188",
     "}",
     "dsh: warning: 2 entries did not activate",
-    "huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/home/profiles/hardware-engineering/",
+    "huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/home/profiles/hardware-engineering/",
     "    at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)",
     "    at packageResolve (node:internal/modules/esm/resolve:768:81)",
     "    at moduleResolve (node:internal/modules/esm/resolve:855:18)",
@@ -2221,12 +2221,12 @@
     {
       "id": "bundle-resolves-from-installation",
       "ok": true,
-      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)"
+      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)"
     },
     {
       "id": "bundle-patch-shipped",
       "ok": true,
-      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml"
+      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml"
     },
     {
       "id": "bundle-version-is-packed",
@@ -2321,12 +2321,12 @@
     {
       "id": "activated-without-network",
       "ok": true,
-      "detail": "1 connect attempts, 0 blocked"
+      "detail": "2 connect attempts, 0 blocked"
     },
     {
       "id": "startup-reported-no-failures",
       "ok": false,
-      "detail": "dsh: warning: 2 entries did not activate | huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-9Nslhg/home/profiles/hardware-engineering/"
+      "detail": "dsh: warning: 2 entries did not activate | huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/home/profiles/hardware-engineering/"
     }
   ],
   "ok": false

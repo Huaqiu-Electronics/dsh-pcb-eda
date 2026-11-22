@@ -84,7 +84,21 @@ export function dshPlugins() {
   // Private packages never ship, so they must not be tracked in the release
   // manifest (`dsh-tool-kicad-schematic-gen` was promoted to a public
   // `@huaqiu` plugin and now ships like the rest).
-  return discoverPackages().filter((p) => p.manifest.dsh != null && p.manifest.private !== true)
+  //
+  // Product bundles are also excluded. They ship as installation dependencies
+  // selected by a profile and only compose other plugins' rows; listing them
+  // in the plugin catalog would offer users a zero-size duplicate of the
+  // separate plugins already listed there. DSH already carries the exact
+  // signal: `dsh.bundle.listedByDefault === false` marks a bundle that is not
+  // an independently installable/listed plugin.
+  return discoverPackages().filter((p) => p.manifest.dsh != null
+    && p.manifest.private !== true
+    && p.manifest.dsh?.bundle?.listedByDefault !== false)
+}
+
+/** Product bundles that ship as profile selections, not catalog plugins. */
+export function productBundles() {
+  return discoverPackages().filter((p) => p.manifest.dsh?.bundle?.listedByDefault === false)
 }
 
 /**

@@ -1,0 +1,13 @@
+[dsh-tool-quote] no quote service configured — quote_pcb/quote_smt/place_*_order will report FAILED_PRECONDITION until hqEdge is provided or HQ_EDGE_BASE_URL / HUAQIU_QUOTE_BASE_URL is set {
+  time: 1795374297594,
+  ts: '2026-11-22T19:04:57.594Z',
+  level: 'warn',
+  pluginId: 'dsh-tool-quote',
+  component: 'dsh-tool-quote',
+  installationId: null,
+  hostType: null,
+  hostInstanceId: null,
+  edgeInstanceId: null,
+  dshInstanceId: '51c35574-bd9f-4e8e-85dc-c2cd08216321',
+  pid: 96909
+}

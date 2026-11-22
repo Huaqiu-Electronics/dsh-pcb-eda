@@ -1,9 +1,9 @@
 {
   "family": "desktop",
   "version": "0.7.10",
-  "installAnchor": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/apps/cli/package.json",
-  "profileDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/home/profiles/hardware-engineering",
-  "home": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/home",
+  "installAnchor": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/apps/cli/package.json",
+  "profileDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/home/profiles/hardware-engineering",
+  "home": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/home",
   "bundles": [
     "@deepseek-ai/dsh-base",
     "@deepseek-ai/dsh-web-app",
@@ -21,12 +21,12 @@
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-eda-selection",
+      "name": "@huaqiu/dsh-huaqiu-about",
       "kind": "packed",
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-huaqiu-about",
+      "name": "@huaqiu/dsh-eda-selection",
       "kind": "packed",
       "version": "0.7.10"
     },
@@ -36,17 +36,17 @@
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-tool-part-search",
-      "kind": "packed",
-      "version": "0.7.10"
-    },
-    {
       "name": "@huaqiu/dsh-tool-kicad-schematic-gen",
       "kind": "packed",
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-tool-pcb-viewer",
+      "name": "@huaqiu/dsh-kicad",
+      "kind": "packed",
+      "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-part-search",
       "kind": "packed",
       "version": "0.7.10"
     },
@@ -61,12 +61,12 @@
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-ui-theme-huaqiu",
+      "name": "@huaqiu/dsh-tool-pcb-viewer",
       "kind": "packed",
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/dsh-kicad",
+      "name": "@huaqiu/dsh-ui-theme-huaqiu",
       "kind": "packed",
       "version": "0.7.10"
     },
@@ -86,94 +86,94 @@
       "version": "0.7.10"
     },
     {
-      "name": "@huaqiu/kicad-sexpr-parser",
-      "kind": "published",
-      "version": "0.1.1"
-    },
-    {
       "name": "@huaqiu/component-gen-server",
       "kind": "packed",
       "version": "0.7.10"
+    },
+    {
+      "name": "@huaqiu/kicad-sexpr-parser",
+      "kind": "published",
+      "version": "0.1.1"
     }
   ],
   "installed": [
     {
       "name": "@huaqiu/hardware-engineering",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/hardware-engineering"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/hardware-engineering"
     },
     {
       "name": "@huaqiu/dsh-artifacts",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-artifacts"
-    },
-    {
-      "name": "@huaqiu/dsh-eda-selection",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-eda-selection"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-artifacts"
     },
     {
       "name": "@huaqiu/dsh-huaqiu-about",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-huaqiu-about"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-huaqiu-about"
+    },
+    {
+      "name": "@huaqiu/dsh-eda-selection",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-eda-selection"
     },
     {
       "name": "@huaqiu/dsh-auth",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-auth"
-    },
-    {
-      "name": "@huaqiu/dsh-tool-part-search",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-part-search"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-auth"
     },
     {
       "name": "@huaqiu/dsh-tool-kicad-schematic-gen",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen"
-    },
-    {
-      "name": "@huaqiu/dsh-tool-pcb-viewer",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer"
-    },
-    {
-      "name": "@huaqiu/dsh-tool-quote",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-quote"
-    },
-    {
-      "name": "@huaqiu/dsh-tool-symbol-footprint",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint"
-    },
-    {
-      "name": "@huaqiu/dsh-ui-theme-huaqiu",
-      "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen"
     },
     {
       "name": "@huaqiu/dsh-kicad",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-kicad"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-part-search",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-part-search"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-quote",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-quote"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-symbol-footprint",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint"
+    },
+    {
+      "name": "@huaqiu/dsh-tool-pcb-viewer",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer"
+    },
+    {
+      "name": "@huaqiu/dsh-ui-theme-huaqiu",
+      "version": "0.7.10",
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu"
     },
     {
       "name": "@huaqiu/dsh-plugin-log",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-plugin-log"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-plugin-log"
     },
     {
       "name": "@huaqiu/dsh-sidebar-entry",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-sidebar-entry"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-sidebar-entry"
     },
     {
       "name": "@huaqiu/component-gen-server",
       "version": "0.7.10",
-      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/component-gen-server"
+      "directory": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/component-gen-server"
     }
   ],
-  "bundleDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/hardware-engineering",
+  "bundleDir": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/hardware-engineering",
   "bundleVersion": "0.7.10",
   "productRows": [
     "huaqiu-auth",
@@ -1344,7 +1344,7 @@
       "rawId": "web-startup",
       "module": "@deepseek-ai/dsh-web-app/startup",
       "version": "0.2.2-rc.1",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@deepseek-ai/dsh-web-app",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@deepseek-ai/dsh-web-app",
       "state": "active",
       "missing": []
     },
@@ -1362,7 +1362,7 @@
       "rawId": "web-runtime",
       "module": "@deepseek-ai/dsh-web-app",
       "version": "0.2.2-rc.1",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@deepseek-ai/dsh-web-app",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@deepseek-ai/dsh-web-app",
       "state": "active",
       "missing": []
     },
@@ -2001,7 +2001,7 @@
       "rawId": "huaqiu-auth",
       "module": "@huaqiu/dsh-auth",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-auth",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-auth",
       "state": "active",
       "missing": []
     },
@@ -2010,7 +2010,7 @@
       "rawId": "huaqiu-artifacts",
       "module": "@huaqiu/dsh-artifacts",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-artifacts",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-artifacts",
       "state": "active",
       "missing": []
     },
@@ -2019,7 +2019,7 @@
       "rawId": "huaqiu-dsh-kicad",
       "module": "@huaqiu/dsh-kicad",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-kicad",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad",
       "state": "active",
       "missing": []
     },
@@ -2028,7 +2028,7 @@
       "rawId": "dsh-tool-kicad-schematic-gen",
       "module": "@huaqiu/dsh-tool-kicad-schematic-gen",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-kicad-schematic-gen",
       "state": "active",
       "missing": []
     },
@@ -2037,7 +2037,7 @@
       "rawId": "dsh-tool-pcb-viewer",
       "module": "@huaqiu/dsh-tool-pcb-viewer",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-pcb-viewer",
       "state": "active",
       "missing": []
     },
@@ -2046,7 +2046,7 @@
       "rawId": "huaqiu-tool-part-search",
       "module": "@huaqiu/dsh-tool-part-search",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-part-search",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-part-search",
       "state": "active",
       "missing": []
     },
@@ -2055,7 +2055,7 @@
       "rawId": "huaqiu-eda-selection",
       "module": "@huaqiu/dsh-eda-selection",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-eda-selection",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-eda-selection",
       "state": "active",
       "missing": []
     },
@@ -2064,7 +2064,7 @@
       "rawId": "huaqiu-tool-quote",
       "module": "@huaqiu/dsh-tool-quote",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-quote",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-quote",
       "state": "active",
       "missing": []
     },
@@ -2073,7 +2073,7 @@
       "rawId": "huaqiu-tool-symbol-footprint",
       "module": "@huaqiu/dsh-tool-symbol-footprint",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-tool-symbol-footprint",
       "state": "active",
       "missing": []
     },
@@ -2082,7 +2082,7 @@
       "rawId": "ui-theme-huaqiu",
       "module": "@huaqiu/dsh-ui-theme-huaqiu",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-ui-theme-huaqiu",
       "state": "active",
       "missing": []
     },
@@ -2091,13 +2091,13 @@
       "rawId": "dsh-huaqiu-about",
       "module": "@huaqiu/dsh-huaqiu-about",
       "version": "0.7.10",
-      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-huaqiu-about",
+      "dir": "/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-huaqiu-about",
       "state": "active",
       "missing": []
     },
     {
-      "id": "e6cb46b5",
-      "rawId": "e6cb46b5",
+      "id": "7a2e4df8",
+      "rawId": "7a2e4df8",
       "module": "@deepseek-ai/dsh-host-directory-picker-native",
       "version": "0.2.2-rc.1",
       "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-host-directory-picker-native",
@@ -2105,8 +2105,8 @@
       "missing": []
     },
     {
-      "id": "2dad0927",
-      "rawId": "2dad0927",
+      "id": "32d5e532",
+      "rawId": "32d5e532",
       "module": "@deepseek-ai/dsh-client-ui-directory-picker-native",
       "version": "0.2.2-rc.1",
       "dir": "/Users/admin/code/deepseek-harness/packages/bundle/web-app/node_modules/@deepseek-ai/dsh-client-ui-directory-picker-native",
@@ -2201,7 +2201,7 @@
       "content": [
         "{\"type\":\"text\",\"text\":\"{\\\"ok\\\":false,\\\"script\\\":\\\"diagnose_ipc_connection\\\",\\\"effect\\\":\\\"read\\\",\\\"error\\\":{\\\"kind\\\":\\\"FAILED_PRECONDITION\\\",\\\"message\\\":\\\"The kicad-python package (kipy) is not installed for the configured Python interpreter. Install the version matching the running KiCad. KiCad said: kicad-python/kipy not found. Use the KiCad IPC plugin environment or install the matching official package.\\\"},\\\"diagnostics\\\":{\\\"exitCode\\\":2,\\\"stderr\\\":\\\"\\\"}}\"}"
       ],
-      "elapsedMs": 45
+      "elapsedMs": 63
     },
     {
       "name": "kicad_ipc_verify_live",
@@ -2214,17 +2214,17 @@
         "effect": "probe",
         "error": {
           "kind": "FAILED_PRECONDITION",
-          "message": "kicad-python (kipy) is missing for the configured Python interpreter. KiCad said: Traceback (most recent call last): File \"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\", line 12, in <module> from kipy.board_types import BoardLayer, Track, Via, Zone ModuleNotFoundError: No module named 'kipy'"
+          "message": "kicad-python (kipy) is missing for the configured Python interpreter. KiCad said: Traceback (most recent call last): File \"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\", line 12, in <module> from kipy.board_types import BoardLayer, Track, Via, Zone ModuleNotFoundError: No module named 'kipy'"
         },
         "diagnostics": {
           "exitCode": 1,
-          "stderr": "Traceback (most recent call last):\n  File \"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\", line 12, in <module>\n    from kipy.board_types import BoardLayer, Track, Via, Zone\nModuleNotFoundError: No module named 'kipy'"
+          "stderr": "Traceback (most recent call last):\n  File \"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\", line 12, in <module>\n    from kipy.board_types import BoardLayer, Track, Via, Zone\nModuleNotFoundError: No module named 'kipy'"
         }
       },
       "content": [
-        "{\"type\":\"text\",\"text\":\"{\\\"ok\\\":false,\\\"script\\\":\\\"verify_live_ipc\\\",\\\"effect\\\":\\\"probe\\\",\\\"error\\\":{\\\"kind\\\":\\\"FAILED_PRECONDITION\\\",\\\"message\\\":\\\"kicad-python (kipy) is missing for the configured Python interpreter. KiCad said: Traceback (most recent call last): File \\\\\\\"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\\\\\\\", line 12, in <module> from kipy.board_types import BoardLayer, Track, Via, Zone ModuleNotFoundError: No module named 'kipy'\\\"},\\\"diagnostics\\\":{\\\"exitCode\\\":1,\\\"stderr\\\":\\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\\\\\\\", line 12, in <module>\\\\n    from kipy.board_types import BoardLayer, Track, Via, Zone\\\\nModuleNotFoundError: No module named 'kipy'\\\"}}\"}"
+        "{\"type\":\"text\",\"text\":\"{\\\"ok\\\":false,\\\"script\\\":\\\"verify_live_ipc\\\",\\\"effect\\\":\\\"probe\\\",\\\"error\\\":{\\\"kind\\\":\\\"FAILED_PRECONDITION\\\",\\\"message\\\":\\\"kicad-python (kipy) is missing for the configured Python interpreter. KiCad said: Traceback (most recent call last): File \\\\\\\"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\\\\\\\", line 12, in <module> from kipy.board_types import BoardLayer, Track, Via, Zone ModuleNotFoundError: No module named 'kipy'\\\"},\\\"diagnostics\\\":{\\\"exitCode\\\":1,\\\"stderr\\\":\\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\\\\\\\", line 12, in <module>\\\\n    from kipy.board_types import BoardLayer, Track, Via, Zone\\\\nModuleNotFoundError: No module named 'kipy'\\\"}}\"}"
       ],
-      "elapsedMs": 22
+      "elapsedMs": 26
     },
     {
       "name": "pcb_preview",
@@ -2237,8 +2237,8 @@
         "ok": true,
         "name": "simple_led.kicad_pcb",
         "path": "/Users/admin/code/dsh-pcb-eda/packages/dsh-tool-pcb-viewer/test/fixtures/simple_led.kicad_pcb",
-        "key": "pcb-dfadc141-c0fd-432e-b691-4a0b0dbe900a",
-        "viewUrl": "/pcb-viewer/api/file?key=pcb-dfadc141-c0fd-432e-b691-4a0b0dbe900a",
+        "key": "pcb-306ed8ea-ac24-4b26-a196-eef926e85389",
+        "viewUrl": "/pcb-viewer/api/file?key=pcb-306ed8ea-ac24-4b26-a196-eef926e85389",
         "stats": {
           "sizeKB": 159,
           "comps": 13,
@@ -2253,9 +2253,9 @@
       },
       "content": [
         "{\"type\":\"text\",\"text\":\"PCB 预览已打开：simple_led.kicad_pcb（80×60mm，2 层，13 器件 / 102 焊盘 / 101 走线 / 8 过孔）。右侧面板可见 2D 走线 + 3D 渲染，点击可放大。\"}",
-        "{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"name\\\":\\\"simple_led.kicad_pcb\\\",\\\"path\\\":\\\"/Users/admin/code/dsh-pcb-eda/packages/dsh-tool-pcb-viewer/test/fixtures/simple_led.kicad_pcb\\\",\\\"key\\\":\\\"pcb-dfadc141-c0fd-432e-b691-4a0b0dbe900a\\\",\\\"viewUrl\\\":\\\"/pcb-viewer/api/file?key=pcb-dfadc141-c0fd-432e-b691-4a0b0dbe900a\\\",\\\"stats\\\":{\\\"sizeKB\\\":159,\\\"comps\\\":13,\\\"pads\\\":102,\\\"traces\\\":101,\\\"zones\\\":1,\\\"vias\\\":8,\\\"layers\\\":2,\\\"widthMM\\\":80,\\\"heightMM\\\":60}}\"}"
+        "{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"name\\\":\\\"simple_led.kicad_pcb\\\",\\\"path\\\":\\\"/Users/admin/code/dsh-pcb-eda/packages/dsh-tool-pcb-viewer/test/fixtures/simple_led.kicad_pcb\\\",\\\"key\\\":\\\"pcb-306ed8ea-ac24-4b26-a196-eef926e85389\\\",\\\"viewUrl\\\":\\\"/pcb-viewer/api/file?key=pcb-306ed8ea-ac24-4b26-a196-eef926e85389\\\",\\\"stats\\\":{\\\"sizeKB\\\":159,\\\"comps\\\":13,\\\"pads\\\":102,\\\"traces\\\":101,\\\"zones\\\":1,\\\"vias\\\":8,\\\"layers\\\":2,\\\"widthMM\\\":80,\\\"heightMM\\\":60}}\"}"
       ],
-      "elapsedMs": 6
+      "elapsedMs": 5
     },
     {
       "name": "search_hqsch_parts",
@@ -2273,26 +2273,6 @@
         "pages": 53,
         "total": 161,
         "items": [
-          {
-            "mpn": "STM32F103ZCT7TR",
-            "manufacturer": {
-              "id": "7189",
-              "name": "STMicroelectronics"
-            },
-            "huaqiuPn": "G5096058",
-            "category": {
-              "id": "1382",
-              "name": "Other Microprocessors"
-            },
-            "package": "QFP144",
-            "description": "IC MCU 32BIT 256KB FLASH 144LQFP",
-            "datasheetUrl": "https://file.elecfans.com/web2/M00/27/91/poYBAGHCkZ6AKh9PADIVPoHvgmY567.pdf",
-            "imageUrl": "https://file.elecfans.com/web2/M00/20/C8/pYYBAGGfbbmAFEwRAATFuK1a3ec646.png",
-            "hasSymbol": true,
-            "hasFootprint": true,
-            "has3dModel": false,
-            "hasSimulationModel": false
-          },
           {
             "mpn": "STM32F103RGT6TR",
             "manufacturer": {
@@ -2314,19 +2294,39 @@
             "hasSimulationModel": false
           },
           {
-            "mpn": "STM32F103R8H6TR",
+            "mpn": "STM32F103CBU6TR",
             "manufacturer": {
               "id": "7189",
               "name": "STMicroelectronics"
             },
-            "huaqiuPn": "G3338491",
+            "huaqiuPn": "G3338201",
+            "category": {
+              "id": "1382",
+              "name": "Other Microprocessors"
+            },
+            "package": "QFN49",
+            "description": "IC MCU 32BIT 128KB FLSH 48UFQFPN",
+            "datasheetUrl": "https://file.elecfans.com/web2/M00/70/D4/pYYBAGNKs6qAfYvnAB-zOUCJ5Ak789.pdf",
+            "imageUrl": "https://file.elecfans.com/web2/M00/20/CF/pYYBAGGfdVqAAgdWAALup0vKOY4174.png",
+            "hasSymbol": true,
+            "hasFootprint": true,
+            "has3dModel": false,
+            "hasSimulationModel": false
+          },
+          {
+            "mpn": "STM32F103RBH7",
+            "manufacturer": {
+              "id": "7189",
+              "name": "STMicroelectronics"
+            },
+            "huaqiuPn": "G3337761",
             "category": {
               "id": "1380",
               "name": "32-bit MCU Microcontrollers"
             },
-            "description": "IC MCU 32BIT 64KB FLASH 64TFBGA",
-            "datasheetUrl": "https://file.elecfans.com/web2/M00/70/D4/pYYBAGNKs6qAfYvnAB-zOUCJ5Ak789.pdf",
-            "imageUrl": "https://file1.elecfans.com/web2/M00/DE/C6/wKgZomYwryWAfQrZAABcQfxGiiw632.jpg",
+            "description": "IC MCU 32BIT 128KB FLASH 64BGA",
+            "datasheetUrl": "https://file.elecfans.com/web2/M00/59/57/poYBAGLowE2AVLGcABE8Tm_HA78519.pdf",
+            "imageUrl": "https://file1.elecfans.com/web2/M00/CC/E6/wKgZomYguYqAG54aAAAdyVfyvDM543.jpg",
             "hasSymbol": true,
             "hasFootprint": true,
             "has3dModel": false,
@@ -2335,9 +2335,9 @@
         ]
       },
       "content": [
-        "{\"type\":\"text\",\"text\":\"{\\\"page\\\":1,\\\"pageSize\\\":3,\\\"pages\\\":53,\\\"total\\\":161,\\\"items\\\":[{\\\"mpn\\\":\\\"STM32F103ZCT7TR\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G5096058\\\",\\\"category\\\":{\\\"id\\\":\\\"1382\\\",\\\"name\\\":\\\"Other Microprocessors\\\"},\\\"package\\\":\\\"QFP144\\\",\\\"description\\\":\\\"IC MCU 32BIT 256KB FLASH 144LQFP\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/27/91/poYBAGHCkZ6AKh9PADIVPoHvgmY567.pdf\\\",\\\"imageUrl\\\":\\\"https://file.elecfans.com/web2/M00/20/C8/pYYBAGGfbbmAFEwRAATFuK1a3ec646.png\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false},{\\\"mpn\\\":\\\"STM32F103RGT6TR\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G3337586\\\",\\\"category\\\":{\\\"id\\\":\\\"1380\\\",\\\"name\\\":\\\"32-bit MCU Microcontrollers\\\"},\\\"package\\\":\\\"QFP64\\\",\\\"description\\\":\\\"IC MCU 32BIT 1MB FLASH 64LQFP\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/27/99/pYYBAGHCkxKAS8t2ACIDFzn0vyk679.pdf\\\",\\\"imageUrl\\\":\\\"https://file1.elecfans.com/web2/M00/CD/4B/wKgaomYgismAFJV0AAAXOC0_APw646.jpg\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false},{\\\"mpn\\\":\\\"STM32F103R8H6TR\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G3338491\\\",\\\"category\\\":{\\\"id\\\":\\\"1380\\\",\\\"name\\\":\\\"32-bit MCU Microcontrollers\\\"},\\\"description\\\":\\\"IC MCU 32BIT 64KB FLASH 64TFBGA\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/70/D4/pYYBAGNKs6qAfYvnAB-zOUCJ5Ak789.pdf\\\",\\\"imageUrl\\\":\\\"https://file1.elecfans.com/web2/M00/DE/C6/wKgZomYwryWAfQrZAABcQfxGiiw632.jpg\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false}]}\"}"
+        "{\"type\":\"text\",\"text\":\"{\\\"page\\\":1,\\\"pageSize\\\":3,\\\"pages\\\":53,\\\"total\\\":161,\\\"items\\\":[{\\\"mpn\\\":\\\"STM32F103RGT6TR\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G3337586\\\",\\\"category\\\":{\\\"id\\\":\\\"1380\\\",\\\"name\\\":\\\"32-bit MCU Microcontrollers\\\"},\\\"package\\\":\\\"QFP64\\\",\\\"description\\\":\\\"IC MCU 32BIT 1MB FLASH 64LQFP\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/27/99/pYYBAGHCkxKAS8t2ACIDFzn0vyk679.pdf\\\",\\\"imageUrl\\\":\\\"https://file1.elecfans.com/web2/M00/CD/4B/wKgaomYgismAFJV0AAAXOC0_APw646.jpg\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false},{\\\"mpn\\\":\\\"STM32F103CBU6TR\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G3338201\\\",\\\"category\\\":{\\\"id\\\":\\\"1382\\\",\\\"name\\\":\\\"Other Microprocessors\\\"},\\\"package\\\":\\\"QFN49\\\",\\\"description\\\":\\\"IC MCU 32BIT 128KB FLSH 48UFQFPN\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/70/D4/pYYBAGNKs6qAfYvnAB-zOUCJ5Ak789.pdf\\\",\\\"imageUrl\\\":\\\"https://file.elecfans.com/web2/M00/20/CF/pYYBAGGfdVqAAgdWAALup0vKOY4174.png\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false},{\\\"mpn\\\":\\\"STM32F103RBH7\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G3337761\\\",\\\"category\\\":{\\\"id\\\":\\\"1380\\\",\\\"name\\\":\\\"32-bit MCU Microcontrollers\\\"},\\\"description\\\":\\\"IC MCU 32BIT 128KB FLASH 64BGA\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/59/57/poYBAGLowE2AVLGcABE8Tm_HA78519.pdf\\\",\\\"imageUrl\\\":\\\"https://file1.elecfans.com/web2/M00/CC/E6/wKgZomYguYqAG54aAAAdyVfyvDM543.jpg\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false}]}\"}"
       ],
-      "elapsedMs": 155
+      "elapsedMs": 174
     },
     {
       "name": "quote_pcb",
@@ -2352,7 +2352,7 @@
       "content": [
         "{\"type\":\"text\",\"text\":\"Error: quote: no hq-edge base URL available (edge-bridge service or HQ_EDGE_BASE_URL)\"}"
       ],
-      "elapsedMs": 0
+      "elapsedMs": 1
     }
   ],
   "network": {
@@ -2367,8 +2367,8 @@
   },
   "stderr": [
     "[dsh-tool-quote] no quote service configured — quote_pcb/quote_smt/place_*_order will report FAILED_PRECONDITION until hqEdge is provided or HQ_EDGE_BASE_URL / HUAQIU_QUOTE_BASE_URL is set {",
-    "  time: 1795373223331,",
-    "  ts: '2026-11-22T18:47:03.331Z',",
+    "  time: 1795374297594,",
+    "  ts: '2026-11-22T19:04:57.594Z',",
     "  level: 'warn',",
     "  pluginId: 'dsh-tool-quote',",
     "  component: 'dsh-tool-quote',",
@@ -2376,8 +2376,8 @@
     "  hostType: null,",
     "  hostInstanceId: null,",
     "  edgeInstanceId: null,",
-    "  dshInstanceId: 'e7143ee3-2c32-4764-bdef-087cc6e0ce60',",
-    "  pid: 72620",
+    "  dshInstanceId: '51c35574-bd9f-4e8e-85dc-c2cd08216321',",
+    "  pid: 96909",
     "}"
   ],
   "checks": [
@@ -2394,12 +2394,12 @@
     {
       "id": "bundle-resolves-from-installation",
       "ok": true,
-      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)"
+      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)"
     },
     {
       "id": "bundle-patch-shipped",
       "ok": true,
-      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-q5JNe1/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml"
+      "detail": "/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml"
     },
     {
       "id": "bundle-version-is-packed",

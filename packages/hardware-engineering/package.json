@@ -24,7 +24,8 @@
   },
   "dsh": {
     "bundle": {
-      "patch": "./cordis.patch.yml"
+      "patch": "./cordis.patch.yml",
+      "listedByDefault": false
     }
   },
   "engines": {

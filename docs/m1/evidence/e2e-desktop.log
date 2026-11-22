@@ -1,0 +1,182 @@
+# M1 §8 — executed functional POC
+
+activation checks: 24/24 PASS
+network: 1 connect attempts
+
+| Step | Tool | Dispatched | isError | Elapsed |
+|---|---|---|---|---|
+| 1 | kicad_ipc_diagnose | true | false | 63ms |
+| 2 | kicad_ipc_verify_live | true | false | 26ms |
+| 3 | pcb_preview | true | false | 5ms |
+| 4 | search_hqsch_parts | true | false | 174ms |
+| 5 | quote_pcb | true | true | 1ms |
+
+## 1. kicad_ipc_diagnose
+
+args:
+  {}
+result:
+  {
+  "value": {
+    "ok": false,
+    "script": "diagnose_ipc_connection",
+    "effect": "read",
+    "error": {
+      "kind": "FAILED_PRECONDITION",
+      "message": "The kicad-python package (kipy) is not installed for the configured Python interpreter. Install the version matching the running KiCad. KiCad said: kicad-python/kipy not found. Use the KiCad IPC plugin environment or install the matching official package."
+    },
+    "diagnostics": {
+      "exitCode": 2,
+      "stderr": ""
+    }
+  },
+  "content": [
+    "{\"type\":\"text\",\"text\":\"{\\\"ok\\\":false,\\\"script\\\":\\\"diagnose_ipc_connection\\\",\\\"effect\\\":\\\"read\\\",\\\"error\\\":{\\\"kind\\\":\\\"FAILED_PRECONDITION\\\",\\\"message\\\":\\\"The kicad-python package (kipy) is not installed for the configured Python interpreter. Install the version matching the running KiCad. KiCad said: kicad-python/kipy not found. Use the KiCad IPC plugin environment or install the matching official package.\\\"},\\\"diagnostics\\\":{\\\"exitCode\\\":2,\\\"stderr\\\":\\\"\\\"}}\"}"
+  ]
+}
+
+## 2. kicad_ipc_verify_live
+
+args:
+  {}
+result:
+  {
+  "value": {
+    "ok": false,
+    "script": "verify_live_ipc",
+    "effect": "probe",
+    "error": {
+      "kind": "FAILED_PRECONDITION",
+      "message": "kicad-python (kipy) is missing for the configured Python interpreter. KiCad said: Traceback (most recent call last): File \"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\", line 12, in <module> from kipy.board_types import BoardLayer, Track, Via, Zone ModuleNotFoundError: No module named 'kipy'"
+    },
+    "diagnostics": {
+      "exitCode": 1,
+      "stderr": "Traceback (most recent call last):\n  File \"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\", line 12, in <module>\n    from kipy.board_types import BoardLayer, Track, Via, Zone\nModuleNotFoundError: No module named 'kipy'"
+    }
+  },
+  "content": [
+    "{\"type\":\"text\",\"text\":\"{\\\"ok\\\":false,\\\"script\\\":\\\"verify_live_ipc\\\",\\\"effect\\\":\\\"probe\\\",\\\"error\\\":{\\\"kind\\\":\\\"FAILED_PRECONDITION\\\",\\\"message\\\":\\\"kicad-python (kipy) is missing for the configured Python interpreter. KiCad said: Traceback (most recent call last): File \\\\\\\"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\\\\\\\", line 12, in <module> from kipy.board_types import BoardLayer, Track, Via, Zone ModuleNotFoundError: No module named 'kipy'\\\"},\\\"diagnostics\\\":{\\\"exitCode\\\":1,\\\"stderr\\\":\\\"Traceback (most recent call last):\\\\n  File \\\\\\\"/private/var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-yOQpQX/installation/node_modules/@huaqiu/dsh-kicad/skills/kicad-ipc/scripts/verify_live_ipc.py\\\\\\\", line 12, in <module>\\\\n    from kipy.board_types import BoardLayer, Track, Via, Zone\\\\nModuleNotFoundError: No module named 'kipy'\\\"}}\"}"
+  ]
+}
+
+## 3. pcb_preview
+
+args:
+  {"path":"/Users/admin/code/dsh-pcb-eda/packages/dsh-tool-pcb-viewer/test/fixtures/simple_led.kicad_pcb"}
+result:
+  {
+  "value": {
+    "ok": true,
+    "name": "simple_led.kicad_pcb",
+    "path": "/Users/admin/code/dsh-pcb-eda/packages/dsh-tool-pcb-viewer/test/fixtures/simple_led.kicad_pcb",
+    "key": "pcb-306ed8ea-ac24-4b26-a196-eef926e85389",
+    "viewUrl": "/pcb-viewer/api/file?key=pcb-306ed8ea-ac24-4b26-a196-eef926e85389",
+    "stats": {
+      "sizeKB": 159,
+      "comps": 13,
+      "pads": 102,
+      "traces": 101,
+      "zones": 1,
+      "vias": 8,
+      "layers": 2,
+      "widthMM": 80,
+      "heightMM": 60
+    }
+  },
+  "content": [
+    "{\"type\":\"text\",\"text\":\"PCB 预览已打开：simple_led.kicad_pcb（80×60mm，2 层，13 器件 / 102 焊盘 / 101 走线 / 8 过孔）。右侧面板可见 2D 走线 + 3D 渲染，点击可放大。\"}",
+    "{\"type\":\"text\",\"text\":\"{\\\"ok\\\":true,\\\"name\\\":\\\"simple_led.kicad_pcb\\\",\\\"path\\\":\\\"/Users/admin/code/dsh-pcb-eda/packages/dsh-tool-pcb-viewer/test/fixtures/simple_led.kicad_pcb\\\",\\\"key\\\":\\\"pcb-306ed8ea-ac24-4b26-a196-eef926e85389\\\",\\\"viewUrl\\\":\\\"/pcb-viewer/api/file?key=pcb-306ed8ea-ac24-4b26-a196-eef926e85389\\\",\\\"stats\\\":{\\\"sizeKB\\\":159,\\\"comps\\\":13,\\\"pads\\\":102,\\\"traces\\\":101,\\\"zones\\\":1,\\\"vias\\\":8,\\\"layers\\\":2,\\\"widthMM\\\":80,\\\"heightMM\\\":60}}\"}"
+  ]
+}
+
+## 4. search_hqsch_parts
+
+args:
+  {"query":"STM32F103","page":1,"page_size":3,"require_eda_model":true}
+result:
+  {
+  "value": {
+    "page": 1,
+    "pageSize": 3,
+    "pages": 53,
+    "total": 161,
+    "items": [
+      {
+        "mpn": "STM32F103RGT6TR",
+        "manufacturer": {
+          "id": "7189",
+          "name": "STMicroelectronics"
+        },
+        "huaqiuPn": "G3337586",
+        "category": {
+          "id": "1380",
+          "name": "32-bit MCU Microcontrollers"
+        },
+        "package": "QFP64",
+        "description": "IC MCU 32BIT 1MB FLASH 64LQFP",
+        "datasheetUrl": "https://file.elecfans.com/web2/M00/27/99/pYYBAGHCkxKAS8t2ACIDFzn0vyk679.pdf",
+        "imageUrl": "https://file1.elecfans.com/web2/M00/CD/4B/wKgaomYgismAFJV0AAAXOC0_APw646.jpg",
+        "hasSymbol": true,
+        "hasFootprint": true,
+        "has3dModel": false,
+        "hasSimulationModel": false
+      },
+      {
+        "mpn": "STM32F103CBU6TR",
+        "manufacturer": {
+          "id": "7189",
+          "name": "STMicroelectronics"
+        },
+        "huaqiuPn": "G3338201",
+        "category": {
+          "id": "1382",
+          "name": "Other Microprocessors"
+        },
+        "package": "QFN49",
+        "description": "IC MCU 32BIT 128KB FLSH 48UFQFPN",
+        "datasheetUrl": "https://file.elecfans.com/web2/M00/70/D4/pYYBAGNKs6qAfYvnAB-zOUCJ5Ak789.pdf",
+        "imageUrl": "https://file.elecfans.com/web2/M00/20/CF/pYYBAGGfdVqAAgdWAALup0vKOY4174.png",
+        "hasSymbol": true,
+        "hasFootprint": true,
+        "has3dModel": false,
+        "hasSimulationModel": false
+      },
+      {
+        "mpn": "STM32F103RBH7",
+        "manufacturer": {
+          "id": "7189",
+          "name": "STMicroelectronics"
+        },
+        "huaqiuPn": "G3337761",
+        "category": {
+          "id": "1380",
+          "name": "32-bit MCU Microcontrollers"
+        },
+        "description": "IC MCU 32BIT 128KB FLASH 64BGA",
+        "datasheetUrl": "https://file.elecfans.com/web2/M00/59/57/poYBAGLowE2AVLGcABE8Tm_HA78519.pdf",
+        "imageUrl": "https://file1.elecfans.com/web2/M00/CC/E6/wKgZomYguYqAG54aAAAdyVfyvDM543.jpg",
+        "hasSymbol": true,
+        "hasFootprint": true,
+        "has3dModel": false,
+        "hasSimulationModel": false
+      }
+    ]
+  },
+  "content": [
+    "{\"type\":\"text\",\"text\":\"{\\\"page\\\":1,\\\"pageSize\\\":3,\\\"pages\\\":53,\\\"total\\\":161,\\\"items\\\":[{\\\"mpn\\\":\\\"STM32F103RGT6TR\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G3337586\\\",\\\"category\\\":{\\\"id\\\":\\\"1380\\\",\\\"name\\\":\\\"32-bit MCU Microcontrollers\\\"},\\\"package\\\":\\\"QFP64\\\",\\\"description\\\":\\\"IC MCU 32BIT 1MB FLASH 64LQFP\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/27/99/pYYBAGHCkxKAS8t2ACIDFzn0vyk679.pdf\\\",\\\"imageUrl\\\":\\\"https://file1.elecfans.com/web2/M00/CD/4B/wKgaomYgismAFJV0AAAXOC0_APw646.jpg\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false},{\\\"mpn\\\":\\\"STM32F103CBU6TR\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G3338201\\\",\\\"category\\\":{\\\"id\\\":\\\"1382\\\",\\\"name\\\":\\\"Other Microprocessors\\\"},\\\"package\\\":\\\"QFN49\\\",\\\"description\\\":\\\"IC MCU 32BIT 128KB FLSH 48UFQFPN\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/70/D4/pYYBAGNKs6qAfYvnAB-zOUCJ5Ak789.pdf\\\",\\\"imageUrl\\\":\\\"https://file.elecfans.com/web2/M00/20/CF/pYYBAGGfdVqAAgdWAALup0vKOY4174.png\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false},{\\\"mpn\\\":\\\"STM32F103RBH7\\\",\\\"manufacturer\\\":{\\\"id\\\":\\\"7189\\\",\\\"name\\\":\\\"STMicroelectronics\\\"},\\\"huaqiuPn\\\":\\\"G3337761\\\",\\\"category\\\":{\\\"id\\\":\\\"1380\\\",\\\"name\\\":\\\"32-bit MCU Microcontrollers\\\"},\\\"description\\\":\\\"IC MCU 32BIT 128KB FLASH 64BGA\\\",\\\"datasheetUrl\\\":\\\"https://file.elecfans.com/web2/M00/59/57/poYBAGLowE2AVLGcABE8Tm_HA78519.pdf\\\",\\\"imageUrl\\\":\\\"https://file1.elecfans.com/web2/M00/CC/E6/wKgZomYguYqAG54aAAAdyVfyvDM543.jpg\\\",\\\"hasSymbol\\\":true,\\\"hasFootprint\\\":true,\\\"has3dModel\\\":false,\\\"hasSimulationModel\\\":false}]}\"}"
+  ]
+}
+
+## 5. quote_pcb
+
+args:
+  {"region":"cn"}
+result:
+  {
+  "error": {
+    "message": "quote: no hq-edge base URL available (edge-bridge service or HQ_EDGE_BASE_URL)"
+  },
+  "content": [
+    "{\"type\":\"text\",\"text\":\"Error: quote: no hq-edge base URL available (edge-bridge service or HQ_EDGE_BASE_URL)\"}"
+  ]
+}
