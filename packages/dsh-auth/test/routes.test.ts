@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rmSync } from 'node:fs'
-import { InMemoryHuaqiuAuthService } from '../src/service.js'
+import { InMemoryHuaqiuAuthService, HostLoginIncompleteError } from '../src/service.js'
 import { AUTH_ROUTE_PREFIX, createAuthHandler, fetchAiUsage } from '../src/routes.js'
 import { authFetch } from './helpers.js'
 
@@ -157,6 +157,31 @@ describe('auth webServer routes (browser→node transport)', () => {
     } finally {
       await new Promise<void>((resolve) => hostServer.close(() => resolve()))
     }
+  })
+
+  it('POST /login answers 401 (not 500) when the operator dismisses the host dialog', async () => {
+    // The hq-edge host route settles a cancelled dialog with 401 the moment it
+    // closes (it no longer holds the request for the full 5-minute wait), and
+    // the node half turns that into HostLoginIncompleteError. A cancellation is
+    // the operator's own choice: the route must report "still signed out",
+    // never an internal error.
+    const spy = vi
+      .spyOn(svc.auth, 'login')
+      .mockRejectedValue(new HostLoginIncompleteError('dismissed', { status: 401 }))
+    const res = await post(`${AUTH_ROUTE_PREFIX}/login`)
+    spy.mockRestore()
+    expect(res.status).toBe(401)
+    const body = JSON.parse(res.text)
+    expect(body).toMatchObject({ ok: false, authenticated: false, reason: 'dismissed' })
+    // Still signed out — the sidebar keeps showing「Login」.
+    expect(await svc.auth.isAuthenticated()).toBe(false)
+  })
+
+  it('POST /login still reports a real server fault as 500', async () => {
+    const spy = vi.spyOn(svc.auth, 'login').mockRejectedValue(new Error('kaboom'))
+    const res = await post(`${AUTH_ROUTE_PREFIX}/login`)
+    spy.mockRestore()
+    expect(res.status).toBe(500)
   })
 
   it('GET /user-info returns null when no credential is resolved', async () => {

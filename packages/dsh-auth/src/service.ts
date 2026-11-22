@@ -148,6 +148,40 @@ function originOf(url: string): string | null {
 const LOGOUT_WAIT_MS = 30_000
 
 /**
+ * Why a host-mode login did not produce a credential.
+ *
+ * - `dismissed` — the operator closed the EDA login dialog. This is a NORMAL
+ *   outcome, not a fault: the host answers 401 the moment the dialog closes (it
+ *   no longer holds the HTTP request for the whole 5-minute wait, which used to
+ *   exhaust the webview's connections to DSH and made the 6th click do nothing).
+ * - `timeout`   — the host never answered within `loginWaitMs`.
+ * - `failed`    — the host answered with some other error status.
+ */
+export type HostLoginFailureReason = 'dismissed' | 'timeout' | 'failed'
+
+/**
+ * A host login that did not complete. Distinct from a genuine server fault so
+ * the routes layer can answer 401 (still signed out) instead of 500 — a user
+ * cancelling their own login must not look like an internal error.
+ */
+export class HostLoginIncompleteError extends Error {
+  readonly reason: HostLoginFailureReason
+  constructor(reason: HostLoginFailureReason, cause?: unknown) {
+    // Keep the transport's own wording when there is no HTTP status (an
+    // aborted wait / a refused connection), so the log still says what broke.
+    const status = (cause as { status?: number } | undefined)?.status
+    const detail = status !== undefined ? `HTTP ${status}` : String(cause ?? 'unknown')
+    super(
+      reason === 'timeout'
+        ? 'host login not completed: the EDA dialog did not answer in time'
+        : `host login not completed: ${detail}`,
+    )
+    this.name = 'HostLoginIncompleteError'
+    this.reason = reason
+  }
+}
+
+/**
  * Returns the persisted session, or null if absent/unreadable. Best-effort: a
  * corrupt or unreadable file is treated as "no session" rather than thrown.
  */
@@ -296,16 +330,31 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
       if (!this.host.enabled) return
       // Host mode: the browser-side iframe is suppressed, so clicking login
       // must ask the host (hq-edge → EDA TriggerLoginDialog) to open the EDA
-      // login dialog. The host route blocks until AuthStateChanged flips the
-      // credential (bounded), then we drop the cached host session so the next
-      // resolve() re-fetches the fresh token.
-      const res = await this.doFetch(`${this.host.baseUrl}${this.hostLoginPath}`, {
-        method: 'POST',
-        headers: { accept: 'application/json' },
-        signal: AbortSignal.timeout(this.loginWaitMs),
-      })
+      // login dialog. The host route answers as soon as the dialog closes —
+      // with 401 when the operator dismissed it (bounded by `loginWaitMs`), so
+      // a cancellation must not be mistaken for a server fault. On success we
+      // drop the cached host session so the next resolve() re-fetches the
+      // fresh token.
+      let res: Response
+      try {
+        res = await this.doFetch(`${this.host.baseUrl}${this.hostLoginPath}`, {
+          method: 'POST',
+          headers: { accept: 'application/json' },
+          signal: AbortSignal.timeout(this.loginWaitMs),
+        })
+      } catch (err) {
+        // `AbortSignal.timeout` rejects with a TimeoutError/AbortError; a
+        // network failure is an unreachable host — either way no dialog ever
+        // completed, so this is still "not completed", not a crash.
+        throw new HostLoginIncompleteError(
+          (err as { name?: string }).name === 'TimeoutError' ? 'timeout' : 'failed',
+          err,
+        )
+      }
       if (!res.ok) {
-        throw new Error(`host login not completed: HTTP ${res.status}`)
+        // 401 = the dialog was dismissed (or the wait expired) — the operator
+        // is still signed out, which the UI already renders.
+        throw new HostLoginIncompleteError(res.status === 401 ? 'dismissed' : 'failed', res)
       }
       this.host.clear()
       this.stale = false

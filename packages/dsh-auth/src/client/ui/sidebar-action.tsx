@@ -904,7 +904,16 @@ export const HuaqiuAuthSidebarAction = memo(function HuaqiuAuthSidebarAction({ w
             // the DOM (backdrop + card + iframe) and closes itself on
             // backdrop click, Escape, the × button, or the embed's
             // `close_dialog` postMessage.
-            void auth.login({ lang: locale, theme: dark ? 'dark' : 'light' })
+            //
+            // In HOST mode there is no iframe: the promise settles only when
+            // the EDA dialog closes, and a dismissal rejects (the host route
+            // answers 401 right away instead of holding the connection). That
+            // rejection is the normal "user changed their mind" outcome — the
+            // entry simply stays on「Login」— so it must not surface as an
+            // unhandled rejection.
+            void auth
+              .login({ lang: locale, theme: dark ? 'dark' : 'light' })
+              .catch(() => { /* host dialog dismissed — still signed out */ })
             return
           }
           setMenuOpen((open) => !open)

@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { rmSync } from 'node:fs'
-import { InMemoryHuaqiuAuthService } from '../src/service.js'
+import { InMemoryHuaqiuAuthService, HostLoginIncompleteError } from '../src/service.js'
 import { authFetch } from './helpers.js'
 
 // Isolate the persisted-session directory so `isAuthenticated()`'s file fallback
@@ -185,5 +185,71 @@ describe('InMemoryHuaqiuAuthService', () => {
       { fetchImpl },
     )
     await expect(svc.auth.login()).rejects.toThrow('host login not completed')
+  })
+
+  it('host-mode login reports a DISMISSED dialog as such (not as a server fault)', async () => {
+    // The host answers 401 the moment the dialog closes, so a cancellation
+    // settles here immediately. It must be typed: the routes layer turns this
+    // into 401 "still signed out", while an unexpected status stays a 500.
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/auth/login')) {
+        return { ok: false, status: 401, json: async () => ({ ok: false }) } as Response
+      }
+      // The host still has no session (that is what a dismissal means).
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ authenticated: false, token: null, userId: null }),
+      } as Response
+    }) as unknown as typeof fetch
+
+    const svc = new InMemoryHuaqiuAuthService(
+      { hqEdgeBaseUrl: 'http://localhost:9999' },
+      { fetchImpl },
+    )
+    const err = await svc.auth.login().then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(err).toBeInstanceOf(HostLoginIncompleteError)
+    expect((err as HostLoginIncompleteError).reason).toBe('dismissed')
+    // Still signed out — never a credential invented from a cancelled dialog.
+    expect(await svc.auth.isAuthenticated()).toBe(false)
+    expect(await svc.auth.getAccessToken()).toBeNull()
+  })
+
+  it('host-mode login types a non-401 host failure as `failed` and a timeout as `timeout`', async () => {
+    const hostSvc = (status: number): InMemoryHuaqiuAuthService =>
+      new InMemoryHuaqiuAuthService(
+        { hqEdgeBaseUrl: 'http://localhost:9999' },
+        {
+          fetchImpl: vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input)
+            if (url.endsWith('/api/v1/auth/login')) {
+              return { ok: false, status, json: async () => ({ ok: false }) } as Response
+            }
+            return { ok: true, status: 200, json: async () => ({ token: 't', userId: 'u' }) } as Response
+          }) as unknown as typeof fetch,
+        },
+      )
+    const failed = await hostSvc(502).auth.login().then(() => null, (e: unknown) => e)
+    expect((failed as HostLoginIncompleteError).reason).toBe('failed')
+
+    // A bounded wait that expires rejects with a TimeoutError — the operator
+    // could still be looking at a dialog, so this is NOT "dismissed".
+    const timeoutSvc = new InMemoryHuaqiuAuthService(
+      { hqEdgeBaseUrl: 'http://localhost:9999' },
+      {
+        fetchImpl: vi.fn(async () => {
+          const e = new Error('The operation was aborted due to timeout')
+          e.name = 'TimeoutError'
+          throw e
+        }) as unknown as typeof fetch,
+      },
+    )
+    const timedOut = await timeoutSvc.auth.login().then(() => null, (e: unknown) => e)
+    expect((timedOut as HostLoginIncompleteError).reason).toBe('timeout')
+    expect((timedOut as Error).message).toContain('did not answer in time')
   })
 })

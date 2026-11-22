@@ -142,6 +142,17 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
   let hostSession: AuthTokenPayload | null = null
   let hostSessionLoaded = false
   /**
+   * The host login trigger in flight. In host mode `auth.login()` POSTs to the
+   * node half, which asks EDA (KiCad) to open its modal dialog and answers only
+   * once the user dismisses it. Several surfaces call this (sidebar entry, HIT
+   * cards, a click burst from an impatient user), so it is single-flighted:
+   * each extra POST would occupy one of the webview's few connections to DSH
+   * for the whole dialog, and once that pool is exhausted the next click never
+   * reaches the host — which is what "the login button stopped opening the
+   * dialog" looks like from the outside.
+   */
+  let inflightLogin: Promise<void> | null = null
+  /**
    * Why the last host-session resolution failed, if it did. Transport errors
    * must NOT masquerade as a healthy `signed-out`: the dialog opener surfaces
    * them as a rejection so callers can show retry copy instead of "sign in".
@@ -251,12 +262,19 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       // blocks until the dialog completes; then re-resolve and emit (only on
       // a real change, so a redundant trigger never re-renders every card).
       if (hostMode) {
-        const prevToken = hostSession?.token
-        await transport.triggerLogin()
-        hostSessionLoaded = false
-        await resolveHost()
-        if (hostSession?.token !== prevToken) emit(hostSession)
-        return
+        // One trigger per dialog (see `inflightLogin`).
+        if (inflightLogin !== null) return inflightLogin
+        const attempt = (async (): Promise<void> => {
+          const prevToken = hostSession?.token
+          await transport.triggerLogin()
+          hostSessionLoaded = false
+          await resolveHost()
+          if (hostSession?.token !== prevToken) emit(hostSession)
+        })()
+        inflightLogin = attempt.finally(() => {
+          inflightLogin = null
+        })
+        return inflightLogin
       }
       openIframe(options ?? {})
     },

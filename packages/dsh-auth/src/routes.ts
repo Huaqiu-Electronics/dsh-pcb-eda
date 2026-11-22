@@ -19,6 +19,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { getLogger, type PluginLogger } from '@huaqiu/dsh-plugin-log'
 import type { HuaqiuAuthService, HuaqiuUserInfo } from './service.js'
+import { HostLoginIncompleteError } from './service.js'
 import { aiUsageFromPayload, type AiUsage } from './subscription-balances.js'
 
 // Lazy so test suites that `vi.mock('@deepseek-ai/dsh-home-paths', …)` before
@@ -291,8 +292,25 @@ export function createAuthHandler(service: HuaqiuAuthService): AuthHandler {
 
       if (req.method === 'POST' && pathname === `${AUTH_ROUTE_PREFIX}/login`) {
         // Host-mode login: forward to HQ Edge, which asks EDA (KiCad) to open
-        // its TriggerLoginDialog. Blocks until the dialog is completed.
-        await service.auth.login()
+        // its TriggerLoginDialog. The host answers as soon as the dialog
+        // closes, so this route settles promptly on both outcomes — the browser
+        // half is single-flighted and must never be left holding the promise.
+        try {
+          await service.auth.login()
+        } catch (err) {
+          if (err instanceof HostLoginIncompleteError) {
+            // A dismissed dialog is the operator's own choice: report it as
+            // "still signed out" (401), never as an internal error (500).
+            sendJson(res, 401, {
+              ok: false,
+              authenticated: false,
+              reason: err.reason,
+              error: err.message,
+            })
+            return
+          }
+          throw err
+        }
         const user = await service.auth.getUserInfo()
         sendJson(res, 200, { ok: true, authenticated: user !== null, user })
         return

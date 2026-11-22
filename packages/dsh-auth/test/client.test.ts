@@ -619,6 +619,74 @@ describe('host mode (hq-edge integration)', () => {
     await client.refreshHost()
     expect(client.auth.isAuthenticated()).toBe(false)
   })
+
+  /**
+   * The reported bug: an impatient operator clicking the login entry five
+   * times. Each click used to POST its own `/login`, each POST occupied one of
+   * the webview's few connections to DSH while the host held it open for the
+   * whole 5-minute wait, and past the 5th the host had no dialog/connection
+   * left — so the dialog stopped appearing at all.
+   */
+  it('a burst of login clicks triggers exactly ONE host dialog (single-flight)', async () => {
+    const { client, transport } = makeClient()
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null, profileUrl: null })
+    transport.fetchSession.mockResolvedValue({ authenticated: false, user: null })
+    await client.refreshHost()
+    expect(client.auth.isHostMode()).toBe(true)
+
+    // The host keeps the RPC open until the operator closes the dialog —
+    // model that with a deferred promise, and release it only after every
+    // click has been issued.
+    let release!: () => void
+    transport.triggerLogin.mockImplementation(
+      () => new Promise<void>((resolve) => { release = resolve }),
+    )
+    const seen: unknown[] = []
+    client.auth.onAuthStateChanged((info) => seen.push(info))
+
+    const clicks = [
+      client.auth.login(),
+      client.auth.login(),
+      client.auth.login(),
+      client.auth.login(),
+      client.auth.login(),
+    ]
+    // Every click joined the dialog already on screen: one POST, one dialog.
+    expect(transport.triggerLogin).toHaveBeenCalledTimes(1)
+
+    // The operator signed in while that single dialog was up.
+    transport.fetchSession.mockResolvedValue({
+      authenticated: true,
+      user: { id: 6215935, token: 'host-tok-9', nickname: '老铁' },
+    })
+    release()
+    await Promise.all(clicks)
+
+    expect(transport.triggerLogin).toHaveBeenCalledTimes(1)
+    expect(client.auth.isAuthenticated()).toBe(true)
+    await expect(client.auth.getAccessToken()).resolves.toBe('host-tok-9')
+    // One dialog ⇒ one state change, not five (each would re-render every card).
+    expect(seen).toEqual([expect.objectContaining({ token: 'host-tok-9' })])
+  })
+
+  it('releases the single-flight lock once the attempt settles, so a retry reopens the dialog', async () => {
+    const { client, transport } = makeClient()
+    transport.fetchRuntimeConfig.mockResolvedValue({ hostMode: true, subscriptionOrigin: null, subscriptionApiBaseUrl: null, profileUrl: null })
+    transport.fetchSession.mockResolvedValue({ authenticated: false, user: null })
+    await client.refreshHost()
+
+    // First attempt: dismissed. The host answers 401, the node half surfaces
+    // that as a rejection — the click must settle rather than hang for minutes.
+    transport.triggerLogin.mockRejectedValueOnce(new Error('auth login trigger failed: HTTP 401'))
+    await expect(client.auth.login()).rejects.toThrow('HTTP 401')
+    expect(client.auth.isAuthenticated()).toBe(false)
+
+    // The lock is gone: clicking again asks the host for a fresh dialog. This
+    // is the whole point — the previous five-click burst used to poison the
+    // entry permanently.
+    await client.auth.login()
+    expect(transport.triggerLogin).toHaveBeenCalledTimes(2)
+  })
 })
 
 describe('subscription (quota + dialog)', () => {
