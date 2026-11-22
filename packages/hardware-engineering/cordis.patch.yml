@@ -1,0 +1,94 @@
+# DSH bundle patch — @huaqiu/hardware-engineering
+#
+# THE PRODUCT BUNDLE. A profile selects this one package
+# (`dsh.profile.bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
+# '@huaqiu/hardware-engineering']`); this patch is what actually mounts the
+# eleven Huaqiu plugin rows. The plugin packages are plain `dependencies` of
+# this package — declaring a dependency installs it, it does not activate it.
+#
+# ── Why the rows live here and not in the profile ──────────────────────────
+# A row's `name` is resolved from the runtime resolution table, which is built
+# by walking the *installation* dependency graph (apps/cli → this package →
+# its dependencies). That is why every plugin below is reachable without a
+# profile-local install and without network at boot.
+#
+# ── Row order ──────────────────────────────────────────────────────────────
+# Row order carries no load semantics in DSH — activation is service-
+# availability driven, so a consumer waits in `pending` until its provider
+# provides the service (see `packages/bundle/base/cordis.patch.yml`: "Row order
+# carries no load semantics"). Providers are nevertheless listed first so the
+# file reads in dependency order and a human can audit it.
+#
+# Dependency edges that actually matter at activation time:
+#   huaqiu-tool-symbol-footprint → huaqiuAuth, huaqiuArtifacts, webServer
+#   every Huaqiu row              → webServer (routes) / tools / skills / fs
+#   huaqiu-eda-selection          → systemPrompt
+#
+# ── What is deliberately NOT here ──────────────────────────────────────────
+#   @huaqiu/dsh-eda-host          netlist/selection/board snapshots are served
+#                                 by an HQ Edge HTTP bridge that does not exist
+#                                 in the target runtime; its 11 tools would all
+#                                 fail. Deferred to the native EDA-host work.
+#   @huaqiu/dsh-tool-plugin-update update discovery/install is HQ Edge-owned
+#                                 business logic with no DSH-native equivalent.
+#                                 Deferred.
+#   @huaqiu/dsh-hqsch             teaches TypeScript-against-HQ-EDA, which is
+#                                 not the workflow this product bundle targets.
+#   @huaqiu/dsh-analytics         telemetry; not required to prove the product.
+#
+# ── Do not also list the child bundles in the profile ──────────────────────
+# Listing e.g. `@huaqiu/dsh-kicad` in `dsh.profile.bundles` *as well as* this
+# package inserts the same row id twice. The ids below intentionally match each
+# package's own cordis.patch.yml so that mistake surfaces as an id collision.
+
+# The bundled Huaqiu Web presentation layer replaces the official brand row.
+# This override must live here because the theme is mounted by this patch, not
+# by its own bundle layer.
+- id: ui-brand-official
+  disabled: true
+
+- insert:
+    # ── Service providers ───────────────────────────────────────────────────
+    - id: huaqiu-auth
+      name: '@huaqiu/dsh-auth'
+      inject: ['webServer']
+
+    - id: huaqiu-artifacts
+      name: '@huaqiu/dsh-artifacts'
+      inject: ['webServer']
+
+    # ── Node-side capability plugins ────────────────────────────────────────
+    - id: huaqiu-dsh-kicad
+      name: '@huaqiu/dsh-kicad'
+      inject: ['skills', 'tools']
+
+    - id: dsh-tool-kicad-schematic-gen
+      name: '@huaqiu/dsh-tool-kicad-schematic-gen'
+      inject: ['tools', 'fs', 'sandboxPolicy', 'skills', 'webServer']
+
+    - id: dsh-tool-pcb-viewer
+      name: '@huaqiu/dsh-tool-pcb-viewer'
+      inject: ['tools', 'webServer', 'sessions']
+
+    - id: huaqiu-tool-part-search
+      name: '@huaqiu/dsh-tool-part-search'
+      inject: ['tools']
+
+    - id: huaqiu-eda-selection
+      name: '@huaqiu/dsh-eda-selection'
+      inject: ['systemPrompt']
+
+    - id: huaqiu-tool-quote
+      name: '@huaqiu/dsh-tool-quote'
+      inject: ['tools']
+
+    - id: huaqiu-tool-symbol-footprint
+      name: '@huaqiu/dsh-tool-symbol-footprint'
+      inject: ['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer']
+
+    # ── Presentation ────────────────────────────────────────────────────────
+    - id: ui-theme-huaqiu
+      name: '@huaqiu/dsh-ui-theme-huaqiu'
+
+    - id: dsh-huaqiu-about
+      name: '@huaqiu/dsh-huaqiu-about'

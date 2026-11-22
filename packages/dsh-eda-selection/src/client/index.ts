@@ -7,15 +7,15 @@
  * the moment it does not.
  *
  * ── Where the state comes from ──────────────────────────────────────────────
- * The `hqEdge` host service provided by `@hqedge/dsh-edge-bridge`. Its
+ * An optional `hqEdge` host service (an HQ Edge edge-bridge provides one). Its
  * `selection` face is fed by the bridge's OWN `/runtime/dsh` poll, so this
  * plugin adds NO second polling loop and never talks to HQ Edge itself.
  *
- * `inject` declares `hqEdge`, so DSH holds this plugin's activation until the
- * bridge has provided it — `ctx.get('hqEdge')` inside `apply()` therefore
- * resolves. The accessor is still built lazily (a closure, not a captured
- * value) because the service object is created once but its `selection` face
- * is read on every subscription.
+ * `inject` does NOT declare `hqEdge`: the service is a data source, not a
+ * precondition. Declaring it parked this module whenever no bridge was present,
+ * which removed the plugin entirely instead of hiding one chip. Instead the
+ * accessor is resolved lazily through `ctx.get('hqEdge')` and every consumer is
+ * null-safe, so with no bridge the chip simply never renders.
  *
  * The bridge's `onChanged` replays the current state immediately when one is
  * already known, so a chip mounted after the first summary does not wait for a
@@ -45,7 +45,7 @@ import {
   type SelectionSnapshot,
 } from './hq-edge.js'
 
-export const inject = ['slots', 'locale', 'hqEdge'] as const
+export const inject = ['slots', 'locale'] as const
 
 /** This plugin's dictionary namespace. */
 export const EDA_SELECTION_NS = 'huaqiu:eda-selection'
@@ -90,9 +90,9 @@ export type Translate = (key: string, params?: Record<string, unknown>) => strin
 /**
  * Resolve the `hqEdge` service defensively.
  *
- * `inject` already guarantees it exists by `apply()` time; the try/catch and
- * the shape checks keep a standalone DSH (no edge-bridge) from taking the
- * plugin down. In that case the chip simply never renders.
+ * The service is not injected, so this is the only way it is reached; every
+ * shape check and the try/catch keep a runtime without an edge bridge from
+ * taking the plugin down. In that case the chip simply never renders.
  */
 function getHqEdge(ctx: ClientContext): HqEdgeLike | undefined {
   try {

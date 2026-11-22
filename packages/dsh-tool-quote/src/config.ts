@@ -2,11 +2,14 @@
  * Runtime config resolution for `@huaqiu/dsh-tool-quote`.
  *
  * The plugin never opens a direct connection to the price providers — it only
- * talks to `hq-edge`, which owns the quote capability (hq.fab.v1.QuoteService
- * bridged over HTTP, see apps/server/src/routes/quote.ts on hq-edge). The base
- * URL is delivered by the hq-edge supervisor as overlay config
- * (`hqEdgeBaseUrl`), with `HQ_EDGE_BASE_URL` as env fallback — the same
- * convention as `@huaqiu/dsh-eda-host` / `@huaqiu/dsh-auth`.
+ * talks to an HTTP quote router, which owns the quote capability
+ * (hq.fab.v1.QuoteService bridged over HTTP, see apps/server/src/routes/quote.ts
+ * on hq-edge). The base URL is resolved from, in order:
+ *
+ *   1. overlay config `hqEdgeBaseUrl` (an HQ Edge supervisor writing it),
+ *   2. `HUAQIU_QUOTE_BASE_URL` — the host-neutral name, use this when the router
+ *      is not an HQ Edge process,
+ *   3. `HQ_EDGE_BASE_URL` — kept for existing HQ Edge deployments.
  *
  * @module
  */
@@ -28,7 +31,8 @@ export function resolveQuoteToolConfig(
   config?: Partial<QuoteToolConfig> | null,
   env: NodeJS.ProcessEnv = process.env,
 ): QuoteToolConfig {
-  const baseUrl = config?.hqEdgeBaseUrl ?? env.HQ_EDGE_BASE_URL ?? ''
+  const baseUrl =
+    config?.hqEdgeBaseUrl ?? env.HUAQIU_QUOTE_BASE_URL ?? env.HQ_EDGE_BASE_URL ?? ''
   const pathPrefix =
     config?.quotePathPrefix ?? env.HQ_EDGE_QUOTE_PATH ?? DEFAULT_QUOTE_PATH_PREFIX
   const timeoutRaw = config?.requestTimeoutMs ?? env.HQ_EDGE_REQUEST_TIMEOUT_MS

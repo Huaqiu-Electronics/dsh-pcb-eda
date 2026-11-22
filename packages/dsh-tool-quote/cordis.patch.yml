@@ -1,5 +1,16 @@
 # DSH bundle patch: inserts the Huaqiu quote tool plugin into a profile's layer stack.
+#
+# `hqEdge` is deliberately NOT in the entry inject. A quote backend is an
+# optional capability, not a precondition for the plugin to exist: the plugin
+# activates with `tools` alone, always registers its four tools, and each call
+# resolves the backend lazily (hqEdge service → config → HUAQIU_QUOTE_BASE_URL /
+# HQ_EDGE_BASE_URL). With no backend configured the tools still exist and fail
+# per call with a FAILED_PRECONDITION error that names the missing piece.
+#
+# Declaring `hqEdge` here used to park this entry in `pending` forever on any
+# runtime without an edge bridge, which removed the tools entirely instead of
+# reporting a capability boundary.
 - insert:
     - id: huaqiu-tool-quote
       name: '@huaqiu/dsh-tool-quote'
-      inject: ['tools', 'hqEdge']
+      inject: ['tools']

@@ -124,8 +124,17 @@ function makeCtx(edge: ReturnType<typeof makeEdge> | null) {
 }
 
 describe('apply() — dock entry registration', () => {
-  it('declares the services it needs', () => {
-    expect([...inject]).toEqual(['slots', 'locale', 'hqEdge'])
+  it('declares only the services it cannot work without', () => {
+    // `hqEdge` is deliberately absent: it is a selection *source*, resolved on
+    // demand, not a precondition for the module to load.
+    expect([...inject]).toEqual(['slots', 'locale'])
+  })
+
+  it('loads and renders nothing when no selection source exists', () => {
+    const { ctx, registrations } = makeCtx(null)
+    expect(() => apply(ctx as never)).not.toThrow()
+    // The dock entry is still installed; it just has no snapshot to show.
+    expect(registrations).toHaveLength(1)
   })
 
   it('registers the dictionaries under its own namespace', () => {

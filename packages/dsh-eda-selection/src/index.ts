@@ -13,11 +13,13 @@
  * section whose provider re-evaluates at each assembly is exactly that.
  *
  * ── Why the provider performs no I/O ────────────────────────────────────────
- * The provider reads `hqEdge.selection.getCurrent()` — an in-memory value the
- * bridge keeps fresh from its own `/runtime/dsh` poll. Prompt assembly happens
- * on the agent's hot path, so an HTTP call here would add latency to every
- * turn and could fail; a stale-but-free read is strictly better than a fresh
- * blocking one. When the value is unknown the section contributes NOTHING.
+ * The provider reads an in-memory snapshot — `selection.getCurrent()` on the
+ * optional `hqEdge` service when an HQ Edge bridge is present; nothing at all
+ * otherwise. That value is kept fresh by whoever owns the bridge's own
+ * `/runtime/dsh` poll. Prompt assembly happens on the agent's hot path, so an
+ * HTTP call here would add latency to every turn and could fail; a
+ * stale-but-free read is strictly better than a fresh blocking one. When the
+ * value is unknown the section contributes NOTHING.
  *
  * ── What the section must not do ────────────────────────────────────────────
  * It must not imply that selection CONTENT was inserted into the conversation.
@@ -43,13 +45,17 @@ export const name = '@huaqiu/dsh-eda-selection'
 /**
  * Cordis services this half depends on.
  *
- * `hqEdge` is the bridge's node-side twin. It is declared here so DSH holds
- * this plugin until the bridge has provided it, and every read is still
- * guarded: a standalone DSH deployment without the bridge must not fail.
+ * `systemPrompt` carries the section — REQUIRED, because without it this plugin
+ * has nothing to do.
  *
- * `systemPrompt` carries the section. Declared for the same reason.
+ * `hqEdge` is deliberately NOT injected. It is a *data source*, not a
+ * precondition: the section is one of eleven rows in the Hardware Engineering
+ * bundle, and declaring `hqEdge` here used to park the entry in `pending`
+ * forever on any runtime without an edge bridge. Every read is already guarded,
+ * so the section simply contributes nothing when no selection source exists —
+ * which is the correct behaviour rather than a missing plugin.
  */
-export const inject = ['hqEdge', 'systemPrompt'] as const
+export const inject = ['systemPrompt'] as const
 
 /** Shared component name for the unified DSH-plugin log. */
 const COMPONENT = 'dsh-eda-selection'
@@ -57,14 +63,19 @@ const log = getLogger(COMPONENT)
 
 /** Host plugin body — register the dynamic selection section. */
 export function apply(ctx: {
-  hqEdge?: HqEdgeLike
   systemPrompt?: SystemPromptLike
+  /** Present on a real DSH context; absent in the structural test harness. */
+  get?: (service: string) => unknown
+  /** Back-compat for callers that hand the service over directly. */
+  hqEdge?: HqEdgeLike
 }): () => void {
-  // Lazy, never captured once: the bridge's `selection` face is a live object,
-  // but reading it lazily keeps this plugin working if the service is swapped.
+  // Lazy, never captured once: the selection source is a live object, and the
+  // service may be provided after this fiber activates.
   const readSelection = (): ReturnType<typeof normalizeSelectionSnapshot> => {
     try {
-      const edge = ctx.hqEdge
+      const edge = (typeof ctx.get === 'function' ? ctx.get('hqEdge') : ctx.hqEdge) as
+        | HqEdgeLike
+        | undefined
       if (!edge || !edge.selection || typeof edge.selection.getCurrent !== 'function') return null
       return normalizeSelectionSnapshot(edge.selection.getCurrent())
     } catch {
@@ -76,6 +87,8 @@ export function apply(ctx: {
 
   if (dispose === undefined) {
     log.warn('systemPrompt service unavailable — the selection prompt section was not registered')
+  } else if (readSelection() === null) {
+    log.info('no EDA selection source — the section stays empty until one is provided')
   }
 
   return () => {

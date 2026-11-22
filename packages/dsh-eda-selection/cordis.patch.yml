@@ -2,8 +2,14 @@
 #
 # The browser half registers a `conversation.input.dock` entry and the node
 # half registers a `systemPrompt` section, so the entry inject must hold the
-# plugin until both surfaces exist.
+# plugin until the prompt surface exists.
+#
+# `hqEdge` is NOT injected. It is a data source for the section, not a
+# precondition for the plugin: with no selection source the section contributes
+# no text and the chip shows nothing. Declaring it here parked the entry in
+# `pending` forever whenever no edge bridge was running, which removed the
+# plugin from the bundle instead of degrading it.
 - insert:
     - id: huaqiu-eda-selection
       name: '@huaqiu/dsh-eda-selection'
-      inject: ['hqEdge', 'systemPrompt']
+      inject: ['systemPrompt']

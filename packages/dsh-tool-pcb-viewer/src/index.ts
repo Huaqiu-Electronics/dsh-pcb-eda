@@ -21,8 +21,18 @@ import { fileURLToPath } from 'node:url'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { defineTool, type JsonValue } from '@deepseek-ai/dsh-tools'
+import { defineTool } from '@deepseek-ai/dsh-tools'
 import { parseBoard } from './parse.js'
+
+/**
+ * JSON value, structurally identical to the `JsonValue` that
+ * `@deepseek-ai/dsh-tools` uses internally but does not re-export in
+ * 0.2.1-rc.2 (`import { type JsonValue } from '@deepseek-ai/dsh-util-values'`
+ * at its own `lib/types/index.d.ts:13`). Declared here rather than importing a
+ * package this one does not depend on: the three uses below are casts of
+ * already-JSON-safe result objects, so only the structural shape matters.
+ */
+type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue }
 
 /** Plugin id — matches package.json. */
 export const name = '@huaqiu/dsh-tool-pcb-viewer'

@@ -1,0 +1,64 @@
+{
+  "name": "@huaqiu/hardware-engineering",
+  "version": "0.7.10",
+  "type": "module",
+  "description": "Huaqiu Hardware Engineering product bundle: the DSH plugin set that ships with the installation and activates as one profile bundle.",
+  "keywords": [
+    "dsh",
+    "dsh-bundle",
+    "huaqiu",
+    "hardware-engineering",
+    "eda",
+    "kicad"
+  ],
+  "license": "MIT",
+  "main": "./lib/index.mjs",
+  "types": "./lib/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.mts",
+      "default": "./lib/index.mjs"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "dsh": "^0.2.2-rc.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dependencies": {
+    "@huaqiu/dsh-artifacts": "workspace:*",
+    "@huaqiu/dsh-auth": "workspace:*",
+    "@huaqiu/dsh-eda-selection": "workspace:*",
+    "@huaqiu/dsh-huaqiu-about": "workspace:*",
+    "@huaqiu/dsh-kicad": "workspace:*",
+    "@huaqiu/dsh-tool-kicad-schematic-gen": "workspace:*",
+    "@huaqiu/dsh-tool-part-search": "workspace:*",
+    "@huaqiu/dsh-tool-pcb-viewer": "workspace:*",
+    "@huaqiu/dsh-tool-quote": "workspace:*",
+    "@huaqiu/dsh-tool-symbol-footprint": "workspace:*",
+    "@huaqiu/dsh-ui-theme-huaqiu": "workspace:*"
+  },
+  "files": [
+    "lib",
+    "src",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown",
+    "test": "vitest run",
+    "prepack": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

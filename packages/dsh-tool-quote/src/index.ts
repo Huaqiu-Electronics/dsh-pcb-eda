@@ -7,17 +7,28 @@
  *   quote_smt   → hq-edge POST /api/v1/quote/smt
  *
  * ── Architectural boundary ─────────────────────────────────────────────────
- * Quote logic is owned ONCE by hq-edge (hq.fab.v1.QuoteService bridged over
- * HTTP — apps/server/src/quote/*). This plugin is a thin adapter: it
- * translates tool calls into canonical quote requests and returns the
+ * Quote logic is owned ONCE by the quote service (hq.fab.v1.QuoteService joined
+ * to an HTTP router — apps/server/src/quote/*). This plugin is a thin adapter:
+ * it translates tool calls into canonical quote requests and returns the
  * normalized QuotePrice. It contains NO provider logic (no eda.cn / nextpcb
- * endpoints, no form serialization, no parsing) and no `@hqedge/*`
- * dependency — it only talks to hq-edge through the edge-bridge.
+ * endpoints, no form serialization, no parsing).
  *
- * `hqEdge` is a REQUIRED inject: the plugin cannot reach hq-edge without the
- * bridge's `ctx.hqEdge.baseUrl`. This matches the `@huaqiu/dsh-eda-host`
- * contract (docs/tasks/expose-capability.md §3/§7) — quote tools are hq-edge
- * capabilities, not standalone DSH features.
+ * ── Why `hqEdge` is NOT in `inject` ────────────────────────────────────────
+ * A quote backend is a *capability*, not a precondition for the plugin to
+ * exist. Declaring `hqEdge` here parked the whole fiber in `pending` on any
+ * runtime that has no edge bridge, so the four tools did not exist at all and
+ * the bundle containing them silently degraded. Instead:
+ *
+ *   - the plugin activates with `tools` alone and always registers its tools;
+ *   - the base URL is resolved lazily per call — service first (`ctx.get`,
+ *     so an HQ Edge host can still supply it), then config, then env;
+ *   - a call with no backend fails with a `FAILED_PRECONDITION` `QuoteToolError`
+ *     (status 412) naming the missing piece, i.e. an actionable per-tool error
+ *     rather than a missing tool.
+ *
+ * That keeps part search, schematic review, PCB preview and BOM generation
+ * usable in a deployment with no quote service, while quote itself reports
+ * precisely why it cannot answer.
  *
  * @module @huaqiu/dsh-tool-quote
  */
@@ -35,9 +46,11 @@ import { createQuoteTools } from './tools.js'
 /** Plugin id — matches package.json. */
 export const name = '@huaqiu/dsh-tool-quote'
 
-/** Cordis services this half depends on: the node tool registry + hq-edge
- *  bridge (REQUIRED — quote cannot work standalone). */
-export const inject = ['hqEdge', 'tools'] as const
+/** Cordis services this half depends on: only the node tool registry.
+ *
+ *  A quote *backend* is not a Cordis dependency — it is an optional capability
+ *  resolved per call (see the module docstring). */
+export const inject = ['tools'] as const
 
 export type { QuoteToolConfig } from './config.js'
 export { QuoteToolError } from './client.js'
@@ -45,11 +58,12 @@ export { QuoteToolError } from './client.js'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /**
-     * Provided by the hq-edge `edge-bridge` plugin (the HOST). `baseUrl` is
-     * the loopback HQ Edge endpoint, e.g. "http://localhost:18080". Read
-     * lazily on every request; REQUIRED for this plugin to load.
+     * OPTIONAL. Provided by an HQ Edge `edge-bridge` plugin when that host is
+     * present; `baseUrl` is then the loopback HQ Edge endpoint, e.g.
+     * "http://localhost:18080". Always read through `ctx.get('hqEdge')` — the
+     * service is not injected, so a direct `ctx.hqEdge` access would throw.
      */
-    hqEdge: { baseUrl?: string }
+    hqEdge?: { baseUrl?: string }
   }
 }
 
@@ -63,11 +77,13 @@ function log(): PluginLogger {
 }
 
 /**
- * Host plugin body — register the two quote tools.
+ * Host plugin body — register the four quote tools.
  *
- * The HQ Edge endpoint is resolved lazily at request time from the
- * `ctx.hqEdge` service (edge-bridge), falling back to the overlay config /
- * `HQ_EDGE_BASE_URL` env (same convention as `@huaqiu/dsh-eda-host`).
+ * Activation never depends on a quote backend. The endpoint is resolved lazily
+ * at request time: the optional `hqEdge` service first (when an HQ Edge host is
+ * present), then overlay config, then `HQ_EDGE_BASE_URL`. When none is
+ * available the tools stay registered and each call fails with a
+ * `FAILED_PRECONDITION` tool error naming the missing configuration.
  *
  * @param ctx - real cordis context (node side).
  * @returns disposer — unregisters the tools on plugin dispose.
@@ -79,28 +95,31 @@ export function apply(ctx: Context, config: Partial<QuoteToolConfig> = {}): () =
 
   const resolved = resolveQuoteToolConfig(config)
 
-  const hq = ctx.hqEdge
-  if (!hq || typeof hq.baseUrl !== 'string' || hq.baseUrl.trim().length === 0) {
-    throw new Error(
-      '@huaqiu/dsh-tool-quote requires a usable hq-edge context: the edge-bridge ' +
-        'plugin did not provide ctx.hqEdge.baseUrl. Quote tools cannot work without ' +
-        'hq-edge — check that the bridge started and that the HQ Edge port is valid.',
-    )
-  }
-
-  const getHqEdgeBaseUrl = (): string | undefined => {
-    const current = ctx.hqEdge
-    return current?.baseUrl && current.baseUrl.trim().length > 0 ? current.baseUrl : undefined
+  const getQuoteServiceBaseUrl = (): string | undefined => {
+    // `hqEdge` is not injected, so read it through `ctx.get` — a direct
+    // `ctx.hqEdge` access throws on a runtime that never provided the service.
+    const service = ctx.get('hqEdge') as { baseUrl?: string } | undefined
+    const fromService = service?.baseUrl
+    if (typeof fromService === 'string' && fromService.trim().length > 0) return fromService
+    return undefined
   }
 
   log().info('applying dsh-tool-quote node half', {
-    hasConfigHost: hasHost(resolved),
-    hqEdgeBaseUrlFromConfig: resolved.hqEdgeBaseUrl ?? null,
+    hasConfiguredHost: hasHost(resolved),
+    configuredBaseUrl: resolved.hqEdgeBaseUrl ?? null,
     quotePathPrefix: resolved.quotePathPrefix,
     requestTimeoutMs: resolved.requestTimeoutMs,
   })
 
-  const client = createQuoteToolClient(resolved, { baseUrlResolver: getHqEdgeBaseUrl })
+  if (!hasHost(resolved) && getQuoteServiceBaseUrl() === undefined) {
+    log().warn(
+      'no quote service configured — quote_pcb/quote_smt/place_*_order will report ' +
+        'FAILED_PRECONDITION until hqEdge is provided or HQ_EDGE_BASE_URL / ' +
+        'HUAQIU_QUOTE_BASE_URL is set',
+    )
+  }
+
+  const client = createQuoteToolClient(resolved, { baseUrlResolver: getQuoteServiceBaseUrl })
   const disposers = createQuoteTools({ client }).map((tool) => ctx.tools.register(tool))
 
   log().info('dsh-tool-quote node half ready', { tools: disposers.length })
