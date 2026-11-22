@@ -34,7 +34,14 @@ Hosts observed at test time:
 
 `@huaqiu/hardware-engineering@0.7.10` is the product bundle — not a second
 empty aggregator. It declares `dsh.bundle.patch`, `engines.dsh: ^0.2.2-rc.1`,
-and `@deepseek-ai/cordis@^4.0.1` as a peer.
+and `@deepseek-ai/cordis@^4.0.1` as a peer. It also declares
+`dsh.bundle.listedByDefault: false`: it is selected by the installation
+profile, not offered as a separately installable plugin. For the same reason
+it is absent from `release-manifest/plugins-release-manifest.json` — the
+catalog would otherwise advertise a zero-size duplicate of the eleven plugins
+it composes. The publish gate excludes bundles from catalog enumeration via
+that same DSH field, while still validating the bundle as a publishable npm
+package.
 
 The packed `cordis.patch.yml` disables `ui-brand-official`, then inserts eleven
 rows:
@@ -189,10 +196,10 @@ of `net`, `tls`, `http`, `https`, and `fetch` end at that method; non-loopback
 connects are rejected and recorded.
 
 ```
-PASS  activated-without-network — 1 connect attempts, 0 blocked
+PASS  activated-without-network — 3 connect attempts, 0 blocked
 ```
 
-The single recorded connect is loopback (the profile's own web server). No
+All recorded connects are loopback (the profile's own web server). No
 registry request, package download, or HQ Edge connection occurred. Resolution
 is a pure `createRequire(anchor).resolve.paths()` filesystem probe.
 
@@ -317,6 +324,8 @@ No excluded package is silently loaded, and no included package injects `hqEdge`
 | `21b5be1` | Product bundle package and HQ Edge migrations |
 | `c0fa9c5` | 0.7.10 release metadata, lockfile and manifests |
 | `27dec19` | M1 report, evidence, matrix, register and host artifacts |
+| `43bb695` | Record commit IDs in the report |
+| `e7eb678` | Exclude the product bundle from the plugin release catalog; refresh evidence and log files |
 
 `deepseek-harness` (logical units, oldest first):
 
