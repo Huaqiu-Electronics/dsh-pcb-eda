@@ -3,7 +3,7 @@
  *
  * This package is a **bundle**, not a plugin. It is never mounted as a loader
  * row: DSH reads its `dsh.bundle.patch` (`./cordis.patch.yml`), merges that
- * patch into the profile's layer stack, and mounts the eleven plugin rows the
+ * patch into the profile's layer stack, and mounts the nine plugin rows the
  * patch inserts. The plugin packages themselves are ordinary `dependencies` of
  * this package, which is what makes them resolvable from the installation
  * anchor without a profile-local install.
@@ -68,9 +68,7 @@ export const HARDWARE_ENGINEERING_PLUGINS: readonly HardwareEngineeringPlugin[] 
     provides: [],
     role: 'capability',
   }),
-  Object.freeze({ id: 'dsh-tool-pcb-viewer', name: '@huaqiu/dsh-tool-pcb-viewer', inject: ['tools', 'webServer', 'sessions'], provides: [], role: 'capability' }),
   Object.freeze({ id: 'huaqiu-tool-part-search', name: '@huaqiu/dsh-tool-part-search', inject: ['tools'], provides: [], role: 'capability' }),
-  Object.freeze({ id: 'huaqiu-eda-selection', name: '@huaqiu/dsh-eda-selection', inject: ['systemPrompt'], provides: [], role: 'capability' }),
   Object.freeze({ id: 'huaqiu-tool-quote', name: '@huaqiu/dsh-tool-quote', inject: ['tools'], provides: [], role: 'capability' }),
   Object.freeze({
     id: 'huaqiu-tool-symbol-footprint',

@@ -14,7 +14,7 @@ changes for those packages.
 - **Host tier:** Tier 1 (Huaqiu KiCad)
 - **Expected behavior:** `kicad_ipc_diagnose` reports the live KiCad version and open board; `kicad_ipc_verify_live` proves an IPC mutation can be made and dropped.
 - **Actual behavior:** Both tools dispatched successfully and returned `isError:false` with `{ok:false, error.kind:"FAILED_PRECONDITION"}`; stderr shows `ModuleNotFoundError: No module named 'kipy'`. `python3 -m venv /tmp/m1-kipy-venv && pip install kipy` reports "No matching distribution found for kipy".
-- **Evidence:** `evidence/e2e-desktop.json` steps 1–2; `evidence/e2e-stderr.log`.
+- **Evidence:** `evidence/e2e-desktop.json` steps 3–4; `evidence/e2e-stderr.log`.
 - **Root cause:** Confirmed — the configured Python interpreter has no `kipy`, which the bundled IPC scripts import.
 - **Classification:** Environment blocker (not an unsupported host feature; the host listens on `/tmp/kicad/api.sock` and `127.0.0.1:61429`).
 - **Workaround:** Use the native `kicad-cli` path, which passed read/ERC/DRC/BOM on the same host.
@@ -26,7 +26,7 @@ changes for those packages.
 - **Host tier:** Not host-specific
 - **Expected behavior:** `quote_pcb` returns an itemized real quote once a quote backend is configured.
 - **Actual behavior:** `quote_pcb({region:"cn"})` returned `isError:true` with `quote: no hq-edge base URL available (edge-bridge service or HQ_EDGE_BASE_URL)`. No price was fabricated.
-- **Evidence:** `evidence/e2e-desktop.json` step 5; `evidence/e2e-stderr.log` warning from `dsh-tool-quote`.
+- **Evidence:** `evidence/e2e-desktop.json` step 7; `evidence/e2e-stderr.log` warning from `dsh-tool-quote`.
 - **Root cause:** Confirmed — no `hqEdge` service and neither `HQ_EDGE_BASE_URL` nor `HUAQIU_QUOTE_BASE_URL` is set. This is the intended lazy-capability behavior introduced in M1.
 - **Classification:** Product boundary (external service absent), separated from bundle success.
 - **Workaround:** Configure a host-neutral `HUAQIU_QUOTE_BASE_URL` when a quote backend is available.
@@ -38,23 +38,11 @@ changes for those packages.
 - **Host tier:** Tier 1
 - **Expected behavior:** A tool that cannot perform its operation should be visibly failing to a caller.
 - **Actual behavior:** `kicad_ipc_diagnose` / `kicad_ipc_verify_live` set `isError:false` and put `FAILED_PRECONDITION` inside `value.error`.
-- **Evidence:** `evidence/e2e-desktop.json` steps 1–2.
+- **Evidence:** `evidence/e2e-desktop.json` steps 3–4.
 - **Root cause:** Confirmed — `asJson()` wraps the precondition result as a successful tool value.
 - **Classification:** Implementation defect (semantics), not a host limitation.
 - **Workaround:** Callers must inspect `value.ok` / `value.error.kind` as well as `isError`.
 - **Follow-up:** Defer; consider promoting precondition failures to `isError:true` in M2, with a regression test.
-
-### F-04 — `dsh-tool-pcb-viewer` adapter fixture fails to parse
-
-- **Layer:** Package
-- **Host tier:** Not host-specific
-- **Expected behavior:** `adapter.test.ts > all fixtures: finite pad coords, positive sizes` parses every fixture.
-- **Actual behavior:** `Error: Unexpected character at index 0: {` from `@huaqiu/kicad-sexpr-parser@0.1.1` in `dist/index.mjs:150`. 57 other tests in the package pass; `pcb_preview` itself works on a real board in the E2E run.
-- **Evidence:** `evidence/product-tests.log` (`packages/dsh-tool-pcb-viewer`).
-- **Root cause:** Suspected — one fixture is not valid S-expression input for the published parser. Not investigated in M1.
-- **Classification:** Pre-existing implementation defect in test data/parser compatibility.
-- **Workaround:** None needed for the POC workflow; the affected fixture is not used by it.
-- **Follow-up:** Defer to the pcb-viewer owner; do not count the package as green.
 
 ### F-05 — `dsh-kicad` bundled-skill drift and content assertions
 
@@ -160,8 +148,7 @@ These are not open failures; they are listed so the verification path is auditab
 
 | ID | Symptom | Fix | Evidence |
 |---|---|---|---|
-| X-01 | Bundled activation parked 9 rows in `pending` on `hqEdge` and removed quote tools. | Lazy capability resolution in `dsh-tool-quote` and `dsh-eda-selection`; `inject` no longer declares `hqEdge`. | `evidence/activation-desktop.json` — no composed row injects `hqEdge`, 11/11 ACTIVE. |
-| X-02 | `dsh-tool-pcb-viewer` row had no activation gate. | Added explicit `inject: ['tools','webServer','sessions']`. | Packed `cordis.patch.yml`; activation check. |
+| X-01 | Bundled activation parked 9 rows in `pending` on `hqEdge` and removed quote tools. | Lazy capability resolution in `dsh-tool-quote`; no bundled row now injects `hqEdge`. | `evidence/activation-desktop.json` — no composed row injects `hqEdge`, 9/9 ACTIVE. |
 | X-03 | `verify-default-product-isolation` rejected an installation-resolved bundle. | Added an install-anchor-anchored fallback **and** an assertion that the named patch file physically ships; gate not weakened. | Harness tests: 231 passed. |
 | X-04 | Existing profiles never selected a newly built-in bundle; `initProfile` is a no-op on existing manifests. | `ensureProductBundles` merges only missing bundles after `initProfile`. | `apps/desktop/tests/project-manager.spec.ts` 40 passed / 1 skipped. |
-| X-05 | Fixture's first closure walk ignored third-party dependencies; `kicad-sexpr-parser` import failed at boot. | Fixture now links every declared dependency, and a missing artifact is a hard error. | Final activation 24/24 PASS. |
+| X-05 | Fixture's first closure walk ignored third-party dependencies; `kicad-sexpr-parser` import failed at boot. | Fixture now links every declared dependency, and a missing artifact is a hard error. | Final activation 23/23 PASS. |

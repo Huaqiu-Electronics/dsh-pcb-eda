@@ -2,7 +2,7 @@
 
 The Huaqiu Hardware Engineering **product bundle** for DeepSeek Harness.
 
-It is not a plugin. It is the package a DSH profile selects so that the eleven
+It is not a plugin. It is the package a DSH profile selects so that the nine
 Huaqiu plugins ship with the installation and activate on first launch, offline,
 without HQ Edge.
 
@@ -53,7 +53,6 @@ Providers are nevertheless written first so the file reads in dependency order.
 The edges that matter:
 
 - `huaqiu-tool-symbol-footprint` → `huaqiuAuth`, `huaqiuArtifacts`, `webServer`
-- `huaqiu-eda-selection` → `systemPrompt`
 - all capability rows → `tools` / `skills` / `fs` / `webServer`
 
 ## Deliberately excluded

@@ -507,9 +507,6 @@ importers:
       '@huaqiu/dsh-auth':
         specifier: workspace:*
         version: link:../dsh-auth
-      '@huaqiu/dsh-eda-selection':
-        specifier: workspace:*
-        version: link:../dsh-eda-selection
       '@huaqiu/dsh-huaqiu-about':
         specifier: workspace:*
         version: link:../dsh-huaqiu-about
@@ -522,9 +519,6 @@ importers:
       '@huaqiu/dsh-tool-part-search':
         specifier: workspace:*
         version: link:../dsh-tool-part-search
-      '@huaqiu/dsh-tool-pcb-viewer':
-        specifier: workspace:*
-        version: link:../dsh-tool-pcb-viewer
       '@huaqiu/dsh-tool-quote':
         specifier: workspace:*
         version: link:../dsh-tool-quote

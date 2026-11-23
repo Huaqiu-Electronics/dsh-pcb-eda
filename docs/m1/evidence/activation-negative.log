@@ -1,11 +1,11 @@
 # M1 activation — desktop family, @huaqiu/hardware-engineering@0.7.10
 
-installation anchor : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/apps/cli/package.json
-profile             : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/home/profiles/hardware-engineering
-DSH_HOME            : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/home
+installation anchor : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-BjyKjF/installation/apps/cli/package.json
+profile             : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-BjyKjF/home/profiles/hardware-engineering
+DSH_HOME            : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-BjyKjF/home
 bundles             : @deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app, @huaqiu/hardware-engineering
-resolved bundle     : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/hardware-engineering @ 0.7.10
-declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-artifacts@0.7.10 (packed), @huaqiu/dsh-huaqiu-about@0.7.10 (packed), @huaqiu/dsh-eda-selection@0.7.10 (packed), @huaqiu/dsh-auth@0.7.10 (packed), @huaqiu/dsh-tool-kicad-schematic-gen@0.7.10 (packed), @huaqiu/dsh-kicad@0.7.10 (packed), @huaqiu/dsh-tool-part-search@0.7.10 (packed), @huaqiu/dsh-tool-quote@0.7.10 (packed), @huaqiu/dsh-tool-symbol-footprint@0.7.10 (packed), @huaqiu/dsh-tool-pcb-viewer@0.7.10 (packed), @huaqiu/dsh-ui-theme-huaqiu@0.7.10 (packed), @huaqiu/dsh-plugin-log@0.7.10 (packed), @huaqiu/part-search@0.2.6 (published), @huaqiu/dsh-sidebar-entry@0.7.10 (packed), @huaqiu/component-gen-server@0.7.10 (packed), @huaqiu/kicad-sexpr-parser@0.1.1 (published)
+resolved bundle     : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-BjyKjF/installation/node_modules/@huaqiu/hardware-engineering @ 0.7.10
+declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-artifacts@0.7.10 (packed), @huaqiu/dsh-auth@0.7.10 (packed), @huaqiu/dsh-huaqiu-about@0.7.10 (packed), @huaqiu/dsh-kicad@0.7.10 (packed), @huaqiu/dsh-tool-kicad-schematic-gen@0.7.10 (packed), @huaqiu/dsh-tool-part-search@0.7.10 (packed), @huaqiu/dsh-tool-quote@0.7.10 (packed), @huaqiu/dsh-tool-symbol-footprint@0.7.10 (packed), @huaqiu/dsh-ui-theme-huaqiu@0.7.10 (packed), @huaqiu/dsh-plugin-log@0.7.10 (packed), @huaqiu/part-search@0.2.6 (published), @huaqiu/dsh-sidebar-entry@0.7.10 (packed), @huaqiu/component-gen-server@0.7.10 (packed)
 
 ## Loader rows
   active    include                          ?  cordis:include
@@ -213,18 +213,16 @@ declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-
   active    include:huaqiu-artifacts         0.7.10  @huaqiu/dsh-artifacts
   active    include:huaqiu-dsh-kicad         0.7.10  @huaqiu/dsh-kicad
   active    include:dsh-tool-kicad-schematic-gen 0.7.10  @huaqiu/dsh-tool-kicad-schematic-gen
-  active    include:dsh-tool-pcb-viewer      0.7.10  @huaqiu/dsh-tool-pcb-viewer
   active    include:huaqiu-tool-part-search  0.7.10  @huaqiu/dsh-tool-part-search
-  active    include:huaqiu-eda-selection     0.7.10  @huaqiu/dsh-eda-selection
   active    include:huaqiu-tool-quote        0.7.10  @huaqiu/dsh-tool-quote
   pending   include:huaqiu-tool-symbol-footprint 0.7.10  @huaqiu/dsh-tool-symbol-footprint
   active    include:ui-theme-huaqiu          0.7.10  @huaqiu/dsh-ui-theme-huaqiu
   active    include:dsh-huaqiu-about         0.7.10  @huaqiu/dsh-huaqiu-about
-  active    81e4c7ee                         0.2.2-rc.1  @deepseek-ai/dsh-host-directory-picker-native
-  active    a09df211                         0.2.2-rc.1  @deepseek-ai/dsh-client-ui-directory-picker-native
+  active    dd165259                         0.2.2-rc.1  @deepseek-ai/dsh-host-directory-picker-native
+  active    75a717af                         0.2.2-rc.1  @deepseek-ai/dsh-client-ui-directory-picker-native
 
 ## Registered tools
-  38 tools: analyze_kicad_module, create_kicad_hierarchy, download_eda_module_schematic, eda_module_category_search, eda_module_precise_search, eda_module_rag_search, edit_kicad_flat_schematic, get_hqsch_part, get_hqsch_part_models, get_hqsch_supply_chain, get_kicad_component_models, get_kicad_datasheet, get_kicad_module_ports, import_kicad_component, import_kicad_symbol, kicad_ipc_diagnose, kicad_ipc_verify_live, kicad_pcb_add_footprint_from_template, kicad_pcb_create_copper_zone, kicad_pcb_create_track, kicad_pcb_create_via, kicad_pcb_move_rotate_footprint, kicad_pcb_refill_zones, kicad_pcb_remove_selected_items, kicad_pcb_update_selected_track_width, localize_kicad_module_footprints, pcb_preview, place_pcb_order, place_smt_order, quote_pcb, quote_smt, render_kicad_module_preview, search_hqsch_parts, team_task_create, team_task_get, team_task_list, team_task_update, working_directory
+  37 tools: analyze_kicad_module, create_kicad_hierarchy, download_eda_module_schematic, eda_module_category_search, eda_module_precise_search, eda_module_rag_search, edit_kicad_flat_schematic, get_hqsch_part, get_hqsch_part_models, get_hqsch_supply_chain, get_kicad_component_models, get_kicad_datasheet, get_kicad_module_ports, import_kicad_component, import_kicad_symbol, kicad_ipc_diagnose, kicad_ipc_verify_live, kicad_pcb_add_footprint_from_template, kicad_pcb_create_copper_zone, kicad_pcb_create_track, kicad_pcb_create_via, kicad_pcb_move_rotate_footprint, kicad_pcb_refill_zones, kicad_pcb_remove_selected_items, kicad_pcb_update_selected_track_width, localize_kicad_module_footprints, place_pcb_order, place_smt_order, quote_pcb, quote_smt, render_kicad_module_preview, search_hqsch_parts, team_task_create, team_task_get, team_task_list, team_task_update, working_directory
 
 ## Skills
   hardware-design-brief, kicad-ipc, kicad-schematic-design, pcb-copper-pour, pcb-initial-placement
@@ -238,21 +236,20 @@ declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-
   (none)
 
 ## Network
-  2 connect attempts, 0 blocked
+  0 connect attempts, 0 blocked
 
 ## Checks
   PASS  no-skipped-bundles — every selected bundle loaded
   PASS  bundle-layer-present — layers: @deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app, @huaqiu/hardware-engineering
-  PASS  bundle-resolves-from-installation — /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)
-  PASS  bundle-patch-shipped — /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml
+  PASS  bundle-resolves-from-installation — /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-BjyKjF/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)
+  PASS  bundle-patch-shipped — /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-BjyKjF/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml
   PASS  bundle-version-is-packed — resolved 0.7.10, packed 0.7.10
   PASS  no-row-requires-hq-edge — no composed row injects hqEdge
-  PASS  expected-rows-mounted — all 11 product rows are in the Loader tree
+  PASS  expected-rows-mounted — all 9 product rows are in the Loader tree
   FAIL  expected-rows-active — include:huaqiu-auth=failed, include:huaqiu-tool-symbol-footprint=pending missing huaqiuAuth
-  FAIL  rows-resolve-into-fixture-installation — 10/11 product rows and 10/214 total rows resolved inside the fixture installation
+  FAIL  rows-resolve-into-fixture-installation — 8/9 product rows and 8/212 total rows resolved inside the fixture installation
   PASS  tools-registered:@huaqiu/dsh-kicad — all 6 tools present
   PASS  tools-registered:@huaqiu/dsh-tool-kicad-schematic-gen — all 4 tools present
-  PASS  tools-registered:@huaqiu/dsh-tool-pcb-viewer — all 1 tools present
   PASS  tools-registered:@huaqiu/dsh-tool-part-search — all 4 tools present
   PASS  tools-registered:@huaqiu/dsh-tool-quote — all 4 tools present
   FAIL  tools-registered:@huaqiu/dsh-tool-symbol-footprint — missing: generate_symbol_from_image, generate_footprint_from_image, generate_footprint_from_dimensions
@@ -263,15 +260,15 @@ declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-
   PASS  service-provided:tools — present
   PASS  service-provided:sandboxPolicy — present
   PASS  sandbox-default-preserved — sandboxPolicy.defaultMode=danger-full-access (DSH_PERMISSION_MODE unset)
-  PASS  activated-without-network — 2 connect attempts, 0 blocked
-  FAIL  startup-reported-no-failures — dsh: warning: 2 entries did not activate | huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/home/profiles/hardware-engineering/
+  PASS  activated-without-network — 0 connect attempts, 0 blocked
+  FAIL  startup-reported-no-failures — dsh: warning: 2 entries did not activate | huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-BjyKjF/home/profiles/hardware-engineering/
 
 ## Result: FAIL
 
 ## stderr
   [dsh-tool-quote] no quote service configured — quote_pcb/quote_smt/place_*_order will report FAILED_PRECONDITION until hqEdge is provided or HQ_EDGE_BASE_URL / HUAQIU_QUOTE_BASE_URL is set {
-    time: 1795374294456,
-    ts: '2026-11-22T19:04:54.456Z',
+    time: 1795419154456,
+    ts: '2026-11-23T07:32:34.456Z',
     level: 'warn',
     pluginId: 'dsh-tool-quote',
     component: 'dsh-tool-quote',
@@ -279,11 +276,11 @@ declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-
     hostType: null,
     hostInstanceId: null,
     edgeInstanceId: null,
-    dshInstanceId: 'f30ba2cf-19a4-4cac-ac3d-86ec841b312e',
-    pid: 96188
+    dshInstanceId: 'fe8f8c64-313c-4c77-ad59-b0b4a5c91868',
+    pid: 49177
   }
   dsh: warning: 2 entries did not activate
-  huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-O8F4tV/home/profiles/hardware-engineering/
+  huaqiu-auth (@huaqiu/dsh-auth): failed to import: Error [ERR_MODULE_NOT_FOUND]: Cannot find package '@huaqiu/dsh-auth' imported from /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-BjyKjF/home/profiles/hardware-engineering/
       at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
       at packageResolve (node:internal/modules/esm/resolve:768:81)
       at moduleResolve (node:internal/modules/esm/resolve:855:18)

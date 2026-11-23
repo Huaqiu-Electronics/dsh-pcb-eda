@@ -37,12 +37,10 @@
   "dependencies": {
     "@huaqiu/dsh-artifacts": "workspace:*",
     "@huaqiu/dsh-auth": "workspace:*",
-    "@huaqiu/dsh-eda-selection": "workspace:*",
     "@huaqiu/dsh-huaqiu-about": "workspace:*",
     "@huaqiu/dsh-kicad": "workspace:*",
     "@huaqiu/dsh-tool-kicad-schematic-gen": "workspace:*",
     "@huaqiu/dsh-tool-part-search": "workspace:*",
-    "@huaqiu/dsh-tool-pcb-viewer": "workspace:*",
     "@huaqiu/dsh-tool-quote": "workspace:*",
     "@huaqiu/dsh-tool-symbol-footprint": "workspace:*",
     "@huaqiu/dsh-ui-theme-huaqiu": "workspace:*"

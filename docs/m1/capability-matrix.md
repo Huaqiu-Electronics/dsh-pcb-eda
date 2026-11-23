@@ -11,12 +11,12 @@ Evidence paths are relative to `dsh-pcb-eda/docs/m1/`.
 | Project access | **PARTIAL** — `kicad-cli` accepts a real project/schematic and produced artifacts; no live project-session API was exercised. | **PARTIAL** — same CLI evidence with the Huaqiu binary; live IPC project access blocked by missing `kipy`. | **NOT TESTED**. |
 | Schematic read | **PASS** — `sch export netlist` exit 0, `basic_test.net` (13,563 bytes). | **PASS** — same command exit 0 with Huaqiu `kicad-cli`, `basic_test.net`. | **NOT TESTED**. |
 | Schematic modification | **NOT TESTED** — no tool that writes a schematic was invoked. | **NOT TESTED** — `create_kicad_hierarchy` and `edit_kicad_flat_schematic` registered but not executed. | **NOT TESTED**. |
-| PCB read | **PASS** — `pcb export svg --layers F.Cu` exit 0; `pcb_preview` reported 13 components / 102 pads / 101 traces / 1 zone / 8 vias / 2 layers. | **PASS** — same SVG export exit 0 with the Huaqiu binary. | **NOT TESTED**. |
+| PCB read | **PASS** — `pcb export svg --layers F.Cu` exit 0 on the real board fixture (13 components / 102 pads / 101 traces / 1 zone / 8 vias / 2 layers). No board-preview tool is bundled. | **PASS** — same SVG export exit 0 with the Huaqiu binary. | **NOT TESTED**. |
 | PCB modification | **NOT TESTED** — no Tier 0 write was executed. | **BLOCKED** — `kicad_ipc_verify_live` dispatched and returned `ModuleNotFoundError: No module named 'kipy'`; no board was mutated. | **NOT TESTED**. |
-| Selection context | **NOT TESTED** — no host selection was retrieved. `huaqiu-eda-selection` reached ACTIVE with no selection source, which proves it degrades cleanly, not that selection works. | **NOT TESTED** — the HQ Edge selection bridge was deliberately excluded from the bundle. | **NOT TESTED**. |
+| Selection context | **NOT TESTED** — no host selection was retrieved and no selection plugin is bundled. | **NOT TESTED** — no selection source was available in this bundle. | **NOT TESTED**. |
 | ERC/DRC | **PASS** — `pcb drc` exit 0 (15 violations, 0 unconnected), `sch erc` exit 0 (15 violations). | **PASS** — both checks exit 0 with the Huaqiu binary. | **NOT TESTED**. |
 | BOM generation | **PASS** — `sch export bom` exit 0, `basic_test-bom.csv` (559 bytes). | **PASS** — same command exit 0 with the Huaqiu binary. | **NOT TESTED**. |
-| Part search | **PASS (host-independent)** — `search_hqsch_parts` returned 161 real results (`STM32F103CBU6TR`, HQ P/N `G3338201`, datasheet URLs, symbol/footprint flags). This is a service capability, not a host capability; it does not attest to either KiCad host. | **PASS (host-independent)** — same executed service call. | **PASS (host-independent)** — same executed service call; the HQSCH API is the Huaqiu data service, not the EDA application. |
+| Part search | **PASS (host-independent)** — `search_hqsch_parts` returned 161 real results (`STM32F103C8T7TR`, HQ P/N `G3337980`, datasheet URLs, symbol/footprint flags). This is a service capability, not a host capability; it does not attest to either KiCad host. | **PASS (host-independent)** — same executed service call. | **PASS (host-independent)** — same executed service call; the HQSCH API is the Huaqiu data service, not the EDA application. |
 | Symbol/footprint generation | **NOT TESTED** — tools registered, none invoked with real dimensions or an image. | **NOT TESTED**. | **NOT TESTED**. |
 | Quote/ordering | **BLOCKED** — `quote_pcb` returned `quote: no hq-edge base URL available`; no external quote service configured. | **BLOCKED** — same executed result. | **BLOCKED** — same executed result; no order was placed. |
 
@@ -29,7 +29,6 @@ These must not be read as available in official KiCad:
 | HQSCH part search with Huaqiu part numbers and EDA-model flags | Executed service call in `evidence/e2e-desktop.json` | No equivalent executed; no claim made |
 | Quote/order API via HQ Edge | Tool registered, call blocked by missing base URL | No equivalent executed |
 | Huaqiu IPC/gRPC endpoint at `127.0.0.1:61429` plus `/tmp/kicad/api.sock` | `lsof` on the running Huaqiu KiCad process | Official KiCad 10.0.7 is installed but was not running; its IPC socket path was occupied by the Huaqiu fork, so a separate official-IPC session was **NOT TESTED** |
-| HQ Edge selection channel | Deliberately excluded from this bundle; plugin degrades with no source | Not available |
 
 ## Tier 1 workflow coverage
 

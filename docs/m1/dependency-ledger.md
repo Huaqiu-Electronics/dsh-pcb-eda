@@ -15,32 +15,30 @@ dependency with no artifact is a hard build error.
 | `engines.dsh` | `^0.2.2-rc.1` |
 | Peer | `@deepseek-ai/cordis@^4.0.1` |
 | Tarball | `dist/huaqiu-hardware-engineering-0.7.10.tgz` |
-| SHA-256 | `ed1c14ad80e8078c580e04549bcf179c4bb0c6c6088b5cbcce1ecb9084ec551b` |
+| SHA-256 | `38c1d49f6758eff83ea896b5f4d3b25df6efb306a823e30d6e22825a5f3feb69` |
 
 Source manifests use the repository's lockstep `workspace:*` convention.
 `pnpm pack` rewrites every one of them to the exact version `0.7.10`; the
 packed manifest was inspected and contains **no** `workspace:` specifier.
 
-## Direct dependencies (11, exact-pinned in the tarball)
+## Direct dependencies (9, exact-pinned in the tarball)
 
 | Package | Packed version | Tarball SHA-256 (first 16) |
 |---|---|---|
 | `@huaqiu/dsh-artifacts` | `0.7.10` | `320400ae5861122` |
-| `@huaqiu/dsh-eda-selection` | `0.7.10` | `92779124638aae` |
 | `@huaqiu/dsh-huaqiu-about` | `0.7.10` | `120ef9b056b7bb` |
 | `@huaqiu/dsh-auth` | `0.7.10` | `dc6ebe55231e49` |
 | `@huaqiu/dsh-tool-part-search` | `0.7.10` | `b8f8f7ba398094` |
 | `@huaqiu/dsh-tool-kicad-schematic-gen` | `0.7.10` | `c73c2a8ab02111` |
-| `@huaqiu/dsh-tool-pcb-viewer` | `0.7.10` | `738524b5017b18` |
 | `@huaqiu/dsh-tool-quote` | `0.7.10` | `b8e862be3a1ebf` |
-| `@huaqiu/dsh-tool-symbol-footprint` | `0.7.10` | `6fff7a248213ed` |
+| `@huaqiu/dsh-tool-symbol-footprint` | `0.7.10` | `5c5d2f6471b69d01` |
 | `@huaqiu/dsh-ui-theme-huaqiu` | `0.7.10` | `8b1a8d329c5de3` |
 | `@huaqiu/dsh-kicad` | `0.7.10` | `dbb7ab3603a82b` |
 
 ## Full closure found by the fixture
 
-The fixture walks `@huaqiu/*` dependencies transitively. It found four more
-workspace packages and two already-published packages:
+The fixture walks `@huaqiu/*` dependencies transitively. It found three more
+workspace packages and one already-published package:
 
 | Package | Kind | Version | Why it is present |
 |---|---|---|---|
@@ -48,7 +46,6 @@ workspace packages and two already-published packages:
 | `@huaqiu/dsh-sidebar-entry` | packed | `0.7.10` | declared by `dsh-tool-kicad-schematic-gen` |
 | `@huaqiu/component-gen-server` | packed | `0.7.10` | declared deeper in the closure |
 | `@huaqiu/part-search` | published | `0.2.6` | HQSCH API client, declared by `dsh-tool-part-search` |
-| `@huaqiu/kicad-sexpr-parser` | published | `0.1.1` | declared deeper in the closure |
 
 Tarball SHA-256, remaining packed members:
 
@@ -56,12 +53,12 @@ Tarball SHA-256, remaining packed members:
 |---|---|
 | `huaqiu-dsh-plugin-log-0.7.10.tgz` | `bd5257dfbac1324baece1067148c63dea91810df1b119d7c902ae28de72d2d8a` |
 | `huaqiu-dsh-sidebar-entry-0.7.10.tgz` | `ff95f1d3550e133250f9d811a66120453f9314a62f2057aeec4c558810ce98be` |
-| `huaqiu-component-gen-server-0.7.10.tgz` | `3ab2a32328c5115d87d6d62de42dac90c7b5a04581e369e05eac21f5bfb85c6c` |
+| `huaqiu-component-gen-server-0.7.10.tgz` | `c2fd0dc5be4510aa7884d403a7f64cee865523b5e6530be6b01ef9d2b78a2e6f` |
 
 Third-party dependencies are linked from the resolved workspace copies
-(`kicad-sexpr-parser@1.5.3`, `pdfjs-dist@6.3.289`, `sharp@0.35.4`, `fflate`,
-`undici`, …). They are declared in the individual plugin manifests; the
-fixture verifies that each declaration resolves to a real installed copy.
+(`pdfjs-dist@6.3.289`, `sharp@0.35.4`, `fflate`, `undici`, …). They are declared
+in the individual plugin manifests; the fixture verifies that each declaration
+resolves to a real installed copy.
 
 ## Host-provided, not packed
 

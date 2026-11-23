@@ -1,11 +1,11 @@
 # M1 activation — desktop family, @huaqiu/hardware-engineering@0.7.10
 
-installation anchor : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-uXZY12/installation/apps/cli/package.json
-profile             : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-uXZY12/home/profiles/hardware-engineering
-DSH_HOME            : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-uXZY12/home
+installation anchor : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-h2x5aH/installation/apps/cli/package.json
+profile             : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-h2x5aH/home/profiles/hardware-engineering
+DSH_HOME            : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-h2x5aH/home
 bundles             : @deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app, @huaqiu/hardware-engineering
-resolved bundle     : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-uXZY12/installation/node_modules/@huaqiu/hardware-engineering @ 0.7.10
-declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-artifacts@0.7.10 (packed), @huaqiu/dsh-huaqiu-about@0.7.10 (packed), @huaqiu/dsh-eda-selection@0.7.10 (packed), @huaqiu/dsh-auth@0.7.10 (packed), @huaqiu/dsh-tool-kicad-schematic-gen@0.7.10 (packed), @huaqiu/dsh-kicad@0.7.10 (packed), @huaqiu/dsh-tool-part-search@0.7.10 (packed), @huaqiu/dsh-tool-quote@0.7.10 (packed), @huaqiu/dsh-tool-symbol-footprint@0.7.10 (packed), @huaqiu/dsh-tool-pcb-viewer@0.7.10 (packed), @huaqiu/dsh-ui-theme-huaqiu@0.7.10 (packed), @huaqiu/dsh-plugin-log@0.7.10 (packed), @huaqiu/part-search@0.2.6 (published), @huaqiu/dsh-sidebar-entry@0.7.10 (packed), @huaqiu/component-gen-server@0.7.10 (packed), @huaqiu/kicad-sexpr-parser@0.1.1 (published)
+resolved bundle     : /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-h2x5aH/installation/node_modules/@huaqiu/hardware-engineering @ 0.7.10
+declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-artifacts@0.7.10 (packed), @huaqiu/dsh-auth@0.7.10 (packed), @huaqiu/dsh-huaqiu-about@0.7.10 (packed), @huaqiu/dsh-kicad@0.7.10 (packed), @huaqiu/dsh-tool-kicad-schematic-gen@0.7.10 (packed), @huaqiu/dsh-tool-part-search@0.7.10 (packed), @huaqiu/dsh-tool-quote@0.7.10 (packed), @huaqiu/dsh-tool-symbol-footprint@0.7.10 (packed), @huaqiu/dsh-ui-theme-huaqiu@0.7.10 (packed), @huaqiu/dsh-plugin-log@0.7.10 (packed), @huaqiu/part-search@0.2.6 (published), @huaqiu/dsh-sidebar-entry@0.7.10 (packed), @huaqiu/component-gen-server@0.7.10 (packed)
 
 ## Loader rows
   active    include                          ?  cordis:include
@@ -213,18 +213,16 @@ declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-
   active    include:huaqiu-artifacts         0.7.10  @huaqiu/dsh-artifacts
   active    include:huaqiu-dsh-kicad         0.7.10  @huaqiu/dsh-kicad
   active    include:dsh-tool-kicad-schematic-gen 0.7.10  @huaqiu/dsh-tool-kicad-schematic-gen
-  active    include:dsh-tool-pcb-viewer      0.7.10  @huaqiu/dsh-tool-pcb-viewer
   active    include:huaqiu-tool-part-search  0.7.10  @huaqiu/dsh-tool-part-search
-  active    include:huaqiu-eda-selection     0.7.10  @huaqiu/dsh-eda-selection
   active    include:huaqiu-tool-quote        0.7.10  @huaqiu/dsh-tool-quote
   active    include:huaqiu-tool-symbol-footprint 0.7.10  @huaqiu/dsh-tool-symbol-footprint
   active    include:ui-theme-huaqiu          0.7.10  @huaqiu/dsh-ui-theme-huaqiu
   active    include:dsh-huaqiu-about         0.7.10  @huaqiu/dsh-huaqiu-about
-  active    a82d748b                         0.2.2-rc.1  @deepseek-ai/dsh-host-directory-picker-native
-  active    21466c2e                         0.2.2-rc.1  @deepseek-ai/dsh-client-ui-directory-picker-native
+  active    4f6e8995                         0.2.2-rc.1  @deepseek-ai/dsh-host-directory-picker-native
+  active    a96526b0                         0.2.2-rc.1  @deepseek-ai/dsh-client-ui-directory-picker-native
 
 ## Registered tools
-  41 tools: analyze_kicad_module, create_kicad_hierarchy, download_eda_module_schematic, eda_module_category_search, eda_module_precise_search, eda_module_rag_search, edit_kicad_flat_schematic, generate_footprint_from_dimensions, generate_footprint_from_image, generate_symbol_from_image, get_hqsch_part, get_hqsch_part_models, get_hqsch_supply_chain, get_kicad_component_models, get_kicad_datasheet, get_kicad_module_ports, import_kicad_component, import_kicad_symbol, kicad_ipc_diagnose, kicad_ipc_verify_live, kicad_pcb_add_footprint_from_template, kicad_pcb_create_copper_zone, kicad_pcb_create_track, kicad_pcb_create_via, kicad_pcb_move_rotate_footprint, kicad_pcb_refill_zones, kicad_pcb_remove_selected_items, kicad_pcb_update_selected_track_width, localize_kicad_module_footprints, pcb_preview, place_pcb_order, place_smt_order, quote_pcb, quote_smt, render_kicad_module_preview, search_hqsch_parts, team_task_create, team_task_get, team_task_list, team_task_update, working_directory
+  40 tools: analyze_kicad_module, create_kicad_hierarchy, download_eda_module_schematic, eda_module_category_search, eda_module_precise_search, eda_module_rag_search, edit_kicad_flat_schematic, generate_footprint_from_dimensions, generate_footprint_from_image, generate_symbol_from_image, get_hqsch_part, get_hqsch_part_models, get_hqsch_supply_chain, get_kicad_component_models, get_kicad_datasheet, get_kicad_module_ports, import_kicad_component, import_kicad_symbol, kicad_ipc_diagnose, kicad_ipc_verify_live, kicad_pcb_add_footprint_from_template, kicad_pcb_create_copper_zone, kicad_pcb_create_track, kicad_pcb_create_via, kicad_pcb_move_rotate_footprint, kicad_pcb_refill_zones, kicad_pcb_remove_selected_items, kicad_pcb_update_selected_track_width, localize_kicad_module_footprints, place_pcb_order, place_smt_order, quote_pcb, quote_smt, render_kicad_module_preview, search_hqsch_parts, team_task_create, team_task_get, team_task_list, team_task_update, working_directory
 
 ## Skills
   hardware-design-brief, kicad-ipc, kicad-schematic-design, pcb-copper-pour, pcb-initial-placement
@@ -243,16 +241,15 @@ declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-
 ## Checks
   PASS  no-skipped-bundles — every selected bundle loaded
   PASS  bundle-layer-present — layers: @deepseek-ai/dsh-base, @deepseek-ai/dsh-web-app, @huaqiu/hardware-engineering
-  PASS  bundle-resolves-from-installation — /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-uXZY12/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)
-  PASS  bundle-patch-shipped — /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-uXZY12/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml
+  PASS  bundle-resolves-from-installation — /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-h2x5aH/installation/node_modules/@huaqiu/hardware-engineering (inside fixture installation: true)
+  PASS  bundle-patch-shipped — /var/folders/wr/424c4_g51mv81hvb7h4tcjrr0000gn/T/dsh-m1-activation-h2x5aH/installation/node_modules/@huaqiu/hardware-engineering/cordis.patch.yml
   PASS  bundle-version-is-packed — resolved 0.7.10, packed 0.7.10
   PASS  no-row-requires-hq-edge — no composed row injects hqEdge
-  PASS  expected-rows-mounted — all 11 product rows are in the Loader tree
-  PASS  expected-rows-active — all 11 product rows reached ACTIVE
-  PASS  rows-resolve-into-fixture-installation — 11/11 product rows and 11/214 total rows resolved inside the fixture installation
+  PASS  expected-rows-mounted — all 9 product rows are in the Loader tree
+  PASS  expected-rows-active — all 9 product rows reached ACTIVE
+  PASS  rows-resolve-into-fixture-installation — 9/9 product rows and 9/212 total rows resolved inside the fixture installation
   PASS  tools-registered:@huaqiu/dsh-kicad — all 6 tools present
   PASS  tools-registered:@huaqiu/dsh-tool-kicad-schematic-gen — all 4 tools present
-  PASS  tools-registered:@huaqiu/dsh-tool-pcb-viewer — all 1 tools present
   PASS  tools-registered:@huaqiu/dsh-tool-part-search — all 4 tools present
   PASS  tools-registered:@huaqiu/dsh-tool-quote — all 4 tools present
   PASS  tools-registered:@huaqiu/dsh-tool-symbol-footprint — all 3 tools present
@@ -270,8 +267,8 @@ declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-
 
 ## stderr
   [dsh-tool-quote] no quote service configured — quote_pcb/quote_smt/place_*_order will report FAILED_PRECONDITION until hqEdge is provided or HQ_EDGE_BASE_URL / HUAQIU_QUOTE_BASE_URL is set {
-    time: 1795374266966,
-    ts: '2026-11-22T19:04:26.966Z',
+    time: 1795419148482,
+    ts: '2026-11-23T07:32:28.482Z',
     level: 'warn',
     pluginId: 'dsh-tool-quote',
     component: 'dsh-tool-quote',
@@ -279,6 +276,6 @@ declared closure    : @huaqiu/hardware-engineering@0.7.10 (packed), @huaqiu/dsh-
     hostType: null,
     hostInstanceId: null,
     edgeInstanceId: null,
-    dshInstanceId: '682e50e9-f7b2-4a30-ad99-638189a2e0de',
-    pid: 95006
+    dshInstanceId: '13408751-f739-47db-94e1-3d069b1fd4e6',
+    pid: 48627
   }

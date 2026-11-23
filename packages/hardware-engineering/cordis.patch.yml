@@ -3,7 +3,7 @@
 # THE PRODUCT BUNDLE. A profile selects this one package
 # (`dsh.profile.bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
 # '@huaqiu/hardware-engineering']`); this patch is what actually mounts the
-# eleven Huaqiu plugin rows. The plugin packages are plain `dependencies` of
+# nine Huaqiu plugin rows. The plugin packages are plain `dependencies` of
 # this package — declaring a dependency installs it, it does not activate it.
 #
 # ── Why the rows live here and not in the profile ──────────────────────────
@@ -22,7 +22,6 @@
 # Dependency edges that actually matter at activation time:
 #   huaqiu-tool-symbol-footprint → huaqiuAuth, huaqiuArtifacts, webServer
 #   every Huaqiu row              → webServer (routes) / tools / skills / fs
-#   huaqiu-eda-selection          → systemPrompt
 #
 # ── What is deliberately NOT here ──────────────────────────────────────────
 #   @huaqiu/dsh-eda-host          netlist/selection/board snapshots are served
@@ -66,17 +65,9 @@
       name: '@huaqiu/dsh-tool-kicad-schematic-gen'
       inject: ['tools', 'fs', 'sandboxPolicy', 'skills', 'webServer']
 
-    - id: dsh-tool-pcb-viewer
-      name: '@huaqiu/dsh-tool-pcb-viewer'
-      inject: ['tools', 'webServer', 'sessions']
-
     - id: huaqiu-tool-part-search
       name: '@huaqiu/dsh-tool-part-search'
       inject: ['tools']
-
-    - id: huaqiu-eda-selection
-      name: '@huaqiu/dsh-eda-selection'
-      inject: ['systemPrompt']
 
     - id: huaqiu-tool-quote
       name: '@huaqiu/dsh-tool-quote'

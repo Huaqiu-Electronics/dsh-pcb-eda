@@ -38,18 +38,18 @@ and `@deepseek-ai/cordis@^4.0.1` as a peer. It also declares
 `dsh.bundle.listedByDefault: false`: it is selected by the installation
 profile, not offered as a separately installable plugin. For the same reason
 it is absent from `release-manifest/plugins-release-manifest.json` — the
-catalog would otherwise advertise a zero-size duplicate of the eleven plugins
+catalog would otherwise advertise a zero-size duplicate of the nine plugins
 it composes. The publish gate excludes bundles from catalog enumeration via
 that same DSH field, while still validating the bundle as a publishable npm
 package.
 
-The packed `cordis.patch.yml` disables `ui-brand-official`, then inserts eleven
+The packed `cordis.patch.yml` disables `ui-brand-official`, then inserts nine
 rows:
 
 | Group | Rows |
 |---|---|
 | Service providers | `huaqiu-auth`, `huaqiu-artifacts` |
-| Node capabilities | `huaqiu-dsh-kicad`, `dsh-tool-kicad-schematic-gen`, `dsh-tool-pcb-viewer`, `huaqiu-tool-part-search`, `huaqiu-eda-selection`, `huaqiu-tool-quote`, `huaqiu-tool-symbol-footprint` |
+| Node capabilities | `huaqiu-dsh-kicad`, `dsh-tool-kicad-schematic-gen`, `huaqiu-tool-part-search`, `huaqiu-tool-quote`, `huaqiu-tool-symbol-footprint` |
 | Presentation | `ui-theme-huaqiu`, `dsh-huaqiu-about` |
 
 Every row has an explicit `name` resolving to a packed plugin package. Row
@@ -68,7 +68,7 @@ Deliberately excluded, with reasons recorded in the patch header:
 ## 3. Dependency graph and version ledger
 
 Source manifests use the repository's lockstep `workspace:*` convention.
-Packing rewrites all eleven direct dependencies to exact `0.7.10` pins; the
+Packing rewrites all nine direct dependencies to exact `0.7.10` pins; the
 inspected tarball manifest contains no `workspace:` specifier.
 
 ```
@@ -77,24 +77,21 @@ inspected tarball manifest contains no `workspace:` specifier.
 ├── @huaqiu/dsh-artifacts                 0.7.10
 ├── @huaqiu/dsh-kicad                     0.7.10
 ├── @huaqiu/dsh-tool-kicad-schematic-gen  0.7.10
-├── @huaqiu/dsh-tool-pcb-viewer           0.7.10
 ├── @huaqiu/dsh-tool-part-search          0.7.10
 │   ├── @huaqiu/dsh-plugin-log            0.7.10
 │   └── @huaqiu/part-search               0.2.6   (published)
-├── @huaqiu/dsh-eda-selection             0.7.10
 ├── @huaqiu/dsh-tool-quote                0.7.10
 ├── @huaqiu/dsh-tool-symbol-footprint     0.7.10
 │   ├── @huaqiu/dsh-sidebar-entry         0.7.10
 │   └── @huaqiu/component-gen-server      0.7.10
 ├── @huaqiu/dsh-ui-theme-huaqiu           0.7.10
-├── @huaqiu/dsh-huaqiu-about              0.7.10
-└── @huaqiu/kicad-sexpr-parser            0.1.1   (published, deeper in closure)
+└── @huaqiu/dsh-huaqiu-about              0.7.10
 ```
 
 Why declaring dependencies is not enough: the runtime builds its resolution
 table by walking the **installation** dependency graph
 (`apps/cli → bundle → its dependencies`). A dependency makes a package
-loader-visible; only a patch row mounts it. That is why all eleven rows live in
+loader-visible; only a patch row mounts it. That is why all nine rows live in
 the bundle patch rather than in individual profile entries.
 
 Full hashes, closure derivation, and the host-provided `@deepseek-ai/*` scope:
@@ -102,7 +99,7 @@ Full hashes, closure derivation, and the host-provided `@deepseek-ai/*` scope:
 
 ## 4. HQ Edge migration details
 
-Two plugins needed changes to activate honestly without HQ Edge:
+One bundled plugin needed changes to activate honestly without HQ Edge:
 
 - **`@huaqiu/dsh-tool-quote`** — `inject` changed from `['hqEdge','tools']` to
   `['tools']`. `apply()` no longer throws when `hqEdge.baseUrl` is absent. All
@@ -110,13 +107,6 @@ Two plugins needed changes to activate honestly without HQ Edge:
   `hqEdge` service, config, `HUAQIU_QUOTE_BASE_URL`, or `HQ_EDGE_BASE_URL`. With
   no backend, calls fail per operation with `FAILED_PRECONDITION` (HTTP 412).
   `HUAQIU_QUOTE_BASE_URL` was added as the host-neutral environment name.
-- **`@huaqiu/dsh-eda-selection`** — both halves dropped `hqEdge` from `inject`.
-  The node section is now optional: with no selection source it contributes no
-  text, and the browser chip shows nothing. Previously the row stayed in
-  `pending` forever when no bridge was running, silently removing the plugin.
-
-`@huaqiu/dsh-tool-pcb-viewer` had no `inject` at all, so its row had no
-activation gate; it now declares `['tools','webServer','sessions']`.
 
 No new runtime manager, daemon, plugin registry, or intermediate EDA IR was
 introduced. Native KiCad files remain authoritative.
@@ -168,15 +158,15 @@ PASS  bundle-resolves-from-installation   .../installation/node_modules/@huaqiu/
 PASS  bundle-patch-shipped                .../cordis.patch.yml
 PASS  bundle-version-is-packed            resolved 0.7.10, packed 0.7.10
 PASS  no-row-requires-hq-edge             no composed row injects hqEdge
-PASS  expected-rows-mounted               all 11 product rows are in the Loader tree
-PASS  expected-rows-active                all 11 product rows reached ACTIVE
-PASS  rows-resolve-into-fixture           11/11 product rows inside the fixture installation
-PASS  tools-registered (6 packages)       6+4+1+4+4+3 expected tools present
+PASS  expected-rows-mounted               all 9 product rows are in the Loader tree
+PASS  expected-rows-active                all 9 product rows reached ACTIVE
+PASS  rows-resolve-into-fixture           9/9 product rows inside the fixture installation
+PASS  tools-registered (5 packages)       6+4+4+4+3 expected tools present
 PASS  skills-registered                   kicad-ipc, kicad-schematic-design
 PASS  service-provided                    huaqiuAuth, huaqiuArtifacts, webServer, tools, sandboxPolicy
 PASS  sandbox-default-preserved           danger-full-access (DSH_PERMISSION_MODE unset)
 PASS  startup-reported-no-failures        no activation warnings on stderr
-Result: PASS (24/24)
+Result: PASS (23/23)
 ```
 
 The only stderr line is the expected quote warning:
@@ -210,14 +200,13 @@ HQ-Edge-specific gap.
 ## 8. Functional workflow evidence
 
 See `docs/m1/e2e-execution-record.md` and `evidence/e2e-desktop.json`.
-Five tools were dispatched through the real `ToolsService.execute()` path:
+Four tools were dispatched through the real `ToolsService.execute()` path:
 
 | Tool | Result |
 |---|---|
 | `kicad_ipc_diagnose` | dispatched; `FAILED_PRECONDITION` — `kipy` missing |
 | `kicad_ipc_verify_live` | dispatched; `ModuleNotFoundError: No module named 'kipy'`; no board mutation |
-| `pcb_preview` | PASS — real board: 13 comps, 102 pads, 101 traces, 1 zone, 8 vias, 2 layers, 80×60 mm |
-| `search_hqsch_parts` | PASS — 161 real results; first `STM32F103CBU6TR`, HQ P/N `G3338201` |
+| `search_hqsch_parts` | PASS — 161 real results; first `STM32F103C8T7TR`, HQ P/N `G3337980` |
 | `quote_pcb` | BLOCKED — no quote backend; no price fabricated |
 
 One outbound connect (`kiapi.eda.cn:443`) was recorded during the part-search
@@ -249,8 +238,8 @@ endpoint at `61429`) are represented explicitly and not claimed for Tier 0.
 
 ## 10. Failure register
 
-`docs/m1/failure-register.md` records twelve open failures with all ten
-required fields, plus five issues that were found and fixed during the work.
+`docs/m1/failure-register.md` records eleven open failures with all ten
+required fields, plus four issues that were found and fixed during the work.
 Highest-signal open items: Tier 1 IPC blocked by missing `kipy` (environment),
 quote backend absent (external service), and six packages with pre-existing
 test/typecheck failures in files M1 did not change.
@@ -265,10 +254,10 @@ test/typecheck failures in files M1 did not change.
 | `@huaqiu/hardware-engineering` bundle tests | PASS — 16 tests |
 | Product publish gate (`pnpm check:publish`) | PASS — all packages OK, 18 manifest entries |
 | Product typecheck (`pnpm typecheck`) | **FAIL** — 2 errors in `dsh-ui-theme-huaqiu/src/client/index.ts`, pre-existing |
-| Product full test suite (`pnpm -r --no-bail test`) | **FAIL** — 6 packages have failures; passes include `hardware-engineering`, `quote`, `eda-selection`, `auth`, `part-search`, `plugin-update` and others |
-| Activation fixture (desktop) | PASS — 24/24 |
-| Activation fixture (missing-provider negative) | Expected FAIL — 4 checks, correct rows |
-| Functional E2E | 3 tool results successful, 2 host/service blockers recorded |
+| Product full test suite (`pnpm -r --no-bail test`) | **FAIL** — 6 packages have failures; passes include `hardware-engineering`, `quote`, `auth`, `part-search`, `plugin-update` and others |
+| Activation fixture (desktop) | PASS — 23/23 |
+| Activation fixture (missing-provider negative) | Expected FAIL — 5 checks, correct rows |
+| Functional E2E | 1 service result successful, 3 host/service blockers recorded |
 
 Logs: `evidence/product-typecheck.log`, `evidence/product-tests.log`,
 `evidence/activation-stderr.log`, `evidence/e2e-stderr.log`.
@@ -280,7 +269,7 @@ Logs: `evidence/product-typecheck.log`, `evidence/product-tests.log`,
 | `@huaqiu/dsh-eda-host` (11 tools) | Hard `hqEdge` inject; excluded from the bundle. Needs a native replacement or an authorized bridge. |
 | `@huaqiu/dsh-tool-plugin-update` | `hqEdge + webServer`; excluded. Business logic remains HQ Edge-owned. |
 | Quote backend | Optional and lazy; absence degrades to `FAILED_PRECONDITION`, never to a parked plugin. |
-| Selection source | Optional and lazy; no source means no section and no chip. |
+| Selection source | Not bundled; no selection context was exercised. |
 | `@huaqiu/dsh-hqsch`, `@huaqiu/dsh-analytics` | Present in the repo, not in the product bundle. |
 
 No excluded package is silently loaded, and no included package injects `hqEdge`.
@@ -302,10 +291,10 @@ No excluded package is silently loaded, and no included package injects `hqEdge`
 |---|---|---|---|
 | 1 | Bundle exists and packs | PASS | tarball + `check:publish` |
 | 2 | Exact-pinned reproducible deps | PASS | packed manifest + ledger hashes |
-| 3 | Activates in a real DSH profile | PASS | real `runProfile`, 11/11 ACTIVE |
+| 3 | Activates in a real DSH profile | PASS | real `runProfile`, 9/9 ACTIVE |
 | 4 | No HQ Edge required | PASS | no row injects `hqEdge`; no connection to 61431 |
 | 5 | No network required | PASS | 0 blocked/loopback-only connects |
-| 6 | Expected tools registered | PASS | 41 tools, all expected names |
+| 6 | Expected tools registered | PASS | 40 tools, all expected names |
 | 7 | E2E on a Tier 1 host | **PARTIAL** | Tier 1 CLI + real files executed; live IPC blocked by `kipy` |
 | 8 | Explicit Tier 0/1 results | PASS | capability matrix with evidence |
 | 9 | Limitations classified | PASS | failure register with all required fields |
