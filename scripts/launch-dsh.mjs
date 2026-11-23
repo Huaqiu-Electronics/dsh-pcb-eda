@@ -23,7 +23,7 @@ import { accessSync, readFileSync } from 'node:fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { dshPlugins, pluginEntryInjects } from './utils/packages.mjs';
+import { workspaceDshPlugins, pluginEntryInjects } from './utils/packages.mjs';
 
 const PORT = 3080;
 const PROFILE = 'web';
@@ -41,7 +41,7 @@ const NOT_A_PLUGIN = new Set(['@huaqiu/dsh-eda-host']);
 // Derived from each plugin's own `cordis.patch.yml`, so a newly added
 // hqEdge-dependent plugin is skipped without anyone editing this list.
 const PLUGINS_NOT_AVAILABLE_IN_STANDALONE_DSH = new Set(
-  dshPlugins()
+  workspaceDshPlugins()
     .filter((p) => pluginEntryInjects(p).includes('hqEdge'))
     .map((p) => p.name),
 );
@@ -54,17 +54,19 @@ const REPO_ROOT = path.resolve(SCRIPT_DIR, '..');
 // Local DeepSeek Harness repo — always a sibling of this repo.
 const HARNESS_DIR = path.resolve(SCRIPT_DIR, '..', '..', 'deepseek-harness');
 
-// Discover the real dsh plugins under packages/ (those declaring a `dsh`
+// Discover every DSH plugin package under packages/ (those declaring a `dsh`
 // config) — app/server/utility packages are not plugins and are excluded.
+// This is the local dev set, not the user-visible release catalog: internal
+// product packages are registered here too so the whole workspace can run.
 // Resolve to absolute paths because `pnpm dsh` runs with cwd = HARNESS_DIR.
 //
 // Keyed by npm NAME, not by directory path: the skip sets above hold names.
-const PLUGINS = dshPlugins()
+const PLUGINS = workspaceDshPlugins()
   .filter((p) => !NOT_A_PLUGIN.has(p.name) && !PLUGINS_NOT_AVAILABLE_IN_STANDALONE_DSH.has(p.name))
   .map((p) => p.dir);
 
 // Skipped deliberately — say so, or the absence looks like a discovery bug.
-const SKIPPED = dshPlugins()
+const SKIPPED = workspaceDshPlugins()
   .filter((p) => NOT_A_PLUGIN.has(p.name) || PLUGINS_NOT_AVAILABLE_IN_STANDALONE_DSH.has(p.name))
   .map((p) => `${p.name}${NOT_A_PLUGIN.has(p.name) ? ' (host package, not a plugin)' : ' (needs hqEdge)'}`);
 

@@ -11,7 +11,9 @@
  * the same version: its package.json and the `manifestPackageVersion` stamp
  * in both published catalogs are bumped here, while plugin-set data is
  * updated separately by `scripts/release-manifest.mjs`. The package set is
- * discovered from `packages/*`, so new packages are picked up automatically.
+ * discovered from `packages/*`, so new packages are picked up automatically
+ * for versioning/publishing. That does NOT make them end-user plugins: catalog
+ * membership is the explicit allowlist in `scripts/utils/packages.mjs`.
  *
  * Usage:
  *   node scripts/bump.mjs [major|minor|patch]   # semver bump

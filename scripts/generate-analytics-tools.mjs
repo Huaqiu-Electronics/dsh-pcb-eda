@@ -36,7 +36,7 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, relative, resolve, sep } from 'node:path'
 import ts from 'typescript'
-import { dshPlugins, repoRoot } from './utils/packages.mjs'
+import { workspaceDshPlugins, repoRoot } from './utils/packages.mjs'
 
 const output = join(repoRoot, 'packages', 'dsh-analytics', 'src', 'generated', 'builtin-tools.ts')
 
@@ -394,7 +394,10 @@ function verifyFreeroutingBuiltinTools(discovered) {
 }
 
 const names = new Set()
-for (const plugin of dshPlugins()) {
+// Scan every DSH plugin package in the workspace (including internal product
+// packages): tool-name coverage is a source-level fact, unrelated to which
+// plugins the end-user catalog is allowed to advertise.
+for (const plugin of workspaceDshPlugins()) {
   if (plugin.name === '@huaqiu/dsh-analytics') continue
   try {
     for (const file of sourceFiles(join(plugin.dir, 'src'))) {

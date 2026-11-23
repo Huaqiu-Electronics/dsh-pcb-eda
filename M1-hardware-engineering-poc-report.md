@@ -41,7 +41,9 @@ it is absent from `release-manifest/plugins-release-manifest.json` — the
 catalog would otherwise advertise a zero-size duplicate of the nine plugins
 it composes. The publish gate excludes bundles from catalog enumeration via
 that same DSH field, while still validating the bundle as a publishable npm
-package.
+package. (Snapshot of the 0.7.10 gate; catalog membership is now an explicit
+allowlist — see `scripts/utils/packages.mjs` and
+`release-manifest/README.md`.)
 
 The packed `cordis.patch.yml` disables `ui-brand-official`, then inserts nine
 rows:

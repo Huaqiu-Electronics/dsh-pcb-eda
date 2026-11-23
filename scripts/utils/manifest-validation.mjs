@@ -5,8 +5,10 @@
  * (`scripts/check-publish.mjs`) and its tests. The manifest is the
  * machine-readable source of truth for HQ Edge's remote plugin discovery
  * (hq-edge docs/tasks/dsh-plugin-discovery-and-update-with-hq-edge-update-reporting.md
- * §4.1), so it must never drift from the actual publishable set, the lockstep
- * version, or the plugin patch contracts.
+ * §4.1), so it must never drift from the explicit catalog allowlist, the
+ * lockstep version, or the plugin patch contracts. HQ Edge iterates every
+ * `plugins` entry to offer installs/updates, so internal implementation
+ * packages must never be listed there.
  */
 
 /**
@@ -111,10 +113,12 @@ function validateEntryDisplayMetadata(entry, failures, where) {
  *
  * @param {object} manifest parsed `plugins-release-manifest.json`
  * @param {object} ctx
- * @param {{name:string, version:string}[]} ctx.dshPlugins real DSH plugins
- *        (packages declaring a `dsh` config)
+ * @param {{name:string, version:string}[]} ctx.dshPlugins the explicit,
+ *        user-visible catalog allowlist (see packages.mjs)
  * @param {(pkg: any) => string[]} ctx.pluginEntryInjects inject-list reader
  *        (returns service names injected by the package's cordis.patch.yml)
+ * @param {readonly string[]} [ctx.internalPluginNames] shipped DSH packages
+ *        that must never appear as catalog entries
  * @returns {string[]} human-readable failure messages (empty = valid)
  */
 export function validateReleaseManifest(manifest, ctx) {
@@ -142,6 +146,19 @@ export function validateReleaseManifest(manifest, ctx) {
   const notInManifest = [...pluginNames].filter((n) => !manifestNames.has(n)).sort()
   if (notInManifest.length > 0) {
     failures.push(`plugins-release-manifest.json: real DSH plugins missing from manifest: ${notInManifest.join(', ')}`)
+  }
+
+  // HQ Edge offers every catalog entry to end users. Internal product
+  // packages are shipped as profile dependencies, never as installable
+  // plugins, so their presence here is a release-blocking leak.
+  const internalNames = new Set(ctx.internalPluginNames ?? [])
+  for (const name of [...manifestNames].sort()) {
+    if (internalNames.has(name)) {
+      failures.push(
+        `plugins-release-manifest.json: ${name}: internal plugin must not be listed in the end-user catalog ` +
+          '(see INTERNAL_DSH_PLUGIN_NAMES in scripts/utils/packages.mjs)',
+      )
+    }
   }
 
   for (const name of manifestNames) {

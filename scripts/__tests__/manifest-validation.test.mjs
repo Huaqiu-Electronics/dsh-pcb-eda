@@ -115,6 +115,26 @@ describe('validateReleaseManifest', () => {
     assert.ok(failures.some((f) => f.includes('missing from manifest')))
   })
 
+  it('rejects an internal-only plugin listed in the end-user catalog', () => {
+    const manifest = validManifest()
+    manifest.plugins['@huaqiu/hardware-artifacts'] = {
+      version: '0.5.21', hosts: ['all'], requiresHqEdge: false, minHqEdge: null, maxHqEdge: null, minDsh: null,
+    }
+    const failures = validateReleaseManifest(manifest, {
+      ...ctx(),
+      internalPluginNames: ['@huaqiu/hardware-artifacts', '@huaqiu/dsh-hardware-ui'],
+    })
+    assert.ok(failures.some((f) => f.includes('internal plugin must not be listed')))
+  })
+
+  it('accepts a normal catalog entry when an internal-only set is supplied', () => {
+    const failures = validateReleaseManifest(validManifest(), {
+      ...ctx(),
+      internalPluginNames: ['@huaqiu/hardware-engineering'],
+    })
+    assert.deepEqual(failures, [])
+  })
+
   it('allows manifest entries that are not real DSH plugins (cleanup per 29002ab)', () => {
     // The notInRepo rejection was deliberately removed in 29002ab; entries listed
     // without a matching dsh-config package are checked for shape only.

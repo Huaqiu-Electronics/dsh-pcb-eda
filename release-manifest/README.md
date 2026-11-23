@@ -20,6 +20,34 @@ Every change is published as a new immutable package version. The npm
 `latest` dist-tag identifies the current canonical catalog. Exact versions
 remain available for debugging and historical investigation.
 
+## Which plugins appear in the catalog
+
+`plugins` is an **explicit allowlist**, not a scan of the monorepo. HQ Edge
+iterates every entry to offer installs and updates in the plugin-update panel,
+so each entry is an end-user-visible, independently installable plugin. Most
+packages in this repo are shipped as implementation/composition pieces of a
+product profile and must never be offered on their own.
+
+The allowlist is `CATALOG_PLUGIN_NAMES` in `scripts/utils/packages.mjs`.
+Internal-only packages are classified in `INTERNAL_DSH_PLUGIN_NAMES` there —
+currently the Hardware Engineering product packages
+(`@huaqiu/hardware-engineering`, `@huaqiu/hardware-artifacts`,
+`@huaqiu/dsh-hardware-ui`). They are still version-bumped and published to npm,
+but are deliberately absent from this catalog. `dsh.bundle.listedByDefault`
+remains a DSH profile signal; it no longer decides catalog membership.
+
+`pnpm check:publish` enforces three rules:
+
+- every `dsh` package under `packages/` is classified in one of the two lists
+  (a new package is never auto-discovered into the catalog);
+- every name in `CATALOG_PLUGIN_NAMES` has a valid entry here;
+- no name in `INTERNAL_DSH_PLUGIN_NAMES` has an entry here.
+
+To add a new end-user plugin, add its name to `CATALOG_PLUGIN_NAMES` **and** an
+entry to this catalog. To add an internal package, add its name to
+`INTERNAL_DSH_PLUGIN_NAMES` only. Standalone plugins (below) are the sole
+catalog entries without a workspace package.
+
 `manifestPackageVersion` in every JSON file must equal this package's
 `version`. `pnpm bump` keeps this package and both stamps on the same lockstep
 version as the workspace, and `pnpm publish:local` publishes this package last

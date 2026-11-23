@@ -5,6 +5,9 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { repoRoot } from '../utils/packages.mjs'
 import {
   MANIFEST_PACKAGE,
   buildCandidateCatalog,
@@ -14,9 +17,12 @@ import {
   loadPublishedCatalog,
   nextManifestVersion,
   parseArgs,
+  readCandidatesFile,
   resolveCanonicalVersion,
   resolveCatalogWriteVersion,
   resolveStandaloneVersions,
+  standaloneNames,
+  validateCandidateCatalog,
   verifyArtifact,
 } from '../release-manifest.mjs'
 
@@ -72,6 +78,13 @@ describe('release-manifest argument and version helpers', () => {
       () => resolveCatalogWriteVersion({ localVersion: '0.6.30', publishedVersion: '0.6.31' }),
       /run pnpm bump first/,
     )
+  })
+
+  it('keeps CLI candidates when no candidates file is supplied', () => {
+    const fromCli = readCandidatesFile(undefined, { '@huaqiu/dsh-auth': '0.6.30' })
+    assert.deepEqual(fromCli.candidates, { '@huaqiu/dsh-auth': '0.6.30' })
+    assert.equal(fromCli.setVersion, undefined)
+    assert.equal(fromCli.edgeHeadlessCatalog, undefined)
   })
 })
 
@@ -233,6 +246,37 @@ describe('catalog merge', () => {
       manifestVersion: '1.0.1',
     })
     assert.equal(merged.pluginSetVersion, '0.6.29')
+  })
+})
+
+describe('catalog visibility', () => {
+  const realCatalog = () => JSON.parse(readFileSync(
+    join(repoRoot, 'release-manifest/plugins-release-manifest.json'), 'utf8',
+  ))
+
+  it('treats only catalog entries with no workspace source as standalone', () => {
+    // Internal Hardware Engineering packages DO have workspace sources, so
+    // they must never be resolved from npm as standalone plugins.
+    assert.deepEqual(standaloneNames({ plugins: {
+      '@huaqiu/dsh-kicad-drc': {},
+      '@huaqiu/dsh-tool-freerouting': {},
+      '@huaqiu/dsh-auth': {},
+      '@huaqiu/hardware-artifacts': {},
+      '@huaqiu/dsh-hardware-ui': {},
+    } }), ['@huaqiu/dsh-kicad-drc', '@huaqiu/dsh-tool-freerouting'])
+  })
+
+  it('validates the checked-in catalog against the explicit allowlist', () => {
+    assert.deepEqual(validateCandidateCatalog(realCatalog()), [])
+  })
+
+  it('rejects a candidate catalog that adds an internal-only plugin', () => {
+    const catalog = realCatalog()
+    catalog.plugins['@huaqiu/dsh-hardware-ui'] = {
+      version: catalog.pluginSetVersion, hosts: ['all'], requiresHqEdge: false,
+    }
+    const failures = validateCandidateCatalog(catalog)
+    assert.ok(failures.some((f) => f.includes('internal plugin must not be listed')), failures.join('\n'))
   })
 })
 

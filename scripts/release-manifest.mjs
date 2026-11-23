@@ -26,11 +26,17 @@
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { dshPlugins, pluginEntryInjects, repoRoot } from './utils/packages.mjs'
+import {
+  INTERNAL_DSH_PLUGIN_NAMES,
+  discoverPackages,
+  dshPlugins,
+  pluginEntryInjects,
+  repoRoot,
+} from './utils/packages.mjs'
 import {
   validateEdgeHeadlessManifest,
   validateReleaseManifest,
@@ -406,7 +412,7 @@ export function buildCandidateCatalog({
   return catalog
 }
 
-/** Validate a candidate catalog against the real workspace plugin contracts. */
+/** Validate a candidate catalog against the explicit user-visible plugin contract. */
 export function validateCandidateCatalog(catalog, candidateVersions = {}) {
   const plugins = dshPlugins().map((pkg) => ({
     ...pkg,
@@ -415,6 +421,7 @@ export function validateCandidateCatalog(catalog, candidateVersions = {}) {
   return validateReleaseManifest(catalog, {
     dshPlugins: plugins,
     pluginEntryInjects,
+    internalPluginNames: INTERNAL_DSH_PLUGIN_NAMES,
   })
 }
 
@@ -463,8 +470,17 @@ export function parseArgs(argv) {
   return opts
 }
 
-function readCandidatesFile(file, into) {
-  if (!file) return into
+export function readCandidatesFile(file, into) {
+  // Always return the same shape: `run()` reads .candidates/.setVersion from
+  // the result even when the operator used only --candidate flags.
+  if (!file) {
+    return {
+      candidates: into,
+      setVersion: undefined,
+      edgeHeadlessCatalog: undefined,
+      edgeHeadlessRelease: undefined,
+    }
+  }
   const parsed = JSON.parse(readFileSync(resolve(file), 'utf8'))
   const plugins = parsed?.plugins ?? parsed?.candidates ?? {}
   if (typeof plugins !== 'object' || Array.isArray(plugins)) {
@@ -484,9 +500,14 @@ function readCandidatesFile(file, into) {
   }
 }
 
-/** Default standalone entry set: catalog entries whose source is not here. */
-function standaloneNames(previous) {
-  const local = new Set(dshPlugins().map((p) => p.name))
+/**
+ * Standalone plugins are catalog entries with no source package in this
+ * workspace at all. Use the full filesystem set here (not the catalog
+ * allowlist): an internal package that ships from this repo is local and must
+ * never be resolved from npm as if it were standalone.
+ */
+export function standaloneNames(previous) {
+  const local = new Set(discoverPackages().map((p) => p.name))
   return Object.keys(previous?.plugins ?? {}).filter((name) => !local.has(name))
 }
 

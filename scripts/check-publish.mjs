@@ -6,9 +6,10 @@
  * validates every publishable package under `packages/` — the built entry +
  * client bundle exist, exports resolve, no `@hqedge/*` reference survives
  * anywhere, and, for real DSH plugins (packages declaring a `dsh` config), that
- * the Host mount patch is declared and actually shipped in `files`.
- * `--require-clean` additionally demands a clean git tree (used by release CI
- * so the tarball is built from exactly what was reviewed).
+ * the Host mount patch is declared and actually shipped in `files`. It also
+ * enforces the explicit plugin-visibility classification and the canonical
+ * release catalog. `--require-clean` additionally demands a clean git tree
+ * (used by release CI so the tarball is built from exactly what was reviewed).
  *
  * Usage:
  *   node scripts/check-publish.mjs [--require-clean]
@@ -20,6 +21,8 @@ import {
   publishablePackages,
   dshPlugins,
   pluginEntryInjects,
+  unclassifiedDshPlugins,
+  INTERNAL_DSH_PLUGIN_NAMES,
   repoRoot,
   canonicalManifestPath,
   releaseManifestPackage,
@@ -154,11 +157,30 @@ if (canonicalPackage && pkgs.length > 0) {
   }
 }
 
+// 2b. Visibility classification. The catalog is a hardcoded allowlist, so a
+//     freshly added `dsh` package must be explicitly assigned either to the
+//     end-user catalog or to the internal-only set. This gate is what prevents
+//     both accidental exposure and silent omission.
+const unclassified = unclassifiedDshPlugins()
+if (unclassified.length > 0) {
+  fail(
+    `unclassified DSH plugin package(s): ${unclassified.map((p) => p.name).join(', ')} — ` +
+      'add each to CATALOG_PLUGIN_NAMES (end-user visible) or INTERNAL_DSH_PLUGIN_NAMES ' +
+      '(never discoverable) in scripts/utils/packages.mjs',
+  )
+} else {
+  ok(
+    `all workspace DSH plugins classified (${dshPlugins().length} user-visible, ` +
+      `${INTERNAL_DSH_PLUGIN_NAMES.length} internal-only)`,
+  )
+}
+
 // 3. Canonical release manifests in @huaqiu/dsh-plugin-release-manifest —
 //    the machine-readable source of truth for plugin discovery and HQ Edge
-//    headless versions. They must never drift from the actual publishable
-//    set, the lockstep version, or the plugin patch contracts
-//    (`requiresHqEdge` == inject contains `hqEdge`). HQ Edge build pins are
+//    headless versions. They must never drift from the explicit catalog
+//    allowlist, the lockstep version, or the plugin patch contracts
+//    (`requiresHqEdge` == inject contains `hqEdge`). Internal product
+//    packages are rejected as catalog entries. HQ Edge build pins are
 //    owned by the hq-edge repo and are not published here.
 const readCanonical = (file, validator, ctx) => {
   let value = null
@@ -184,6 +206,7 @@ const readCanonical = (file, validator, ctx) => {
 const canonicalPlugins = readCanonical('plugins-release-manifest.json', validateReleaseManifest, {
   dshPlugins: dshPlugins(),
   pluginEntryInjects,
+  internalPluginNames: INTERNAL_DSH_PLUGIN_NAMES,
 })
 readCanonical('edge-headless-release-manifest.json', validateEdgeHeadlessManifest)
 if (canonicalPlugins) {
