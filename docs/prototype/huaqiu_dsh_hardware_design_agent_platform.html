@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HuaQiu Electronic Design Agent Platform — Hardware Codex</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            hq: {
+              sidebar: '#1b1314',
+              sidebarHover: '#291d1f',
+              sidebarActive: '#362427',
+              bg: '#141415',
+              panel: '#1d1d1f',
+              card: '#252528',
+              border: '#323236',
+              red: '#e1251b',
+              redHover: '#c41e15',
+              redMuted: '#682b2e',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background-color: #141415;
+      color: #e4e4e7;
+      font-family: 'Inter', sans-serif;
+      overflow: hidden;
+    }
+    /* Custom subtle scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #323236; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #48484e; }
+
+    /* Schematic & PCB grid patterns */
+    .sch-grid {
+      background-color: #12151a;
+      background-image: 
+        linear-gradient(to right, rgba(59, 130, 246, 0.08) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(59, 130, 246, 0.08) 1px, transparent 1px);
+      background-size: 20px 20px;
+    }
+    .pcb-grid {
+      background-color: #0b110e;
+      background-image: 
+        radial-gradient(rgba(34, 197, 94, 0.16) 1px, transparent 1px);
+      background-size: 16px 16px;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.8; }
+      70% { transform: scale(1.2); opacity: 0; }
+      100% { transform: scale(1.2); opacity: 0; }
+    }
+    .animate-ping-slow {
+      animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body class="h-screen w-screen flex flex-col md:flex-row select-none">
+
+  <!-- Toast / Message Notification Banner (Replaces alert) -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ===================================================================== -->
+  <!-- LEFT SIDEBAR (Matches reference screenshot aesthetic & structure)     -->
+  <!-- ===================================================================== -->
+  <aside id="sidebar" class="w-full md:w-64 bg-hq-sidebar border-b md:border-b-0 md:border-r border-[#2b2022] flex flex-col justify-between shrink-0 z-30">
+    <!-- Top Section -->
+    <div class="p-3 flex flex-col gap-3">
+      <!-- Brand Header -->
+      <div class="flex items-center justify-between px-1 pt-1">
+        <div class="flex items-center gap-2.5 cursor-pointer" onclick="resetToHome()">
+          <div class="w-7 h-7 rounded-md bg-hq-red flex items-center justify-center shadow-md shadow-red-950/50">
+            <span class="font-bold text-white text-sm tracking-tighter">H!</span>
+          </div>
+          <div class="flex flex-col">
+            <span class="font-semibold text-sm text-zinc-100 leading-none">HuaQiu</span>
+            <span class="text-[10px] text-zinc-400 font-mono mt-0.5">DSH Agent Harness</span>
+          </div>
+        </div>
+        <button onclick="toggleInspector()" title="Toggle Artifact Workbench" class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-hq-sidebarHover transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" stroke-width="1.8"/><line x1="15" y1="3" x2="15" y2="21" stroke-width="1.8"/></svg>
+        </button>
+      </div>
+
+      <!-- New Session Button -->
+      <button onclick="resetToHome()" class="w-full py-2 px-3 rounded-lg bg-[#434347] hover:bg-[#505055] text-zinc-100 text-xs font-medium flex items-center justify-center gap-2 transition shadow-sm">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+        New Session
+      </button>
+
+      <!-- Hardware Agent Skills -->
+      <div class="flex flex-col gap-0.5 text-xs">
+        <button onclick="triggerQuickPrompt('Generate a custom QFN-32 footprint & 3D STEP package for STM32G431')" class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-zinc-300 hover:bg-hq-sidebarHover hover:text-white transition text-left">
+          <svg class="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" stroke-width="1.8"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Footprint Gen
+        </button>
+        <button onclick="triggerQuickPrompt('Create schematic symbol with IEC-60617 pins for USB-C PD controller')" class="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-zinc-300 hover:bg-hq-sidebarHover hover:text-white transition text-left">
+          <svg class="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 12h4m8 0h4M8 7h5a5 5 0 010 10H8V7z" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Symbol Gen
+        </button>
+        <button onclick="openWorkspaceAtTab('dfm')" class="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-zinc-300 hover:bg-hq-sidebarHover hover:text-white transition text-left mt-1">
+          <span class="flex items-center gap-2.5">
+            <svg class="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg>
+            Plugin Updates
+          </span>
+          <span class="px-1.5 py-0.5 text-[10px] font-semibold bg-hq-red text-white rounded-full">8</span>
+        </button>
+      </div>
+
+      <!-- Workspaces Tree -->
+      <div class="mt-2 pt-2 border-t border-[#2b2022] hidden md:block">
+        <div class="flex items-center justify-between px-2 mb-1.5 text-[11px] font-medium text-zinc-400">
+          <span>Workspaces</span>
+          <div class="flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5 hover:text-zinc-200 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" stroke-width="1.8"/><path d="M20 20l-3.5-3.5" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <svg class="w-3.5 h-3.5 hover:text-zinc-200 cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M4 6h16M4 12h10M4 18h14" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </div>
+        </div>
+
+        <!-- Workspace Folder: ecc83 -->
+        <div class="flex flex-col gap-0.5 text-xs">
+          <div onclick="openWorkspaceAtTab('schematic')" class="flex items-center gap-2 px-2 py-1.5 rounded-lg text-zinc-300 hover:bg-hq-sidebarHover cursor-pointer">
+            <svg class="w-4 h-4 text-hq-red shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+            <span class="font-medium truncate">ecc83-tube-preamp</span>
+          </div>
+          <div id="sidebar-active-session" onclick="openWorkspaceAtTab('schematic')" class="ml-3 px-2.5 py-1.5 rounded-lg bg-hq-sidebarActive text-zinc-100 font-medium cursor-pointer flex items-center justify-between">
+            <span class="truncate">New Session</span>
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+          </div>
+          <!-- Quick File Tree inside ecc83 -->
+          <div class="ml-5 mt-1 pl-2 border-l border-[#3a282b] flex flex-col gap-1 text-[11px] text-zinc-400">
+            <button onclick="openWorkspaceAtTab('schematic')" class="flex items-center gap-1.5 py-1 hover:text-zinc-100 text-left">
+              <span class="text-sky-400 font-mono">SCH</span> ecc83_main.kicad_sch
+            </button>
+            <button onclick="openWorkspaceAtTab('pcb')" class="flex items-center gap-1.5 py-1 hover:text-zinc-100 text-left">
+              <span class="text-emerald-400 font-mono">PCB</span> ecc83_board.kicad_pcb
+            </button>
+            <button onclick="openWorkspaceAtTab('cad')" class="flex items-center gap-1.5 py-1 hover:text-zinc-100 text-left">
+              <span class="text-amber-400 font-mono">3D</span> enclosure_shell.scad
+            </button>
+            <button onclick="openWorkspaceAtTab('dfm')" class="flex items-center gap-1.5 py-1 hover:text-zinc-100 text-left">
+              <span class="text-purple-400 font-mono">DFM</span> hq_dfm_report.json
+            </button>
+            <button onclick="openWorkspaceAtTab('bom')" class="flex items-center gap-1.5 py-1 hover:text-zinc-100 text-left">
+              <span class="text-pink-400 font-mono">BOM</span> bom_lcsc_matched.csv
+            </button>
+            <button onclick="openWorkspaceAtTab('order')" class="flex items-center gap-1.5 py-1 hover:text-zinc-100 text-left">
+              <span class="text-red-400 font-mono">ORD</span> Turnkey Order Bundle
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom User & Settings -->
+    <div class="p-3 border-t border-[#2b2022] flex md:flex-col gap-1 justify-between">
+      <div class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-hq-sidebarHover cursor-pointer">
+        <div class="w-6 h-6 rounded-full bg-amber-700/60 border border-amber-500/40 flex items-center justify-center text-xs font-bold text-amber-200">
+          老
+        </div>
+        <span class="text-xs text-zinc-200 font-medium">老铁</span>
+        <span class="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 font-mono hidden md:inline">PRO</span>
+      </div>
+      <button onclick="openSettingsModal()" class="flex items-center gap-2.5 px-2 py-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-hq-sidebarHover transition text-xs w-full text-left">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3" stroke-width="1.8"/></svg>
+        <span>Settings</span>
+        <span id="settings-badge" class="ml-auto w-2 h-2 rounded-full bg-emerald-400" title="Local KiCad & SolidCraft configured"></span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ===================================================================== -->
+  <!-- MAIN WORKSPACE AREA (Split: DSH Agent Chat + Engineering Artifact Deck) -->
+  <!-- ===================================================================== -->
+  <main class="flex-1 flex flex-col lg:flex-row h-full overflow-hidden bg-hq-bg relative">
+
+    <!-- LEFT / CENTER: DSH AGENT HARNESS CONVERSATION & PROMPT COMPOSER -->
+    <section id="agent-pane" class="flex-1 flex flex-col h-full min-w-0 transition-all duration-300">
+      
+      <!-- Top Context Bar (Shown when in active session) -->
+      <header id="session-header" class="hidden h-12 px-4 border-b border-hq-border flex items-center justify-between bg-[#18181a] shrink-0">
+        <div class="flex items-center gap-3 text-xs">
+          <span class="flex items-center gap-1.5 font-medium text-zinc-200">
+            <svg class="w-4 h-4 text-hq-red" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+            ecc83
+          </span>
+          <span class="text-zinc-600">/</span>
+          <span class="text-zinc-400 font-mono">DSH-Hardware-Codex v2.4</span>
+          <span class="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px]">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Full Hardware Loop Ready
+          </span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="openWorkspaceAtTab('order')" class="px-2.5 py-1 rounded-md bg-hq-red hover:bg-hq-redHover text-white text-xs font-medium transition flex items-center gap-1.5">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
+            Place Turnkey Order
+          </button>
+        </div>
+      </header>
+
+      <!-- HERO EMPTY STATE (Matches screenshot when starting a session) -->
+      <div id="hero-view" class="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto">
+        <div class="w-full max-w-2xl flex flex-col items-center">
+          <!-- Title Logo -->
+          <div class="flex items-center gap-3 mb-7">
+            <div class="w-9 h-9 rounded-lg bg-hq-red flex items-center justify-center shadow-lg shadow-red-900/40">
+              <span class="font-bold text-white text-lg tracking-tighter">H!</span>
+            </div>
+            <h1 class="text-2xl sm:text-3xl font-semibold text-zinc-100 tracking-tight">
+              Electronic Design Agent Platform
+            </h1>
+          </div>
+
+          <!-- Workspace & Mode Selectors -->
+          <div class="w-full flex items-center gap-4 px-2 mb-2.5 text-xs text-zinc-300">
+            <div class="flex items-center gap-1.5 cursor-pointer hover:text-white">
+              <svg class="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg>
+              <span class="font-medium">ecc83</span>
+              <svg class="w-3 h-3 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </div>
+            <div class="flex items-center gap-1.5 cursor-pointer hover:text-white">
+              <svg class="w-4 h-4 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" stroke-width="1.8"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <span class="font-medium">Hardware Codex Mode</span>
+              <svg class="w-3 h-3 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </div>
+          </div>
+
+          <!-- Prompt Box (Matches reference rounded dark container) -->
+          <div class="w-full rounded-2xl bg-[#262628] border border-[#343438] focus-within:border-zinc-500 transition p-3.5 shadow-2xl">
+            <textarea
+              id="hero-prompt-input"
+              rows="2"
+              placeholder="Describe what you want to build, / commands, @ files or sessions"
+              class="w-full bg-transparent text-sm text-zinc-100 placeholder-zinc-500 resize-none focus:outline-none"
+              onkeydown="handleHeroKeydown(event)"
+            ></textarea>
+            <div class="flex items-center justify-between mt-3 pt-1">
+              <div class="flex items-center gap-3 text-xs text-zinc-400">
+                <button onclick="triggerQuickPrompt('Design a complete ECC83 Dual-Triode Tube Preamp: Schematic, 4-layer PCB, DFM check, LCSC BOM, CNC Aluminum 3D Shell, and Turnkey Order')" class="w-7 h-7 rounded-full bg-[#323236] hover:bg-[#3f3f44] flex items-center justify-center text-zinc-200 transition" title="Attach datasheet / netlist">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+                </button>
+                <span class="flex items-center gap-1.5 cursor-pointer hover:text-zinc-200">
+                  <svg class="w-3.5 h-3.5 text-zinc-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                  Full access
+                  <svg class="w-3 h-3 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-xs text-zinc-400 flex items-center gap-1 cursor-pointer hover:text-zinc-200">
+                  deepseek-hw-r1
+                  <svg class="w-3 h-3 text-zinc-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                </span>
+                <button onclick="submitHeroPrompt()" class="w-8 h-8 rounded-full bg-hq-redMuted hover:bg-hq-red text-white flex items-center justify-center transition shadow">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- One-Click Hardware Pipeline Starters -->
+          <div class="w-full mt-5 grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+            <button onclick="runFullEndToEndDemo()" class="p-3 rounded-xl bg-[#1e1e21] hover:bg-[#27272b] border border-[#2e2e33] text-left transition group">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-semibold text-zinc-200 group-hover:text-white">Full Hardware Run</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-400 font-mono">E2E</span>
+              </div>
+              <p class="text-zinc-400 text-[11px] leading-relaxed">Generate ECC83 Schematic → PCB → DFM → BOM → 3D Shell & Order.</p>
+            </button>
+
+            <button onclick="openWorkspaceAtTab('cad')" class="p-3 rounded-xl bg-[#1e1e21] hover:bg-[#27272b] border border-[#2e2e33] text-left transition group">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-semibold text-zinc-200 group-hover:text-white">3D Enclosure & PCB</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 font-mono">STEP</span>
+              </div>
+              <p class="text-zinc-400 text-[11px] leading-relaxed">Inspect ECAD/MCAD collision clearance & open in SolidCraft.</p>
+            </button>
+
+            <button onclick="openWorkspaceAtTab('order')" class="p-3 rounded-xl bg-[#1e1e21] hover:bg-[#27272b] border border-[#2e2e33] text-left transition group">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-semibold text-zinc-200 group-hover:text-white">HuaQiu Turnkey Quote</span>
+                <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono">PCBA+3D</span>
+              </div>
+              <p class="text-zinc-400 text-[11px] leading-relaxed">Instant DFM + PCB + PCBA + CNC/3D Print Shell unified checkout.</p>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ACTIVE CONVERSATION STREAM (Shown after prompt submission) -->
+      <div id="chat-stream" class="hidden flex-1 overflow-y-auto p-4 sm:p-6 space-y-5">
+        <!-- Messages dynamically appended here -->
+      </div>
+
+      <!-- BOTTOM CHAT INPUT (Shown when chat-stream is active) -->
+      <div id="bottom-composer" class="hidden p-3 sm:p-4 border-t border-hq-border bg-[#161618]">
+        <div class="max-w-3xl mx-auto rounded-xl bg-[#242427] border border-[#343439] p-2.5 flex items-end gap-2">
+          <textarea id="chat-input" rows="1" placeholder="Ask DSH Agent to modify trace impedance, swap LCSC parts, resize 3D shell standoffs..." class="flex-1 bg-transparent text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 resize-none focus:outline-none py-1 px-1" onkeydown="handleChatKeydown(event)"></textarea>
+          <button onclick="submitChatInput()" class="p-2 rounded-lg bg-hq-red hover:bg-hq-redHover text-white transition shrink-0">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"/></svg>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================== -->
+    <!-- RIGHT WORKBENCH: SCHEMATIC / PCB / DFM / BOM / 3D CAD / ORDER PLACING -->
+    <!-- ===================================================================== -->
+    <section id="workbench-pane" class="hidden w-full lg:w-[58%] xl:w-[62%] border-t lg:border-t-0 lg:border-l border-hq-border bg-[#18181b] flex flex-col h-[60vh] lg:h-full shrink-0">
+      
+      <!-- Workbench Top Navigation & "Open in XXX" Launcher Bar -->
+      <div class="h-12 px-3 border-b border-hq-border bg-[#1d1d20] flex items-center justify-between gap-2 overflow-x-auto shrink-0">
+        <!-- Pipeline Tabs -->
+        <div class="flex items-center gap-1 text-xs font-medium">
+          <button onclick="switchTab('schematic')" data-tab="schematic" class="wb-tab px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+            <span class="w-2 h-2 rounded-full bg-sky-400"></span> Schematic
+          </button>
+          <button onclick="switchTab('pcb')" data-tab="pcb" class="wb-tab px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+            <span class="w-2 h-2 rounded-full bg-emerald-400"></span> PCB
+          </button>
+          <button onclick="switchTab('dfm')" data-tab="dfm" class="wb-tab px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+            <span class="w-2 h-2 rounded-full bg-purple-400"></span> DFM
+            <span class="text-[10px] px-1 rounded bg-emerald-500/20 text-emerald-300">98</span>
+          </button>
+          <button onclick="switchTab('bom')" data-tab="bom" class="wb-tab px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+            <span class="w-2 h-2 rounded-full bg-pink-400"></span> BOM
+          </button>
+          <button onclick="switchTab('cad')" data-tab="cad" class="wb-tab px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+            <span class="w-2 h-2 rounded-full bg-amber-400"></span> 3D CAD
+          </button>
+          <button onclick="switchTab('order')" data-tab="order" class="wb-tab px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 transition">
+            <span class="w-2 h-2 rounded-full bg-hq-red"></span> Order Placing
+          </button>
+        </div>
+
+        <!-- TOP RIGHT CORNER: Dynamic "Open in KiCad" / "Open in SolidCraft" Launcher -->
+        <div id="external-launcher-slot" class="flex items-center gap-2 shrink-0">
+          <!-- Populated dynamically based on active tab & configured local paths -->
+        </div>
+      </div>
+
+      <!-- Workbench Content Container -->
+      <div class="flex-1 overflow-y-auto relative">
+
+        <!-- 1. SCHEMATIC VIEWER -->
+        <div id="view-schematic" class="wb-view h-full flex flex-col">
+          <div class="px-4 py-2 bg-[#16181d] border-b border-hq-border flex items-center justify-between text-[11px] text-zinc-400">
+            <div class="flex items-center gap-3">
+              <span class="font-mono text-zinc-200">ecc83_main.kicad_sch</span>
+              <span>Sheet 1/1 • ERC: <strong class="text-emerald-400">0 Errors, 0 Warnings</strong></span>
+            </div>
+            <div class="flex items-center gap-2 font-mono">
+              <span>Nets: 24</span>
+              <span>•</span>
+              <span>Parts: 18</span>
+            </div>
+          </div>
+          <div class="flex-1 sch-grid relative overflow-auto flex items-center justify-center p-4">
+            <!-- Interactive SVG Schematic Diagram -->
+            <svg viewBox="0 0 760 440" class="w-full max-w-3xl h-auto drop-shadow-xl">
+              <!-- Title Block -->
+              <rect x="10" y="10" width="740" height="420" fill="none" stroke="#2e4a7d" stroke-width="1.5"/>
+              <rect x="520" y="370" width="230" height="60" fill="#162033" stroke="#2e4a7d" stroke-width="1.2"/>
+              <text x="530" y="390" fill="#93c5fd" font-family="JetBrains Mono" font-size="11" font-weight="bold">ECC83 CLASS-A TUBE PREAMP</text>
+              <text x="530" y="407" fill="#64748b" font-family="JetBrains Mono" font-size="9">REV: A2 | DSH-CODEX-GEN</text>
+              <text x="530" y="421" fill="#34d399" font-family="JetBrains Mono" font-size="9">ERC PASSED • KICAD 8.0 FORMAT</text>
+
+              <!-- Power Rail +250V HV -->
+              <line x1="120" y1="55" x2="620" y2="55" stroke="#ef4444" stroke-width="2"/>
+              <text x="120" y="46" fill="#f87171" font-family="JetBrains Mono" font-size="11" font-weight="bold">+250V_HV_ANODE</text>
+
+              <!-- Ground Rail -->
+              <line x1="120" y1="360" x2="620" y2="360" stroke="#22c55e" stroke-width="2"/>
+              <text x="120" y="376" fill="#4ade80" font-family="JetBrains Mono" font-size="11" font-weight="bold">GND_AUDIO_STAR</text>
+
+              <!-- Vacuum Tube V1A (ECC83) -->
+              <circle cx="340" cy="200" r="56" fill="#172136" stroke="#38bdf8" stroke-width="2"/>
+              <text x="398" y="160" fill="#38bdf8" font-family="JetBrains Mono" font-size="12" font-weight="bold">V1A (ECC83)</text>
+              <text x="398" y="176" fill="#94a3b8" font-family="JetBrains Mono" font-size="10">12AX7 Dual Triode</text>
+              <!-- Anode Plate -->
+              <line x1="315" y1="175" x2="365" y2="175" stroke="#f8fafc" stroke-width="3"/>
+              <line x1="340" y1="55" x2="340" y2="175" stroke="#38bdf8" stroke-width="1.8"/>
+              <!-- Grid -->
+              <line x1="310" y1="200" x2="322" y2="200" stroke="#facc15" stroke-width="2" stroke-dasharray="4 3"/>
+              <line x1="330" y1="200" x2="342" y2="200" stroke="#facc15" stroke-width="2" stroke-dasharray="4 3"/>
+              <line x1="350" y1="200" x2="368" y2="200" stroke="#facc15" stroke-width="2" stroke-dasharray="4 3"/>
+              <!-- Cathode -->
+              <path d="M320 225 L325 218 L355 218 L360 225" fill="none" stroke="#f8fafc" stroke-width="2.2"/>
+              <line x1="340" y1="218" x2="340" y2="360" stroke="#38bdf8" stroke-width="1.8"/>
+
+              <!-- Anode Load Resistor R1 (100k) -->
+              <rect x="331" y="90" width="18" height="44" fill="#1e293b" stroke="#60a5fa" stroke-width="1.8"/>
+              <text x="356" y="110" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">R1 100kΩ</text>
+              <text x="356" y="123" fill="#94a3b8" font-family="JetBrains Mono" font-size="9">1W Metal Film</text>
+
+              <!-- Cathode Resistor R2 & Bypass Cap C2 -->
+              <rect x="331" y="275" width="18" height="40" fill="#1e293b" stroke="#60a5fa" stroke-width="1.8"/>
+              <text x="262" y="295" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">R2 1.5kΩ</text>
+              <line x1="340" y1="260" x2="410" y2="260" stroke="#38bdf8" stroke-width="1.5"/>
+              <line x1="410" y1="260" x2="410" y2="290" stroke="#38bdf8" stroke-width="1.5"/>
+              <line x1="396" y1="290" x2="424" y2="290" stroke="#f472b6" stroke-width="2.5"/>
+              <line x1="396" y1="298" x2="424" y2="298" stroke="#f472b6" stroke-width="2.5"/>
+              <line x1="410" y1="298" x2="410" y2="360" stroke="#38bdf8" stroke-width="1.5"/>
+              <text x="430" y="298" fill="#f472b6" font-family="JetBrains Mono" font-size="10">C2 22µF/25V</text>
+
+              <!-- Input Stage J1 & Grid Leak -->
+              <rect x="65" y="182" width="46" height="36" rx="4" fill="#1e293b" stroke="#34d399" stroke-width="1.8"/>
+              <text x="73" y="204" fill="#34d399" font-family="JetBrains Mono" font-size="10">J1 IN</text>
+              <line x1="111" y1="200" x2="310" y2="200" stroke="#38bdf8" stroke-width="1.8"/>
+              <rect x="175" y="192" width="38" height="16" fill="#1e293b" stroke="#60a5fa" stroke-width="1.8"/>
+              <text x="172" y="184" fill="#e2e8f0" font-family="JetBrains Mono" font-size="10">R3 68kΩ</text>
+
+              <!-- Coupling Output Cap C1 -->
+              <line x1="340" y1="152" x2="490" y2="152" stroke="#38bdf8" stroke-width="1.8"/>
+              <line x1="490" y1="138" x2="490" y2="166" stroke="#f472b6" stroke-width="2.5"/>
+              <line x1="500" y1="138" x2="500" y2="166" stroke="#f472b6" stroke-width="2.5"/>
+              <text x="475" y="128" fill="#f472b6" font-family="JetBrains Mono" font-size="10">C1 0.1µF/400V</text>
+              <line x1="500" y1="152" x2="620" y2="152" stroke="#38bdf8" stroke-width="1.8"/>
+              <rect x="620" y="135" width="56" height="34" rx="4" fill="#1e293b" stroke="#34d399" stroke-width="1.8"/>
+              <text x="627" y="156" fill="#34d399" font-family="JetBrains Mono" font-size="10">J2 OUT</text>
+
+              <!-- Junction Dots -->
+              <circle cx="340" cy="55" r="3.5" fill="#ef4444"/>
+              <circle cx="340" cy="152" r="3.5" fill="#38bdf8"/>
+              <circle cx="340" cy="260" r="3.5" fill="#38bdf8"/>
+              <circle cx="340" cy="360" r="3.5" fill="#22c55e"/>
+              <circle cx="410" cy="360" r="3.5" fill="#22c55e"/>
+            </svg>
+          </div>
+        </div>
+
+        <!-- 2. PCB LAYOUT VIEWER -->
+        <div id="view-pcb" class="wb-view hidden h-full flex flex-col">
+          <div class="px-4 py-2 bg-[#101814] border-b border-hq-border flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400">
+            <div class="flex items-center gap-3">
+              <span class="font-mono text-zinc-200">ecc83_board.kicad_pcb</span>
+              <span>4-Layer • 100mm × 68mm • 1.6mm FR4 ENIG</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded bg-red-500/20 text-red-300 font-mono text-[10px]">F.Cu</span>
+              <span class="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono text-[10px]">In1.GND</span>
+              <span class="px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono text-[10px]">In2.HV</span>
+              <span class="px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 font-mono text-[10px]">B.Cu</span>
+            </div>
+          </div>
+          <div class="flex-1 pcb-grid relative overflow-auto flex items-center justify-center p-4">
+            <svg viewBox="0 0 720 440" class="w-full max-w-3xl h-auto drop-shadow-2xl">
+              <!-- PCB Board Substrate -->
+              <rect x="60" y="40" width="600" height="360" rx="14" fill="#0d2818" stroke="#22c55e" stroke-width="2.5"/>
+              <!-- Mounting Holes (M3 Plated) -->
+              <g fill="#090d0b" stroke="#eab308" stroke-width="3">
+                <circle cx="88" cy="68" r="9"/><circle cx="632" cy="68" r="9"/>
+                <circle cx="88" cy="372" r="9"/><circle cx="632" cy="372" r="9"/>
+              </g>
+              <!-- Silkscreen Outline -->
+              <rect x="74" y="54" width="572" height="332" rx="8" fill="none" stroke="rgba(255,255,255,0.22)" stroke-width="1" stroke-dasharray="6 4"/>
+              <text x="115" y="73" fill="#86efac" font-family="JetBrains Mono" font-size="11" font-weight="bold">HUAQIU-DSH // ECC83-PREAMP REV A2</text>
+
+              <!-- High Voltage Creepage Slot (Milled Isolation) -->
+              <rect x="275" y="105" width="170" height="10" rx="5" fill="#050806" stroke="#facc15" stroke-width="1.2"/>
+              <text x="295" y="99" fill="#facc15" font-family="JetBrains Mono" font-size="8.5">HV CREEPAGE SLOT (3.2mm)</text>
+
+              <!-- B9A 9-Pin Tube Socket Footprint -->
+              <circle cx="360" cy="220" r="54" fill="#133822" stroke="#eab308" stroke-width="2"/>
+              <circle cx="360" cy="220" r="14" fill="#090d0b" stroke="#eab308" stroke-width="1.5"/>
+              <!-- 9 Gold Pads around circle -->
+              <g fill="#facc15" stroke="#713f12" stroke-width="1">
+                <circle cx="360" cy="182" r="5.5"/><circle cx="386" cy="192" r="5.5"/>
+                <circle cx="397" cy="218" r="5.5"/><circle cx="388" cy="245" r="5.5"/>
+                <circle cx="366" cy="258" r="5.5"/><circle cx="338" cy="254" r="5.5"/>
+                <circle cx="323" cy="230" r="5.5"/><circle cx="328" cy="202" r="5.5"/>
+                <circle cx="345" cy="185" r="5.5"/>
+              </g>
+              <text x="342" y="290" fill="#fef08a" font-family="JetBrains Mono" font-size="10" font-weight="bold">V1 B9A</text>
+
+              <!-- Copper Traces (Top Red F.Cu & Bottom Blue B.Cu) -->
+              <path d="M130 202 L260 202 L290 202 L328 202" fill="none" stroke="#ef4444" stroke-width="3.5" stroke-linecap="round"/>
+              <path d="M386 192 L460 192 L495 160 L585 160" fill="none" stroke="#ef4444" stroke-width="3.5" stroke-linecap="round"/>
+              <path d="M360 182 L360 135 L520 135" fill="none" stroke="#ef4444" stroke-width="4" stroke-linecap="round"/>
+              <path d="M366 258 L366 320 L230 320 L195 285" fill="none" stroke="#38bdf8" stroke-width="3" stroke-linecap="round"/>
+
+              <!-- Film Capacitors & Resistors -->
+              <rect x="465" y="142" width="44" height="36" rx="3" fill="#991b1b" stroke="#fca5a5" stroke-width="1.5"/>
+              <text x="472" y="164" fill="#fff" font-family="JetBrains Mono" font-size="9">C1 WIMA</text>
+
+              <rect x="175" y="188" width="52" height="24" rx="3" fill="#1e3a8a" stroke="#93c5fd" stroke-width="1.5"/>
+              <text x="184" y="204" fill="#fff" font-family="JetBrains Mono" font-size="9">R3 68k</text>
+
+              <!-- RCA / Jack Connectors on Edges -->
+              <rect x="64" y="178" width="32" height="48" rx="3" fill="#3f3f46" stroke="#eab308" stroke-width="1.5"/>
+              <text x="68" y="205" fill="#fef08a" font-family="JetBrains Mono" font-size="8.5">IN</text>
+
+              <rect x="624" y="138" width="32" height="48" rx="3" fill="#3f3f46" stroke="#eab308" stroke-width="1.5"/>
+              <text x="628" y="165" fill="#fef08a" font-family="JetBrains Mono" font-size="8.5">OUT</text>
+            </svg>
+          </div>
+        </div>
+
+        <!-- 3. HUAQIU DFM ENGINE VIEWER -->
+        <div id="view-dfm" class="wb-view hidden p-4 sm:p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-[#202024] border border-hq-border">
+            <div>
+              <div class="text-xs text-zinc-400">HuaQiu Smart DFM Analysis Engine v5.2</div>
+              <h3 class="text-base font-semibold text-zinc-100 mt-0.5">Manufacturability & Assembly Readiness</h3>
+            </div>
+            <div class="flex items-center gap-3">
+              <div class="text-right">
+                <div class="text-2xl font-bold text-emerald-400 font-mono">98/100</div>
+                <div class="text-[11px] text-zinc-400">0 Critical • 1 Advisory</div>
+              </div>
+              <button onclick="autoFixDfm()" id="btn-autofix-dfm" class="px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium transition">
+                Auto-Fix Advisory
+              </button>
+            </div>
+          </div>
+
+          <!-- DFM Checklist Table -->
+          <div class="rounded-xl border border-hq-border overflow-hidden bg-[#1b1b1e]">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-[#232328] text-zinc-400 border-b border-hq-border">
+                <tr>
+                  <th class="py-2.5 px-3">Rule Category</th>
+                  <th class="py-2.5 px-3">Measured</th>
+                  <th class="py-2.5 px-3">HuaQiu Spec</th>
+                  <th class="py-2.5 px-3 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#28282d] text-zinc-200">
+                <tr>
+                  <td class="py-2.5 px-3 font-medium">Min Trace Width / Spacing</td>
+                  <td class="py-2.5 px-3 font-mono">0.20mm / 0.20mm</td>
+                  <td class="py-2.5 px-3 font-mono text-zinc-400">≥ 0.10mm / 0.10mm</td>
+                  <td class="py-2.5 px-3 text-right"><span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono text-[11px]">PASS</span></td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 font-medium">Min Via Drill / Annular Ring</td>
+                  <td class="py-2.5 px-3 font-mono">0.30mm / 0.15mm</td>
+                  <td class="py-2.5 px-3 font-mono text-zinc-400">≥ 0.20mm / 0.10mm</td>
+                  <td class="py-2.5 px-3 text-right"><span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono text-[11px]">PASS</span></td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 font-medium">+250V HV Creepage Isolation</td>
+                  <td class="py-2.5 px-3 font-mono">3.20mm + Milled Slot</td>
+                  <td class="py-2.5 px-3 font-mono text-zinc-400">≥ 2.50mm (IPC-2221B)</td>
+                  <td class="py-2.5 px-3 text-right"><span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono text-[11px]">PASS</span></td>
+                </tr>
+                <tr id="dfm-advisory-row">
+                  <td class="py-2.5 px-3 font-medium">Silkscreen Over Pad (C1_WIMA)</td>
+                  <td class="py-2.5 px-3 font-mono text-amber-300" id="dfm-adv-val">0.08mm overlap</td>
+                  <td class="py-2.5 px-3 font-mono text-zinc-400">≥ 0.15mm clearance</td>
+                  <td class="py-2.5 px-3 text-right" id="dfm-adv-badge"><span class="px-2 py-0.5 rounded bg-amber-500/15 text-amber-300 font-mono text-[11px]">ADVISORY</span></td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 font-medium">3D Shell Standoff Alignment</td>
+                  <td class="py-2.5 px-3 font-mono">4× M3 ±0.02mm</td>
+                  <td class="py-2.5 px-3 font-mono text-zinc-400">±0.10mm tolerance</td>
+                  <td class="py-2.5 px-3 text-right"><span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono text-[11px]">PASS</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 4. BOM & LCSC / HUAQIU SUPPLY CHAIN VIEWER -->
+        <div id="view-bom" class="wb-view hidden p-4 sm:p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-semibold text-zinc-100">Bill of Materials (HuaQiu Mall / LCSC Live Stock)</h3>
+              <p class="text-xs text-zinc-400">100% component availability verified • 0 EOL / NRND parts</p>
+            </div>
+            <div class="text-xs font-mono px-3 py-1.5 rounded-lg bg-[#222226] border border-hq-border text-emerald-400">
+              Est. PCBA BOM Cost: $14.82 / unit
+            </div>
+          </div>
+
+          <div class="rounded-xl border border-hq-border overflow-x-auto bg-[#1b1b1e]">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-[#232328] text-zinc-400 border-b border-hq-border">
+                <tr>
+                  <th class="py-2.5 px-3">Designator</th>
+                  <th class="py-2.5 px-3">MPN / Value</th>
+                  <th class="py-2.5 px-3">Package</th>
+                  <th class="py-2.5 px-3">HuaQiu SKU</th>
+                  <th class="py-2.5 px-3">Stock</th>
+                  <th class="py-2.5 px-3 text-right">Unit Price</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#28282d] text-zinc-200 font-mono text-[11px]">
+                <tr>
+                  <td class="py-2.5 px-3 text-sky-400">V1</td>
+                  <td class="py-2.5 px-3 font-sans">JJ ECC83-S + Ceramic B9A Socket</td>
+                  <td class="py-2.5 px-3">B9A-THT</td>
+                  <td class="py-2.5 px-3 text-zinc-400">C2948102</td>
+                  <td class="py-2.5 px-3 text-emerald-400">1,420 pcs</td>
+                  <td class="py-2.5 px-3 text-right">$8.40</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 text-sky-400">C1</td>
+                  <td class="py-2.5 px-3 font-sans">WIMA MKP4 0.1µF 400V</td>
+                  <td class="py-2.5 px-3">RAD-P10</td>
+                  <td class="py-2.5 px-3 text-zinc-400">C108492</td>
+                  <td class="py-2.5 px-3 text-emerald-400">18,900 pcs</td>
+                  <td class="py-2.5 px-3 text-right">$0.64</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 text-sky-400">R1, R4</td>
+                  <td class="py-2.5 px-3 font-sans">Vishay RN60D 100kΩ 1% 1W</td>
+                  <td class="py-2.5 px-3">AXIAL-0.4</td>
+                  <td class="py-2.5 px-3 text-zinc-400">C419022</td>
+                  <td class="py-2.5 px-3 text-emerald-400">42,100 pcs</td>
+                  <td class="py-2.5 px-3 text-right">$0.18</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 text-sky-400">U1</td>
+                  <td class="py-2.5 px-3 font-sans">TI TPS54302 + Boost HV Module</td>
+                  <td class="py-2.5 px-3">SOT-23-6</td>
+                  <td class="py-2.5 px-3 text-zinc-400">C116592</td>
+                  <td class="py-2.5 px-3 text-emerald-400">95,400 pcs</td>
+                  <td class="py-2.5 px-3 text-right">$1.12</td>
+                </tr>
+                <tr>
+                  <td class="py-2.5 px-3 text-sky-400">J1, J2</td>
+                  <td class="py-2.5 px-3 font-sans">Neutrik Gold RCA Chassis Jack</td>
+                  <td class="py-2.5 px-3">THT-RA</td>
+                  <td class="py-2.5 px-3 text-zinc-400">C512904</td>
+                  <td class="py-2.5 px-3 text-emerald-400">6,310 pcs</td>
+                  <td class="py-2.5 px-3 text-right">$2.15</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 5. 3D CAD / ECAD-MCAD CO-DESIGN VIEWER (Three.js Interactive Viewport) -->
+        <div id="view-cad" class="wb-view hidden h-full flex flex-col">
+          <div class="px-4 py-2 bg-[#1c1a17] border-b border-hq-border flex flex-wrap items-center justify-between gap-2 text-[11px] text-zinc-400">
+            <div class="flex items-center gap-3">
+              <span class="font-mono text-amber-300">enclosure_shell.scad / .step</span>
+              <span>Material: Anodized 6061 Aluminum / MJF Nylon</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <button onclick="toggleShellExplode()" id="btn-explode" class="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[11px] font-medium transition">
+                Explode Assembly
+              </button>
+              <button onclick="toggleShellOpacity()" class="px-2.5 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-[11px] transition">
+                X-Ray Shell
+              </button>
+            </div>
+          </div>
+          <div id="three-container" class="flex-1 w-full h-full relative bg-[#111113] cursor-grab active:cursor-grabbing">
+            <!-- Three.js Canvas mounts here -->
+            <div class="absolute bottom-3 left-3 px-2.5 py-1.5 rounded-lg bg-black/60 backdrop-blur border border-white/10 text-[11px] text-zinc-300 pointer-events-none">
+              Drag to orbit • ECAD/MCAD Clearance: <span class="text-emerald-400 font-mono">OK (1.8mm tube chimney gap)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. UNIFIED ORDER PLACING (PCB + PCBA + 3D SHELL) -->
+        <div id="view-order" class="wb-view hidden p-4 sm:p-5 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h3 class="text-base font-semibold text-zinc-100">HuaQiu One-Stop Hardware Turnkey Order</h3>
+              <p class="text-xs text-zinc-400">Unified fabrication & assembly bundle synced from DSH workspace <span class="font-mono text-zinc-300">ecc83</span></p>
+            </div>
+            <span class="px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-xs font-medium">
+              Est. Delivery: 5–7 Business Days
+            </span>
+          </div>
+
+          <!-- Quantity & Batch Selector -->
+          <div class="p-3.5 rounded-xl bg-[#202024] border border-hq-border flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <label class="text-xs text-zinc-300 font-medium">Production Batch Qty:</label>
+              <select id="order-qty" onchange="recalculateOrder()" class="bg-[#151518] border border-hq-border rounded-lg px-3 py-1.5 text-xs text-zinc-100 font-mono focus:outline-none">
+                <option value="5">5 Units (Prototype Batch)</option>
+                <option value="20" selected>20 Units (Pilot Run)</option>
+                <option value="100">100 Units (Small Production)</option>
+              </select>
+            </div>
+            <div class="text-xs text-zinc-400">
+              Bundled Logistics: <span class="text-zinc-200 font-medium">DHL Express Worldwide (Combined Box)</span>
+            </div>
+          </div>
+
+          <!-- 3 Sub-Orders: PCB + PCBA + 3D Shell -->
+          <div class="grid grid-cols-1 gap-3">
+            
+            <!-- Card A: Bare PCB Fabrication -->
+            <label class="p-3.5 rounded-xl bg-[#1d1d21] border border-hq-border hover:border-zinc-500 transition flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" id="chk-pcb" checked onchange="recalculateOrder()" class="mt-1 accent-hq-red w-4 h-4 rounded">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-zinc-100 flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono text-[10px]">PCB</span>
+                    4-Layer High-Tg FR4 Board (100×68mm)
+                  </span>
+                  <span id="price-pcb" class="font-mono text-xs font-semibold text-zinc-100">$28.00</span>
+                </div>
+                <p class="text-[11px] text-zinc-400 mt-1">1.6mm thickness • 2oz outer copper • Matte Black Solder Mask • ENIG Gold Finish • Milled HV Slots</p>
+              </div>
+            </label>
+
+            <!-- Card B: SMT + THT PCBA Assembly -->
+            <label class="p-3.5 rounded-xl bg-[#1d1d21] border border-hq-border hover:border-zinc-500 transition flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" id="chk-pcba" checked onchange="recalculateOrder()" class="mt-1 accent-hq-red w-4 h-4 rounded">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-semibold text-zinc-100 flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-400 font-mono text-[10px]">PCBA</span>
+                    Turnkey SMT + Selective Wave Soldering + X-Ray AOI
+                  </span>
+                  <span id="price-pcba" class="font-mono text-xs font-semibold text-zinc-100">$346.40</span>
+                </div>
+                <p class="text-[11px] text-zinc-400 mt-1">18 LCSC/HuaQiu verified BOM lines • Includes B9A Ceramic Socket THT assembly & +250V Hi-Pot Functional Test</p>
+              </div>
+            </label>
+
+            <!-- Card C: 3D CAD Shell Fabrication -->
+            <label class="p-3.5 rounded-xl bg-[#1d1d21] border border-hq-border hover:border-zinc-500 transition flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" id="chk-shell" checked onchange="recalculateOrder()" class="mt-1 accent-hq-red w-4 h-4 rounded">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-xs font-semibold text-zinc-100 flex items-center gap-2">
+                    <span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-mono text-[10px]">3D SHELL</span>
+                    Custom Enclosure (`enclosure_shell.step`)
+                  </span>
+                  <span id="price-shell" class="font-mono text-xs font-semibold text-zinc-100">$190.00</span>
+                </div>
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <select id="shell-process" onchange="recalculateOrder()" onclick="event.stopPropagation()" class="bg-[#141416] border border-hq-border rounded-md px-2.5 py-1 text-[11px] text-zinc-200 focus:outline-none">
+                    <option value="cnc">CNC 6061 Aluminum — Bead Blasted Black Anodized ($9.50/ea)</option>
+                    <option value="mjf">HP MJF Nylon PA12 — Dyed Matte Black 3D Print ($4.20/ea)</option>
+                    <option value="sla">Industrial SLA Resin — High-Temp Matte Grey ($2.80/ea)</option>
+                  </select>
+                  <span class="text-[11px] text-zinc-400">Includes M3 brass heat-set inserts & tube ventilation ring</span>
+                </div>
+              </div>
+            </label>
+          </div>
+
+          <!-- Total & Checkout Action Bar -->
+          <div class="p-4 rounded-xl bg-gradient-to-r from-[#241b1c] to-[#1e1e22] border border-[#3d282b] flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <div class="text-[11px] text-zinc-400">Combined Turnkey Total (PCB + PCBA + 3D Shell)</div>
+              <div id="order-total" class="text-2xl font-bold font-mono text-white">$564.40</div>
+            </div>
+            <button onclick="submitTurnkeyOrder()" id="btn-place-order" class="px-5 py-2.5 rounded-xl bg-hq-red hover:bg-hq-redHover text-white text-xs font-semibold shadow-lg shadow-red-950/50 transition flex items-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+              Submit Unified Order to HuaQiu Factory
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <!-- ===================================================================== -->
+  <!-- SETTINGS MODAL (Local KiCad & SolidCraft Installation Configuration)  -->
+  <!-- ===================================================================== -->
+  <div id="settings-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="w-full max-w-xl rounded-2xl bg-[#1c1c1f] border border-[#323238] shadow-2xl overflow-hidden flex flex-col">
+      <!-- Modal Header -->
+      <div class="px-5 py-4 border-b border-hq-border flex items-center justify-between bg-[#222226]">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded-lg bg-hq-red/20 text-hq-red flex items-center justify-center">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><circle cx="12" cy="12" r="3" stroke-width="2"/></svg>
+          </div>
+          <div>
+            <h2 class="text-sm font-semibold text-zinc-100">DSH Local Toolchain & Companion Apps</h2>
+            <p class="text-[11px] text-zinc-400">Configure local EDA/MCAD executables for one-click "Open in XXX" launching</p>
+          </div>
+        </div>
+        <button onclick="closeSettingsModal()" class="p-1.5 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-5 space-y-5 text-xs overflow-y-auto max-h-[75vh]">
+        
+        <!-- KiCad Local Installation -->
+        <div class="p-4 rounded-xl bg-[#151518] border border-hq-border space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="w-7 h-7 rounded-lg bg-sky-500/20 text-sky-400 font-bold flex items-center justify-center font-mono">Ki</span>
+              <div>
+                <div class="font-semibold text-zinc-100">KiCad EDA Suite (Schematic & PCB)</div>
+                <div class="text-[11px] text-zinc-400">Handles `.kicad_sch`, `.kicad_pcb`, and `.kicad_pro` files</div>
+              </div>
+            </div>
+            <span id="kicad-status-pill" class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-[10px] font-mono">
+              Detected v8.0.6
+            </span>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-[11px] text-zinc-400">Local Executable Path</label>
+            <div class="flex items-center gap-2">
+              <input id="input-kicad-path" type="text" value="/Applications/KiCad/KiCad.app/Contents/MacOS/kicad" class="flex-1 bg-[#202024] border border-hq-border rounded-lg px-3 py-2 font-mono text-[11px] text-zinc-100 focus:outline-none focus:border-sky-500" />
+              <button onclick="autoDetectTool('kicad')" class="px-2.5 py-2 rounded-lg bg-[#2a2a30] hover:bg-[#34343b] text-zinc-200 font-medium transition shrink-0">
+                Auto-Detect
+              </button>
+              <label class="px-2.5 py-2 rounded-lg bg-[#2a2a30] hover:bg-[#34343b] text-zinc-200 font-medium transition cursor-pointer shrink-0">
+                Browse...
+                <input type="file" class="hidden" onchange="handleFileBrowse(event, 'kicad')" />
+              </label>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-1 text-[11px] text-zinc-400">
+            <span>Quick OS Presets:</span>
+            <div class="flex gap-1.5 font-mono">
+              <button onclick="setToolPreset('kicad', 'C:\\Program Files\\KiCad\\8.0\\bin\\kicad.exe')" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">Win64</button>
+              <button onclick="setToolPreset('kicad', '/Applications/KiCad/KiCad.app/Contents/MacOS/kicad')" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">macOS</button>
+              <button onclick="setToolPreset('kicad', '/usr/bin/kicad')" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">Linux</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- SolidCraft Local Installation -->
+        <div class="p-4 rounded-xl bg-[#151518] border border-hq-border space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center font-mono">SC</span>
+              <div>
+                <div class="font-semibold text-zinc-100">SolidCraft 3D CAD (Enclosures & Mechanical)</div>
+                <div class="text-[11px] text-zinc-400">Handles `.scad`, `.step`, `.stp`, and `.stl` 3D shell files</div>
+              </div>
+            </div>
+            <span id="solidcraft-status-pill" class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 text-[10px] font-mono">
+              Detected v3.2.1
+            </span>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-[11px] text-zinc-400">Local Executable Path</label>
+            <div class="flex items-center gap-2">
+              <input id="input-solidcraft-path" type="text" value="/Applications/SolidCraft.app/Contents/MacOS/SolidCraft" class="flex-1 bg-[#202024] border border-hq-border rounded-lg px-3 py-2 font-mono text-[11px] text-zinc-100 focus:outline-none focus:border-amber-500" />
+              <button onclick="autoDetectTool('solidcraft')" class="px-2.5 py-2 rounded-lg bg-[#2a2a30] hover:bg-[#34343b] text-zinc-200 font-medium transition shrink-0">
+                Auto-Detect
+              </button>
+              <label class="px-2.5 py-2 rounded-lg bg-[#2a2a30] hover:bg-[#34343b] text-zinc-200 font-medium transition cursor-pointer shrink-0">
+                Browse...
+                <input type="file" class="hidden" onchange="handleFileBrowse(event, 'solidcraft')" />
+              </label>
+            </div>
+          </div>
+
+          <div class="flex items-center justify-between pt-1 text-[11px] text-zinc-400">
+            <span>Quick OS Presets:</span>
+            <div class="flex gap-1.5 font-mono">
+              <button onclick="setToolPreset('solidcraft', 'C:\\Program Files\\SolidCraft\\bin\\SolidCraft.exe')" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">Win64</button>
+              <button onclick="setToolPreset('solidcraft', '/Applications/SolidCraft.app/Contents/MacOS/SolidCraft')" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">macOS</button>
+              <button onclick="setToolPreset('solidcraft', '/usr/local/bin/solidcraft')" class="px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-300">Linux</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bidirectional IPC Sync Toggle -->
+        <div class="flex items-center justify-between px-1">
+          <div>
+            <div class="font-medium text-zinc-200">Live File-Watcher IPC Bridge</div>
+            <div class="text-[11px] text-zinc-400">Automatically re-run HuaQiu DFM when saved in KiCad or SolidCraft</div>
+          </div>
+          <input type="checkbox" checked class="w-4 h-4 accent-hq-red rounded">
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-5 py-3.5 border-t border-hq-border bg-[#222226] flex items-center justify-end gap-2">
+        <button onclick="closeSettingsModal()" class="px-3.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:bg-zinc-800 transition">Cancel</button>
+        <button onclick="saveSettings()" class="px-4 py-1.5 rounded-lg bg-hq-red hover:bg-hq-redHover text-white text-xs font-medium transition">Save Toolchain Paths</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- APPLICATION LOGIC & THREE.JS 3D CAD VIEWPORT                          -->
+  <!-- ===================================================================== -->
+  <script>
+    // Application State
+    const state = {
+      activeTab: 'schematic',
+      workbenchOpen: false,
+      kicadPath: '/Applications/KiCad/KiCad.app/Contents/MacOS/kicad',
+      solidcraftPath: '/Applications/SolidCraft.app/Contents/MacOS/SolidCraft',
+      dfmFixed: false,
+      cadExploded: false,
+      cadXray: false,
+      threeInitialized: false
+    };
+
+    // Toast notification helper (never uses alert)
+    function showToast(title, subtitle, accent = 'emerald') {
+      const container = document.getElementById('toast-container');
+      const colors = {
+        emerald: 'border-emerald-500/40 bg-[#18221e] text-emerald-300',
+        sky: 'border-sky-500/40 bg-[#17202b] text-sky-300',
+        amber: 'border-amber-500/40 bg-[#262016] text-amber-300',
+        red: 'border-red-500/40 bg-[#28181a] text-red-300'
+      };
+      const el = document.createElement('div');
+      el.className = `pointer-events-auto max-w-sm p-3.5 rounded-xl border shadow-2xl backdrop-blur-md transition-all duration-300 transform translate-y-2 opacity-0 ${colors[accent] || colors.emerald}`;
+      el.innerHTML = `
+        <div class="text-xs font-semibold text-zinc-100">${title}</div>
+        <div class="text-[11px] mt-0.5 opacity-90 font-mono break-all">${subtitle}</div>
+      `;
+      container.appendChild(el);
+      requestAnimationFrame(() => {
+        el.classList.remove('translate-y-2', 'opacity-0');
+      });
+      setTimeout(() => {
+        el.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => el.remove(), 300);
+      }, 4200);
+    }
+
+    // Navigation & View Controls
+    function resetToHome() {
+      document.getElementById('hero-view').classList.remove('hidden');
+      document.getElementById('chat-stream').classList.add('hidden');
+      document.getElementById('bottom-composer').classList.add('hidden');
+      document.getElementById('session-header').classList.add('hidden');
+      document.getElementById('workbench-pane').classList.add('hidden');
+      state.workbenchOpen = false;
+    }
+
+    function toggleInspector() {
+      const wb = document.getElementById('workbench-pane');
+      state.workbenchOpen = !state.workbenchOpen;
+      if (state.workbenchOpen) {
+        wb.classList.remove('hidden');
+        switchTab(state.activeTab);
+      } else {
+        wb.classList.add('hidden');
+      }
+    }
+
+    function openWorkspaceAtTab(tabName) {
+      document.getElementById('hero-view').classList.add('hidden');
+      document.getElementById('chat-stream').classList.remove('hidden');
+      document.getElementById('bottom-composer').classList.remove('hidden');
+      document.getElementById('session-header').classList.remove('hidden');
+      document.getElementById('workbench-pane').classList.remove('hidden');
+      state.workbenchOpen = true;
+
+      if (document.getElementById('chat-stream').children.length === 0) {
+        appendAgentMessage(
+          'Loaded workspace **ecc83-tube-preamp** into DSH Hardware Codex. All engineering artifacts—Schematic, 4-Layer PCB, HuaQiu DFM report, LCSC-matched BOM, 3D Enclosure CAD, and Turnkey Order bundle—are synchronized and ready.'
+        );
+      }
+      switchTab(tabName);
+    }
+
+    function switchTab(tabName) {
+      state.activeTab = tabName;
+
+      // Update Tab Pill Styling
+      document.querySelectorAll('.wb-tab').forEach(btn => {
+        if (btn.dataset.tab === tabName) {
+          btn.classList.add('bg-[#2c2c32]', 'text-white', 'shadow-sm');
+          btn.classList.remove('text-zinc-400', 'hover:text-zinc-200');
+        } else {
+          btn.classList.remove('bg-[#2c2c32]', 'text-white', 'shadow-sm');
+          btn.classList.add('text-zinc-400', 'hover:text-zinc-200');
+        }
+      });
+
+      // Toggle View Panels
+      document.querySelectorAll('.wb-view').forEach(view => view.classList.add('hidden'));
+      const activeView = document.getElementById(`view-${tabName}`);
+      if (activeView) activeView.classList.remove('hidden');
+
+      // Update Top-Right "Open in XXX" Launcher Button
+      updateExternalLauncherButton(tabName);
+
+      // Initialize Three.js when 3D CAD tab opens
+      if (tabName === 'cad') {
+        setTimeout(() => {
+          if (!state.threeInitialized) initThreeScene();
+          resizeThreeScene();
+        }, 50);
+      }
+    }
+
+    // Dynamic "Open in KiCad" / "Open in SolidCraft" Button on Top Right Corner of File Viewer
+    function updateExternalLauncherButton(tabName) {
+      const slot = document.getElementById('external-launcher-slot');
+      if (tabName === 'schematic' || tabName === 'pcb') {
+        const fileName = tabName === 'schematic' ? 'ecc83_main.kicad_sch' : 'ecc83_board.kicad_pcb';
+        const configured = Boolean(state.kicadPath && state.kicadPath.trim());
+        slot.innerHTML = `
+          <button onclick="launchExternalApp('kicad', '${fileName}')" class="px-3 py-1.5 rounded-lg bg-sky-600/20 hover:bg-sky-600/35 text-sky-300 border border-sky-500/40 text-xs font-medium flex items-center gap-1.5 transition shadow-sm" title="${configured ? state.kicadPath : 'Click to configure KiCad path'}">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+            Open in KiCad
+          </button>
+        `;
+      } else if (tabName === 'cad') {
+        const configured = Boolean(state.solidcraftPath && state.solidcraftPath.trim());
+        slot.innerHTML = `
+          <button onclick="launchExternalApp('solidcraft', 'enclosure_shell.scad')" class="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/35 text-amber-300 border border-amber-500/40 text-xs font-medium flex items-center gap-1.5 transition shadow-sm" title="${configured ? state.solidcraftPath : 'Click to configure SolidCraft path'}">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+            Open in SolidCraft
+          </button>
+        `;
+      } else if (tabName === 'bom') {
+        slot.innerHTML = `
+          <button onclick="showToast('Exported LCSC / HuaQiu CSV', 'Saved bom_lcsc_matched.csv to workspace', 'emerald')" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 text-xs font-medium transition">
+            Export BOM CSV
+          </button>
+        `;
+      } else if (tabName === 'dfm') {
+        slot.innerHTML = `
+          <button onclick="switchTab('order')" class="px-3 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-medium transition">
+            Proceed to Quote →
+          </button>
+        `;
+      } else {
+        slot.innerHTML = `
+          <span class="text-[11px] font-mono text-zinc-400">HuaQiu Cloud Factory API</span>
+        `;
+      }
+    }
+
+    function launchExternalApp(tool, fileName) {
+      if (tool === 'kicad') {
+        if (!state.kicadPath) {
+          openSettingsModal();
+          showToast('KiCad Path Not Set', 'Please select your local KiCad installation in Settings.', 'amber');
+          return;
+        }
+        showToast(
+          `Launching KiCad via DSH Bridge...`,
+          `exec "${state.kicadPath}" "${fileName}"`,
+          'sky'
+        );
+      } else if (tool === 'solidcraft') {
+        if (!state.solidcraftPath) {
+          openSettingsModal();
+          showToast('SolidCraft Path Not Set', 'Please select your local SolidCraft installation in Settings.', 'amber');
+          return;
+        }
+        showToast(
+          `Launching SolidCraft 3D CAD...`,
+          `exec "${state.solidcraftPath}" "${fileName}"`,
+          'amber'
+        );
+      }
+    }
+
+    // Settings Modal Handlers
+    function openSettingsModal() {
+      document.getElementById('input-kicad-path').value = state.kicadPath;
+      document.getElementById('input-solidcraft-path').value = state.solidcraftPath;
+      document.getElementById('settings-modal').classList.remove('hidden');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settings-modal').classList.add('hidden');
+    }
+
+    function setToolPreset(tool, path) {
+      if (tool === 'kicad') {
+        document.getElementById('input-kicad-path').value = path;
+      } else {
+        document.getElementById('input-solidcraft-path').value = path;
+      }
+    }
+
+    function autoDetectTool(tool) {
+      if (tool === 'kicad') {
+        const detected = '/Applications/KiCad/KiCad.app/Contents/MacOS/kicad';
+        document.getElementById('input-kicad-path').value = detected;
+        showToast('KiCad 8.0.6 Found', detected, 'sky');
+      } else {
+        const detected = '/Applications/SolidCraft.app/Contents/MacOS/SolidCraft';
+        document.getElementById('input-solidcraft-path').value = detected;
+        showToast('SolidCraft 3.2.1 Found', detected, 'amber');
+      }
+    }
+
+    function handleFileBrowse(event, tool) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const simulatedFullPath = `/usr/local/applications/${file.name}`;
+      if (tool === 'kicad') {
+        document.getElementById('input-kicad-path').value = simulatedFullPath;
+      } else {
+        document.getElementById('input-solidcraft-path').value = simulatedFullPath;
+      }
+    }
+
+    function saveSettings() {
+      state.kicadPath = document.getElementById('input-kicad-path').value.trim();
+      state.solidcraftPath = document.getElementById('input-solidcraft-path').value.trim();
+      closeSettingsModal();
+      updateExternalLauncherButton(state.activeTab);
+      showToast('Toolchain Settings Saved', 'KiCad & SolidCraft launchers updated.', 'emerald');
+    }
+
+    // Prompt & Agent Conversation Execution
+    function handleHeroKeydown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitHeroPrompt();
+      }
+    }
+
+    function handleChatKeydown(e) {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitChatInput();
+      }
+    }
+
+    function triggerQuickPrompt(text) {
+      document.getElementById('hero-prompt-input').value = text;
+      submitHeroPrompt();
+    }
+
+    function runFullEndToEndDemo() {
+      triggerQuickPrompt('Design ECC83 Class-A Dual-Triode Preamp: generate Schematic, 4-Layer PCB with HV creepage slot, run HuaQiu DFM, match LCSC BOM, build CNC Aluminum 3D Shell, and prepare turnkey order.');
+    }
+
+    function submitHeroPrompt() {
+      const input = document.getElementById('hero-prompt-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      openWorkspaceAtTab('schematic');
+      appendUserMessage(text);
+      simulateAgentPipelineResponse(text);
+    }
+
+    function submitChatInput() {
+      const input = document.getElementById('chat-input');
+      const text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+      appendUserMessage(text);
+      simulateAgentPipelineResponse(text);
+    }
+
+    function appendUserMessage(text) {
+      const stream = document.getElementById('chat-stream');
+      const div = document.createElement('div');
+      div.className = 'flex justify-end';
+      div.innerHTML = `
+        <div class="max-w-xl rounded-2xl rounded-tr-sm bg-[#2a2a2e] border border-[#3a3a40] px-4 py-3 text-xs sm:text-sm text-zinc-100 leading-relaxed shadow">
+          ${escapeHtml(text)}
+        </div>
+      `;
+      stream.appendChild(div);
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    function appendAgentMessage(htmlText, includeArtifactCards = false) {
+      const stream = document.getElementById('chat-stream');
+      const div = document.createElement('div');
+      div.className = 'flex items-start gap-3 max-w-2xl';
+      div.innerHTML = `
+        <div class="w-7 h-7 rounded-lg bg-hq-red flex items-center justify-center shrink-0 mt-0.5 shadow">
+          <span class="font-bold text-white text-xs">H!</span>
+        </div>
+        <div class="flex-1 space-y-3">
+          <div class="text-xs sm:text-sm text-zinc-200 leading-relaxed space-y-2">
+            ${htmlText}
+          </div>
+          ${includeArtifactCards ? `
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+            <button onclick="switchTab('schematic')" class="p-2.5 rounded-xl bg-[#1f2229] hover:bg-[#262b36] border border-sky-500/30 text-left transition">
+              <div class="text-[11px] font-semibold text-sky-400">1. Schematic</div>
+              <div class="text-[10px] text-zinc-400 font-mono truncate">ecc83_main.kicad_sch</div>
+            </button>
+            <button onclick="switchTab('pcb')" class="p-2.5 rounded-xl bg-[#1b2420] hover:bg-[#223029] border border-emerald-500/30 text-left transition">
+              <div class="text-[11px] font-semibold text-emerald-400">2. 4-Layer PCB</div>
+              <div class="text-[10px] text-zinc-400 font-mono truncate">ecc83_board.kicad_pcb</div>
+            </button>
+            <button onclick="switchTab('dfm')" class="p-2.5 rounded-xl bg-[#221d29] hover:bg-[#2c2536] border border-purple-500/30 text-left transition">
+              <div class="text-[11px] font-semibold text-purple-400">3. HuaQiu DFM</div>
+              <div class="text-[10px] text-zinc-400 font-mono truncate">Score: 98/100</div>
+            </button>
+            <button onclick="switchTab('bom')" class="p-2.5 rounded-xl bg-[#271d23] hover:bg-[#33242d] border border-pink-500/30 text-left transition">
+              <div class="text-[11px] font-semibold text-pink-400">4. LCSC BOM</div>
+              <div class="text-[10px] text-zinc-400 font-mono truncate">18/18 In Stock</div>
+            </button>
+            <button onclick="switchTab('cad')" class="p-2.5 rounded-xl bg-[#26221a] hover:bg-[#332d21] border border-amber-500/30 text-left transition">
+              <div class="text-[11px] font-semibold text-amber-400">5. 3D CAD Shell</div>
+              <div class="text-[10px] text-zinc-400 font-mono truncate">enclosure_shell.scad</div>
+            </button>
+            <button onclick="switchTab('order')" class="p-2.5 rounded-xl bg-[#291b1c] hover:bg-[#382224] border border-red-500/40 text-left transition">
+              <div class="text-[11px] font-semibold text-red-400">6. Turnkey Order</div>
+              <div class="text-[10px] text-zinc-400 font-mono truncate">PCB + PCBA + 3D</div>
+            </button>
+          </div>` : ''}
+        </div>
+      `;
+      stream.appendChild(div);
+      stream.scrollTop = stream.scrollHeight;
+    }
+
+    function simulateAgentPipelineResponse(promptText) {
+      const lower = promptText.toLowerCase();
+      if (lower.includes('3d') || lower.includes('shell') || lower.includes('cad') || lower.includes('enclosure')) {
+        switchTab('cad');
+        appendAgentMessage(
+          `<p>Updated parametric <strong>3D Enclosure Shell</strong> (<code class="text-amber-300">enclosure_shell.scad</code>) in SolidCraft format with a 28mm ventilated chimney cutout for the ECC83 vacuum tube and M3 brass standoffs aligned to <code class="text-emerald-300">ecc83_board.kicad_pcb</code>.</p>
+           <p class="text-zinc-400 text-xs">Click <strong>Open in SolidCraft</strong> on the top-right corner of the 3D viewer to edit native solid features locally.</p>`,
+          true
+        );
+      } else if (lower.includes('order') || lower.includes('quote') || lower.includes('pcba') || lower.includes('price')) {
+        switchTab('order');
+        appendAgentMessage(
+          `<p>Synchronized <strong>PCB + PCBA + 3D Shell</strong> manufacturing specifications with HuaQiu Factory API. Batch pricing and lead times are ready for review in the <strong>Order Placing</strong> tab.</p>`,
+          true
+        );
+      } else if (lower.includes('dfm')) {
+        switchTab('dfm');
+        appendAgentMessage(
+          `<p>Executed <strong>HuaQiu Smart DFM</strong> across copper layers, +250V anode creepage slots, and 3D enclosure clearance. Score: <strong class="text-emerald-400">98/100</strong>.</p>`,
+          true
+        );
+      } else {
+        switchTab('schematic');
+        appendAgentMessage(
+          `<p>Completed full-stack hardware synthesis for <strong>ECC83 Class-A Preamp</strong> inside DSH Harness:</p>
+           <ul class="list-disc pl-4 space-y-1 text-zinc-300 text-xs">
+             <li><strong>Schematic & PCB:</strong> Generated KiCad 8.0 files with star-ground topology and 3.2mm HV isolation slot.</li>
+             <li><strong>DFM & BOM:</strong> Verified 98/100 manufacturability score and locked 18/18 parts in HuaQiu/LCSC inventory.</li>
+             <li><strong>3D CAD & Turnkey Order:</strong> Generated CNC/3D-printable enclosure shell aligned with PCB mounting holes.</li>
+           </ul>`,
+          true
+        );
+      }
+    }
+
+    function autoFixDfm() {
+      if (state.dfmFixed) return;
+      state.dfmFixed = true;
+      document.getElementById('dfm-adv-val').textContent = '0.20mm clipped';
+      document.getElementById('dfm-adv-val').classList.replace('text-amber-300', 'text-emerald-400');
+      document.getElementById('dfm-adv-badge').innerHTML = `<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-mono text-[11px]">FIXED</span>`;
+      const btn = document.getElementById('btn-autofix-dfm');
+      btn.textContent = '100/100 Verified';
+      btn.classList.replace('bg-emerald-600', 'bg-zinc-700');
+      showToast('DFM Advisory Resolved', 'Clipped C1_WIMA silkscreen in ecc83_board.kicad_pcb', 'emerald');
+    }
+
+    // Order Calculator
+    function recalculateOrder() {
+      const qty = parseInt(document.getElementById('order-qty').value, 10);
+      const hasPcb = document.getElementById('chk-pcb').checked;
+      const hasPcba = document.getElementById('chk-pcba').checked;
+      const hasShell = document.getElementById('chk-shell').checked;
+      const shellProc = document.getElementById('shell-process').value;
+
+      const pcbTotal = hasPcb ? (12 + qty * 0.80) : 0;
+      const pcbaTotal = hasPcba ? (50 + qty * 14.82) : 0;
+      const shellUnit = shellProc === 'cnc' ? 9.50 : (shellProc === 'mjf' ? 4.20 : 2.80);
+      const shellTotal = hasShell ? (qty * shellUnit) : 0;
+
+      document.getElementById('price-pcb').textContent = `$${pcbTotal.toFixed(2)}`;
+      document.getElementById('price-pcba').textContent = `$${pcbaTotal.toFixed(2)}`;
+      document.getElementById('price-shell').textContent = `$${shellTotal.toFixed(2)}`;
+      document.getElementById('order-total').textContent = `$${(pcbTotal + pcbaTotal + shellTotal).toFixed(2)}`;
+    }
+
+    function submitTurnkeyOrder() {
+      const total = document.getElementById('order-total').textContent;
+      const qty = document.getElementById('order-qty').value;
+      const btn = document.getElementById('btn-place-order');
+      btn.innerHTML = `<span>Order #HQ-2026-8841 Submitted (${total})</span>`;
+      btn.classList.replace('bg-hq-red', 'bg-emerald-600');
+      showToast(
+        'Unified Turnkey Order Placed!',
+        `Batch: ${qty} units (PCB + PCBA + 3D Shell) • Total ${total}`,
+        'emerald'
+      );
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+    }
+
+    // =========================================================================
+    // THREE.JS INTERACTIVE 3D CAD ASSEMBLY (PCB + ECC83 TUBE + 3D SHELL)
+    // =========================================================================
+    let scene, camera, renderer, pcbGroup, topShellMesh, bottomShellMesh, tubeGroup;
+    let isDragging = false, prevMouse = { x: 0, y: 0 }, rotY = 0.55, rotX = 0.45;
+
+    function initThreeScene() {
+      const container = document.getElementById('three-container');
+      if (!container) return;
+      state.threeInitialized = true;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x111114);
+
+      camera = new THREE.PerspectiveCamera(42, container.clientWidth / container.clientHeight, 0.1, 1000);
+      camera.position.set(0, 7.5, 11.5);
+      camera.lookAt(0, 0, 0);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      container.appendChild(renderer.domElement);
+
+      // Lighting
+      const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+      scene.add(ambient);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+      dirLight.position.set(8, 14, 10);
+      scene.add(dirLight);
+      const warmGlow = new THREE.PointLight(0xff7b29, 1.4, 8);
+      warmGlow.position.set(0, 1.8, 0);
+      scene.add(warmGlow);
+
+      // Grid Helper
+      const grid = new THREE.GridHelper(18, 18, 0x2c2c34, 0x1d1d22);
+      grid.position.y = -1.6;
+      scene.add(grid);
+
+      // Root Assembly Group
+      const root = new THREE.Group();
+      scene.add(root);
+
+      // 1. Bottom 3D Shell Tray (Anodized Dark Aluminum)
+      const bottomGeo = new THREE.BoxGeometry(6.6, 0.35, 4.6);
+      const shellMat = new THREE.MeshStandardMaterial({
+        color: 0x2c3038,
+        metalness: 0.65,
+        roughness: 0.32,
+        transparent: true,
+        opacity: 0.95
+      });
+      bottomShellMesh = new THREE.Mesh(bottomGeo, shellMat);
+      bottomShellMesh.position.y = -0.8;
+      root.add(bottomShellMesh);
+
+      // 2. Green 4-Layer PCB + Components
+      pcbGroup = new THREE.Group();
+      const boardMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(6.0, 0.14, 4.08),
+        new THREE.MeshStandardMaterial({ color: 0x115e33, roughness: 0.4, metalness: 0.2 })
+      );
+      pcbGroup.add(boardMesh);
+
+      // WIMA Capacitors & Resistors
+      const capGeo = new THREE.BoxGeometry(0.65, 0.48, 0.35);
+      const capMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.3 });
+      const cap1 = new THREE.Mesh(capGeo, capMat);
+      cap1.position.set(1.3, 0.3, -0.6);
+      const cap2 = new THREE.Mesh(capGeo, capMat);
+      cap2.position.set(1.3, 0.3, 0.6);
+      pcbGroup.add(cap1, cap2);
+
+      // Gold RCA Jacks
+      const rcaGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.6, 20);
+      rcaGeo.rotateZ(Math.PI / 2);
+      const goldMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, metalness: 0.85, roughness: 0.2 });
+      const rcaIn = new THREE.Mesh(rcaGeo, goldMat);
+      rcaIn.position.set(-3.1, 0.28, 0);
+      const rcaOut = new THREE.Mesh(rcaGeo, goldMat);
+      rcaOut.position.set(3.1, 0.28, 0);
+      pcbGroup.add(rcaIn, rcaOut);
+
+      // ECC83 Vacuum Tube + glowing heater filament
+      tubeGroup = new THREE.Group();
+      const socketMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.62, 0.65, 0.32, 24),
+        new THREE.MeshStandardMaterial({ color: 0xe5e7eb, roughness: 0.5 })
+      );
+      socketMesh.position.y = 0.22;
+      const glassMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.54, 0.54, 1.85, 24),
+        new THREE.MeshPhysicalMaterial({
+          color: 0xdbeafe,
+          transparent: true,
+          opacity: 0.35,
+          roughness: 0.1,
+          metalness: 0.1
+        })
+      );
+      glassMesh.position.y = 1.25;
+      const heaterMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.14, 0.14, 1.1, 12),
+        new THREE.MeshBasicMaterial({ color: 0xff6a00 })
+      );
+      heaterMesh.position.y = 1.15;
+      tubeGroup.add(socketMesh, glassMesh, heaterMesh);
+      pcbGroup.add(tubeGroup);
+
+      root.add(pcbGroup);
+
+      // 3. Top 3D Enclosure Shell (CNC / MJF Printed Cover)
+      const topGeo = new THREE.BoxGeometry(6.6, 0.85, 4.6);
+      topShellMesh = new THREE.Mesh(topGeo, shellMat);
+      topShellMesh.position.y = 0.45;
+      root.add(topShellMesh);
+
+      // Mouse / Touch Orbit Controls
+      const dom = renderer.domElement;
+      dom.addEventListener('mousedown', e => { isDragging = true; prevMouse = { x: e.clientX, y: e.clientY }; });
+      window.addEventListener('mouseup', () => { isDragging = false; });
+      window.addEventListener('mousemove', e => {
+        if (!isDragging) return;
+        rotY += (e.clientX - prevMouse.x) * 0.008;
+        rotX = Math.max(-0.4, Math.min(1.2, rotX + (e.clientY - prevMouse.y) * 0.008));
+        prevMouse = { x: e.clientX, y: e.clientY };
+      });
+
+      dom.addEventListener('touchstart', e => {
+        if (e.touches.length === 1) {
+          isDragging = true;
+          prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }
+      }, { passive: true });
+      dom.addEventListener('touchmove', e => {
+        if (!isDragging || e.touches.length !== 1) return;
+        rotY += (e.touches[0].clientX - prevMouse.x) * 0.008;
+        rotX = Math.max(-0.4, Math.min(1.2, rotX + (e.touches[0].clientY - prevMouse.y) * 0.008));
+        prevMouse = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }, { passive: true });
+      dom.addEventListener('touchend', () => { isDragging = false; });
+
+      window.addEventListener('resize', resizeThreeScene);
+
+      function animate() {
+        requestAnimationFrame(animate);
+        if (!isDragging) rotY += 0.003;
+        root.rotation.y = rotY;
+        root.rotation.x = rotX;
+
+        // Smooth explode animation
+        const targetTopY = state.cadExploded ? 2.2 : 0.45;
+        const targetBotY = state.cadExploded ? -1.8 : -0.8;
+        topShellMesh.position.y += (targetTopY - topShellMesh.position.y) * 0.1;
+        bottomShellMesh.position.y += (targetBotY - bottomShellMesh.position.y) * 0.1;
+
+        renderer.render(scene, camera);
+      }
+      animate();
+    }
+
+    function resizeThreeScene() {
+      const container = document.getElementById('three-container');
+      if (!container || !renderer || !camera) return;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      if (w === 0 || h === 0) return;
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+
+    function toggleShellExplode() {
+      state.cadExploded = !state.cadExploded;
+      document.getElementById('btn-explode').textContent = state.cadExploded ? 'Collapse Assembly' : 'Explode Assembly';
+    }
+
+    function toggleShellOpacity() {
+      state.cadXray = !state.cadXray;
+      if (topShellMesh) {
+        topShellMesh.material.opacity = state.cadXray ? 0.25 : 0.95;
+      }
+    }
+
+    // Initialize default launcher state on load
+    window.onload = function () {
+      updateExternalLauncherButton('schematic');
+      recalculateOrder();
+    };
+  </script>
+</body>
+</html>
