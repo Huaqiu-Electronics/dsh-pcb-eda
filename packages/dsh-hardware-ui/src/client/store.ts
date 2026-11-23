@@ -1,9 +1,9 @@
 /**
- * One store handle shared by the navigation, viewer, context action and
- * settings registrations. It follows DSH's declared-store contract: a spec
- * (init + complete write set) plus a per-scope instance factory. The handle is
- * created inside `apply()`, never at module scope, so a plugin reload cannot
- * resurrect an old snapshot.
+ * One store handle shared by the navigation, viewer and settings
+ * registrations. It follows DSH's declared-store contract: a spec (init +
+ * complete write set) plus a per-scope instance factory. The handle is created
+ * inside `apply()`, never at module scope, so a plugin reload cannot resurrect
+ * an old snapshot.
  */
 import type {
   HardwareActions, HardwareDestination, HardwareState, DiscoveryInfo, InstallationsInfo,
@@ -32,6 +32,20 @@ function initial(): HardwareState {
   return { activeDestination: 'schematic', revision: 0 }
 }
 
+/** A selected project resets artifact selections to its own defaults. */
+function adoptProject(draft: Mutable<HardwareState>, project: DiscoveryInfo['selected']): void {
+  draft.projectPath = project?.path
+  const schematic = project?.sheetPath ?? project?.schematic?.path ?? project?.rootSheet?.path
+  if (schematic === undefined) delete draft.schematicPath
+  else draft.schematicPath = schematic
+  if (schematic === undefined) delete draft.sheetPath
+  else draft.sheetPath = schematic
+  const board = project?.defaultBoard ?? project?.boards?.[0]?.path
+  if (board === undefined) delete draft.pcbPath
+  else draft.pcbPath = board
+  draft.bomPath = project?.bom?.path
+}
+
 const mutators = {
   setActive(draft: Mutable<HardwareState>, destination: HardwareDestination): void {
     draft.activeDestination = destination
@@ -43,17 +57,21 @@ const mutators = {
   setDiscovery(draft: Mutable<HardwareState>, discovery: DiscoveryInfo): void {
     draft.discovery = discovery
     draft.workspaceRoot = discovery.cwd ?? draft.workspaceRoot
-    draft.projectPath = discovery.selected?.path
-    const selected = discovery.selected
-    draft.schematicPath = selected?.sheetPath ?? selected?.schematic?.path
-    draft.pcbPath = selected?.boards?.[0]?.path ?? selected?.pcb3d?.path
-    draft.mechanicalPath = selected?.mechanical?.[0]?.path
+    adoptProject(draft, discovery.selected)
     draft.revision += 1
   },
-  selectArtifact(draft: Mutable<HardwareState>, path: string, kind: 'schematic' | 'pcb' | 'mechanical-3d'): void {
-    if (kind === 'schematic') draft.schematicPath = path
-    else if (kind === 'pcb') draft.pcbPath = path
-    else draft.mechanicalPath = path
+  selectProject(draft: Mutable<HardwareState>, path: string): void {
+    const project = draft.discovery?.projects?.find(candidate => candidate.path === path)
+    adoptProject(draft, project)
+    draft.revision += 1
+  },
+  selectArtifact(draft: Mutable<HardwareState>, path: string, kind: 'schematic' | 'pcb'): void {
+    if (kind === 'schematic') {
+      draft.schematicPath = path
+      draft.sheetPath = path
+    } else {
+      draft.pcbPath = path
+    }
     draft.revision += 1
   },
   setInstallations(draft: Mutable<HardwareState>, installations: InstallationsInfo): void {
@@ -87,6 +105,7 @@ export function createHardwareStore(): HardwareStoreHandle {
           setActive: destination => commit(draft => mutators.setActive(draft, destination)),
           setWorkspaceRoot: root => commit(draft => { draft.workspaceRoot = root }),
           setDiscovery: discovery => commit(draft => mutators.setDiscovery(draft, discovery)),
+          selectProject: path => commit(draft => mutators.selectProject(draft, path)),
           selectArtifact: (path, kind) => commit(draft => mutators.selectArtifact(draft, path, kind)),
           setInstallations: installations => commit(draft => mutators.setInstallations(draft, installations)),
           setNotice: notice => commit(draft => mutators.setNotice(draft, notice)),

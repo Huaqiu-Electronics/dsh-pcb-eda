@@ -19,7 +19,19 @@ export default defineConfig([
     dts: false,
     sourcemap: true,
     clean: false,
-    deps: { neverBundle: [/^@deepseek-ai\//, 'react', 'react-dom', /^react\//] },
+    deps: {
+      neverBundle: [/^@deepseek-ai\//, 'react', 'react-dom', /^react\//],
+      // Browser-only rendering deps must be inlined: the DSH client ModuleLoader
+      // can only `require` its own injected modules, not arbitrary npm packages.
+      alwaysBundle: [
+        /^@huaqiu\/(ecad-renderer|ecad-viewer-app)(\/|$)/,
+        /^@huaqiu\/kicad-sexpr-parser(\/|$)/,
+        'immutable',
+        'jszip',
+        'three',
+        /^three\//,
+      ],
+    },
     outputOptions: {
       entryFileNames: 'client.js',
       banner: `window.__ModuleLoader__.load({ id: ${JSON.stringify(CLIENT_ID)}, factory: (require) => {`,

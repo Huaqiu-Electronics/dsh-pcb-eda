@@ -12,6 +12,7 @@ import {
   type HardwareActions, type HardwareArtifactInfo, type HardwareDestination,
   type HardwareInjected, type HardwareInstallationConfig, type HardwareState,
 } from './model.js'
+import { HardwarePreview } from './preview.js'
 
 type UseStore = <S>(selector: (state: HardwareState) => S) => S
 
@@ -60,12 +61,12 @@ function option(value: string, label: string, selected: boolean): ReactNode {
   return createElement('option', { key: value, value, selected }, label)
 }
 
-function artifactOptions(artifacts: readonly HardwareArtifactInfo[] | undefined, kind: string): ReactNode[] {
-  return (artifacts ?? []).filter(artifact => artifact.kind === kind || kind === 'any')
+function artworkOptions(artifacts: readonly HardwareArtifactInfo[] | undefined, kind: string): ReactNode[] {
+  return (artifacts ?? []).filter(artifact => artifact.kind === kind)
     .map(artifact => option(artifact.path, artifact.title || artifact.path, false))
 }
 
-/** Six persistent destinations in the conversation header's leading seat. */
+/** Five persistent destinations in the conversation header's leading seat. */
 export function EngineeringNav({
   useStore, actions, hooks, useSessions,
 }: SlotProps & {
@@ -90,6 +91,7 @@ export function EngineeringNav({
         key: destination, type: 'button',
         style: destination === active ? ACTIVE : TAB,
         'aria-pressed': destination === active,
+        'data-destination': destination,
         onClick: () => {
           actions.setActive(destination)
           hooks.openDestination(destination)
@@ -101,109 +103,168 @@ export function EngineeringNav({
   )
 }
 
-/** Right-panel body: one artifact at a time, with explicit selectors. */
+/** The artifact a destination previews, with its canonical identity. */
+export function selectedArtifact(state: HardwareState, destination: HardwareDestination): HardwareArtifactInfo | undefined {
+  const project = state.discovery?.selected
+  const schematic: HardwareArtifactInfo | undefined = state.schematicPath === undefined
+    ? project?.schematic
+    : { id: `schematic:${state.schematicPath}`, kind: 'schematic', path: state.schematicPath, title: state.schematicPath.split(/[\\/]/u).pop() ?? state.schematicPath }
+  const board: HardwareArtifactInfo | undefined = state.pcbPath === undefined
+    ? project?.boards?.find(candidate => candidate.path === project?.defaultBoard) ?? project?.boards?.[0]
+    : { id: `pcb:${state.pcbPath}`, kind: 'pcb', path: state.pcbPath, title: state.pcbPath.split(/[\\/]/u).pop() ?? state.pcbPath }
+  if (destination === 'schematic' || destination === 'bom') return schematic
+  if (destination === 'pcb' || destination === '3d') return board
+  return board
+}
+
+function missingReason(state: HardwareState, destination: HardwareDestination): string | undefined {
+  const discovery = state.discovery
+  if (discovery === undefined) return undefined
+  if (discovery.issue?.code === 'selection-required' && discovery.projects !== undefined && discovery.projects.length > 1) {
+    return `${discovery.projects.length} projects found; choose one explicitly.`
+  }
+  if (discovery.selected === undefined) return 'No hardware project selected. Open or select a hardware project.'
+  if (destination === 'schematic' || destination === 'bom') {
+    if (discovery.selected.schematic === undefined) return 'This project has no discoverable root schematic.'
+  }
+  if (destination === 'pcb' || destination === '3d') {
+    if ((discovery.selected.boards?.length ?? 0) === 0) return 'This project has no discoverable .kicad_pcb board.'
+  }
+  if (destination === 'order') {
+    if ((discovery.selected.boards?.length ?? 0) === 0) return 'Select a board before quoting or ordering fabrication.'
+  }
+  return undefined
+}
+
+/** Right-panel body: one destination at a time, with explicit selectors. */
 export function HardwareViewerBody({
   useStore, actions, hooks, tab,
 }: SlotProps & {
-  tab?: { readonly navigation?: { readonly params?: Readonly<Record<string, unknown>>; readonly revision?: number } }
+  tab?: {
+    readonly navigation?: {
+      readonly params?: Readonly<Record<string, unknown>>
+      readonly revision?: number
+    }
+  }
 }): ReactNode {
   const active = useStore(state => state.activeDestination)
   const discovery = useStore(state => state.discovery)
   const projectPath = useStore(state => state.projectPath)
   const schematicPath = useStore(state => state.schematicPath)
   const pcbPath = useStore(state => state.pcbPath)
-  const mechanicalPath = useStore(state => state.mechanicalPath)
   const notice = useStore(state => state.notice)
+  const installations = useStore(state => state.installations)
   const revision = tab?.navigation?.revision ?? 0
-  const selectedProject = discovery?.selected ?? discovery?.projects?.[0]
-  const application = applicationFor(active)
-  const installed = useStore(state => state.installations)
-  const configured = application === 'kicad'
-    ? installed?.kicad?.configured ?? false
-    : installed?.solidcraft?.configured ?? false
+  const selectedProject = discovery?.selected
 
-  useEffect(() => { void hooks.refreshDiscovery() }, [revision, hooks])
   useEffect(() => { void hooks.fetchInstallations() }, [hooks])
 
-  const artifactPath = active === '3d' ? mechanicalPath
-    : active === 'bom' ? schematicPath
-      : active === 'schematic' || active === 'dfm' ? schematicPath
-        : active === 'pcb' ? pcbPath : undefined
+  const artifact = useStore(state => selectedArtifact(state, active))
+  const reason = useStore(state => missingReason(state, active))
+  const application = applicationFor(active)
+  const kicadConfigured = installations?.kicad?.configured ?? false
+  const nativeLabel = application === 'kicad' ? 'Open in KiCad' : 'No native action'
+  const canOpenNative = application !== undefined && kicadConfigured && artifact !== undefined && active !== 'order'
+
+  const header = createElement(
+    'div',
+    { style: HEADER },
+    createElement('h2', { style: TITLE }, DESTINATION_LABELS[active]),
+    ...(application === undefined ? [] : [createElement(
+      'button',
+      {
+        key: 'native', type: 'button', style: BUTTON, disabled: !canOpenNative,
+        title: canOpenNative
+          ? `${nativeLabel}: ${artifact?.path ?? ''}`
+          : kicadConfigured
+            ? 'Select an artifact before opening it in KiCad.'
+            : 'Configure KiCad in Settings → Hardware Engineering.',
+        'data-hardware-native-open': true,
+        onClick: () => { void hooks.openNative(application, artifact?.path).catch(error => actions.setNotice(String(error))) },
+      },
+      nativeLabel,
+    )]),
+  )
+
+  const selectors: ReactNode[] = []
+  if (discovery !== undefined && (discovery.projects?.length ?? 0) > 0) {
+    selectors.push(createElement(
+      'label',
+      { key: 'project', style: FIELD },
+      'Project',
+      createElement('select', {
+        style: SELECT, value: projectPath ?? '',
+        onChange: (event: ChangeEvent<HTMLSelectElement>) => {
+          actions.selectProject(event.currentTarget.value)
+          void hooks.refreshDiscovery(undefined, event.currentTarget.value)
+        },
+      },
+      option('', 'Select a project…', projectPath === undefined),
+      ...(discovery?.projects ?? []).map(project => option(project.path, project.name, project.path === projectPath))),
+    ))
+  }
+  if ((active === 'schematic' || active === 'bom') && selectedProject !== undefined) {
+    const candidates: HardwareArtifactInfo[] = [selectedProject.schematic, ...(selectedProject.sheets ?? [])]
+      .filter((candidate): candidate is HardwareArtifactInfo => candidate !== undefined)
+    selectors.push(createElement(
+      'label',
+      { key: 'sheet', style: FIELD },
+      'Schematic / sheet',
+      createElement('select', {
+        style: SELECT, value: schematicPath ?? '',
+        onChange: (event: ChangeEvent<HTMLSelectElement>) => {
+          actions.selectArtifact(event.currentTarget.value, 'schematic')
+          hooks.openDestination(active, event.currentTarget.value)
+        },
+      },
+      option('', 'Select a schematic…', schematicPath === undefined),
+      ...candidates.map(candidate => option(candidate.path, candidate.title, false))),
+    ))
+  }
+  if ((active === 'pcb' || active === '3d' || active === 'order') && selectedProject !== undefined) {
+    selectors.push(createElement(
+      'label',
+      { key: 'board', style: FIELD },
+      'Board',
+      createElement('select', {
+        style: SELECT, value: pcbPath ?? '',
+        onChange: (event: ChangeEvent<HTMLSelectElement>) => {
+          actions.selectArtifact(event.currentTarget.value, 'pcb')
+          hooks.openDestination(active, event.currentTarget.value)
+        },
+      },
+      option('', 'Select a board…', pcbPath === undefined),
+      ...artworkOptions(selectedProject.boards, 'pcb')),
+    ))
+  }
 
   return createElement(
     'div',
     { style: ROOT, 'data-hardware-destination': active },
-    createElement(
-      'div',
-      { style: HEADER },
-      createElement('h2', { style: TITLE }, DESTINATION_LABELS[active]),
-      createElement(
-        'button',
-        {
-          type: 'button', style: BUTTON, disabled: application === undefined || !configured,
-          onClick: () => { void hooks.openNative(application, artifactPath).catch(error => actions.setNotice(String(error))) },
-        },
-        application === 'kicad' ? 'Open in KiCad'
-          : application === 'solidcraft' ? 'Open in SolidCraft' : 'No native action',
-      ),
-    ),
+    header,
     ...(notice === undefined ? [] : [createElement('p', { key: 'notice', style: MUTED, role: 'status' }, notice)]),
-    ...(discovery?.issue === undefined ? [] : [createElement('p', {
-      key: 'issue', style: MUTED, role: 'status',
-    }, discovery.issue.message)]),
-    createElement('p', { style: MUTED }, projectPath === undefined ? 'No canonical KiCad project selected.' : `Project: ${projectPath}`),
-    ...(selectedProject === undefined ? [createElement('div', { key: 'empty' },
-      createElement('p', { style: MUTED }, 'Open Project · New Project · Ask AI Hardware Engineer'),
-    )] : [
-      createElement(
-        'label',
-        { key: 'project', style: FIELD },
-        'Project',
-        createElement('select', {
-          style: SELECT, value: projectPath ?? '',
-          onChange: (event: ChangeEvent<HTMLSelectElement>) => { void hooks.refreshDiscovery(undefined, event.currentTarget.value) },
-        },
-        option('', 'Select a project…', projectPath === undefined),
-        ...(discovery?.projects ?? []).map(project => option(project.path, project.name, project.path === projectPath))),
-      ),
-      ...(active === 'schematic' || active === 'bom' || active === 'dfm' ? [
-        createElement('label', { key: 'sheet', style: FIELD }, 'Schematic / sheet',
-          createElement('select', {
-            style: SELECT, value: schematicPath ?? '',
-            onChange: (event: ChangeEvent<HTMLSelectElement>) => { actions.selectArtifact(event.currentTarget.value, 'schematic'); hooks.openDestination(active, event.currentTarget.value) },
-          },
-          option('', 'Select a schematic…', schematicPath === undefined),
-          ...(selectedProject.schematic === undefined ? [] : [option(selectedProject.schematic.path, selectedProject.schematic.title, false)]),
-          ...artifactOptions(selectedProject.sheets, 'schematic'))),
-      ] : []),
-      ...(active === 'pcb' || active === 'dfm' ? [
-        createElement('label', { key: 'board', style: FIELD }, 'Board',
-          createElement('select', {
-            style: SELECT, value: pcbPath ?? '',
-            onChange: (event: ChangeEvent<HTMLSelectElement>) => { actions.selectArtifact(event.currentTarget.value, 'pcb'); hooks.openDestination(active, event.currentTarget.value) },
-          },
-          option('', 'Select a board…', pcbPath === undefined),
-          ...artifactOptions(selectedProject.boards, 'pcb'))),
-      ] : []),
-      ...(active === '3d' ? [
-        createElement('label', { key: 'model', style: FIELD }, 'Mechanical model',
-          createElement('select', {
-            style: SELECT, value: mechanicalPath ?? '',
-            onChange: (event: ChangeEvent<HTMLSelectElement>) => { actions.selectArtifact(event.currentTarget.value, 'mechanical-3d'); hooks.openDestination(active, event.currentTarget.value) },
-          },
-          option('', 'Select a model…', mechanicalPath === undefined),
-          ...artifactOptions(selectedProject.mechanical, 'mechanical-3d'))),
-      ] : []),
-      ...(active === 'order' ? [
-        createElement('p', { key: 'order', style: MUTED },
-          'PCB Fabrication and PCBA Assembly use the existing quote/order tools. Quote and order are separate steps.'),
-      ] : []),
-      createElement('p', { key: 'artifact', style: MUTED },
-        artifactPath === undefined ? 'No artifact selected for this destination.' : `Selected: ${artifactPath}`),
-    ]),
-    ...(configured ? [] : [createElement('p', {
+    ...(discovery?.issue === undefined || discovery.issue.code === 'selection-required' && (discovery.projects?.length ?? 0) <= 1
+      ? []
+      : [createElement('p', { key: 'issue', style: MUTED, role: 'status' }, discovery.issue.message)]),
+    createElement('p', { key: 'project-path', style: MUTED },
+      projectPath === undefined ? 'No canonical KiCad project selected.' : `Project: ${projectPath}`),
+    ...selectors,
+    ...(reason === undefined
+      ? [createElement(HardwarePreview, {
+          key: `preview:${revision}`,
+          destination: active,
+          artifact,
+          projectPath,
+          revision: revision,
+          notice,
+        })]
+      : [createElement('p', { key: 'reason', style: MUTED, role: 'status', 'data-hardware-state': 'missing' }, reason)]),
+    ...(application === undefined || kicadConfigured ? [] : [createElement('p', {
       key: 'unconfigured', style: MUTED,
-    }, `Configure ${application === 'solidcraft' ? 'SolidCraft' : 'KiCad'} in Settings → Hardware Engineering to enable the native action.`)]),
+    }, 'Configure KiCad in Settings → Hardware Engineering to enable previews and native open.')]),
+    ...(artifact === undefined || reason !== undefined ? [] : [createElement('p', {
+      key: 'identity', style: MUTED, 'data-hardware-identity': true,
+    }, `Selected: ${artifact.path}`)]),
   )
 }
 
@@ -243,41 +304,14 @@ export function HardwareSettingsSection({ hooks }: { readonly hooks: HardwareInj
       createElement('input', { style: INPUT, value: kicadRoot, onChange: event => setKicadRoot(event.currentTarget.value) }),
     ),
     createElement('button', { type: 'button', style: BUTTON, onClick: () => { void save('kicad', kicadRoot) } }, 'Validate / Save KiCad'),
+    createElement('p', { style: MUTED },
+      'Used for PCB GLB export, native artifact opening, and the agent environment context.'),
     createElement('label', { style: FIELD }, 'SolidCraft installation root or executable path',
       createElement('input', { style: INPUT, value: solidcraftRoot, onChange: event => setSolidcraftRoot(event.currentTarget.value) }),
     ),
     createElement('button', { type: 'button', style: BUTTON, onClick: () => { void save('solidcraft', solidcraftRoot) } }, 'Validate / Save SolidCraft'),
+    createElement('p', { style: MUTED },
+      'SolidCraft is agent environment context only in this POC; it has no native open action.'),
     ...(message === '' ? [] : [createElement('p', { style: MUTED, role: 'status' }, message)]),
   )
-}
-
-/** Compact contextual action in the conversation header corner. */
-export function ContextualOpenAction({ useStore, hooks }: SlotProps): ReactNode {
-  const active = useStore(state => state.activeDestination)
-  const schematicPath = useStore(state => state.schematicPath)
-  const pcbPath = useStore(state => state.pcbPath)
-  const mechanicalPath = useStore(state => state.mechanicalPath)
-  const application = applicationFor(active)
-  const installations = useStore(state => state.installations)
-  const configured = application === 'kicad'
-    ? installed(installations?.kicad?.configured)
-    : installed(installations?.solidcraft?.configured)
-  const label = useMemo(() => application === 'kicad' ? 'Open in KiCad'
-    : application === 'solidcraft' ? 'Open in SolidCraft' : '', [application])
-  if (label === '') return null
-  const artifactPath = application === 'solidcraft' ? mechanicalPath
-    : active === 'pcb' || active === 'dfm' ? pcbPath : schematicPath
-  return createElement(
-    'button',
-    {
-      type: 'button', style: BUTTON, disabled: !configured || artifactPath === undefined,
-      title: configured ? label : `${label} is unavailable until its installation is configured`,
-      onClick: () => { void hooks.openNative(application, artifactPath) },
-    },
-    label,
-  )
-}
-
-function installed(value: boolean | undefined): boolean {
-  return value ?? false
 }

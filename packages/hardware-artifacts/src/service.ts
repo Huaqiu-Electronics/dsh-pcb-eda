@@ -3,15 +3,19 @@
  *
  * This module deliberately has no Cordis dependency: it is the testable core
  * behind `hardwareArtifacts`. Native project files remain authoritative; the
- * objects here are path pointers and verified installation facts, never a
- * shadow project database.
+ * objects here are path pointers, verified installation facts and disposable
+ * derived outputs, never a shadow project database.
  */
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { tmpdir } from 'node:os'
 
 export type ArtifactKind = 'schematic' | 'pcb' | 'pcb-3d' | 'bom' | 'mechanical-3d'
-export type NativeApplication = 'kicad' | 'solidcraft'
+/** Native handoff is KiCad-only in this POC; SolidCraft stays agent context. */
+export type NativeApplication = 'kicad'
 
 export interface HardwareArtifact {
   readonly id: string
@@ -22,16 +26,22 @@ export interface HardwareArtifact {
   readonly sourcePath?: string
   readonly title: string
   readonly format: string
+  /** Content hash of the saved source, filled when the source is read. */
+  readonly revision?: string
 }
 
 export interface HardwareProject {
   readonly path: string
   readonly name: string
+  /** Root schematic: the authoritative project entry point. */
+  readonly rootSheet?: HardwareArtifact
   readonly schematic?: HardwareArtifact
   /** Semantic views; both keep the identity of their source artifact. */
   readonly bom?: HardwareArtifact
   readonly pcb3d?: HardwareArtifact
   readonly sheets: readonly HardwareArtifact[]
+  /** Deterministic default board, only when ownership is unambiguous. */
+  readonly defaultBoard?: string
   readonly boards: readonly HardwareArtifact[]
   readonly mechanical: readonly HardwareArtifact[]
   readonly selectionRequired: boolean
@@ -77,6 +87,56 @@ export interface OpenArtifactResult {
   readonly pid?: number
 }
 
+export interface SourceRequest {
+  readonly artifactPath: string
+  readonly expectedRevision?: string
+  /** Workspace roots the caller is currently authorized to read. */
+  readonly roots?: readonly string[]
+}
+
+export interface SourceResult {
+  readonly path: string
+  readonly kind: 'schematic' | 'pcb'
+  readonly revision: string
+  readonly bytes: number
+  readonly mtimeMs: number
+  readonly text: string
+}
+
+export interface GlbRequest {
+  readonly artifactPath: string
+  readonly roots?: readonly string[]
+  readonly signal?: AbortSignal
+}
+
+export interface GlbResult {
+  readonly path: string
+  readonly revision: string
+  readonly bytes: number
+  readonly generatedAt: string
+  readonly cached: boolean
+  readonly file: string
+}
+
+/** One grouped BOM line, as KiCad's own BOM export groups it. */
+export interface BomRow {
+  readonly references: readonly string[]
+  readonly quantity: number
+  readonly value: string
+  readonly footprint: string
+  readonly dnp: boolean
+  readonly fields: Readonly<Record<string, string>>
+}
+
+export interface BomResult {
+  readonly path: string
+  readonly revision: string
+  readonly generatedAt: string
+  readonly cached: boolean
+  readonly rows: readonly BomRow[]
+  readonly source: 'kicad-cli-bom'
+}
+
 export interface HardwareArtifactsOptions {
   readonly kicadRoot?: string
   readonly solidcraftRoot?: string
@@ -86,6 +146,17 @@ export interface HardwareArtifactsOptions {
     args: readonly string[],
     options: { cwd: string; detached: boolean; stdio: 'ignore'; windowsHide: boolean; shell: false },
   ) => Pick<ChildProcess, 'pid'>
+  /** Runs one short-lived CLI command and returns its exit facts. */
+  readonly runCommand?: (
+    command: string,
+    args: readonly string[],
+    options: { cwd: string; timeoutMs: number; signal?: AbortSignal },
+  ) => Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }>
+  /** Cache directory for derived outputs; defaults to a temp subdirectory. */
+  readonly cacheRoot?: string
+  readonly glbTimeoutMs?: number
+  /** Source text limit; protects the host from pathological files. */
+  readonly maxSourceBytes?: number
 }
 
 interface ProjectManifest {
@@ -100,7 +171,13 @@ const EXCLUDED_DIRS = new Set([
   'archive', 'archives', 'backup', 'backups', 'export', 'exports',
 ])
 const MECHANICAL_EXTENSIONS = new Set(['.step', '.stp', '.glb'])
+const SOURCE_EXTENSIONS: Readonly<Record<string, 'schematic' | 'pcb'>> = {
+  '.kicad_sch': 'schematic',
+  '.kicad_pcb': 'pcb',
+}
 const MAX_DEPTH = 5
+/** KiCad writes each child sheet as `(property "Sheetfile" "child.kicad_sch")`. */
+const SHEET_FILE_PATTERN = /\(property\s+"Sheetfile"\s+"((?:[^"\\]|\\.)*)"/gu
 
 function canonical(path: string): string {
   return resolve(path)
@@ -113,6 +190,18 @@ function isInside(child: string, parent: string): boolean {
 
 function isExcluded(name: string): boolean {
   return EXCLUDED_DIRS.has(name.toLowerCase())
+}
+
+function realOrUndefined(path: string): string | undefined {
+  try {
+    return realpathSync(path)
+  } catch {
+    return undefined
+  }
+}
+
+function errorWithCode(message: string, code: string, status: number): Error {
+  return Object.assign(new Error(message), { code, status })
 }
 
 function walkFiles(root: string, predicate: (name: string) => boolean): string[] {
@@ -136,6 +225,26 @@ function walkFiles(root: string, predicate: (name: string) => boolean): string[]
   }
   visit(root, 0)
   return found.sort()
+}
+
+/** Child schematics declared by sheet references in one saved schematic. */
+function childSheetFiles(path: string): string[] {
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch {
+    return []
+  }
+  const dir = dirname(path)
+  const children: string[] = []
+  for (const match of text.matchAll(SHEET_FILE_PATTERN)) {
+    const raw = match[1]
+    if (raw === undefined || raw === '') continue
+    const declared = raw.replace(/\\(["\\])/gu, '$1')
+    const target = isAbsolute(declared) ? canonical(declared) : resolve(dir, declared)
+    children.push(target)
+  }
+  return children.sort()
 }
 
 function artifact(kind: ArtifactKind, path: string, projectPath?: string, sourcePath?: string): HardwareArtifact {
@@ -162,6 +271,41 @@ function defaultVersionProbe(executable: string): string | undefined {
   } catch {
     return undefined
   }
+}
+
+function defaultRunCommand(
+  command: string,
+  args: readonly string[],
+  options: { cwd: string; timeoutMs: number; signal?: AbortSignal },
+): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }> {
+  return new Promise((resolvePromise, reject) => {
+    execFile(command, [...args], {
+      cwd: options.cwd,
+      timeout: options.timeoutMs,
+      encoding: 'utf8',
+      windowsHide: true,
+      shell: false,
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
+      maxBuffer: 8 * 1024 * 1024,
+    }, (error, stdout, stderr) => {
+      if (error === null) {
+        resolvePromise({ exitCode: 0, stdout: String(stdout), stderr: String(stderr), timedOut: false })
+        return
+      }
+      const killed = (error as { killed?: boolean }).killed === true
+      const signal = (error as { signal?: string | null }).signal
+      if (killed || signal !== null && signal !== undefined) {
+        resolvePromise({ exitCode: null, stdout: String(stdout), stderr: String(stderr), timedOut: true })
+        return
+      }
+      const code = typeof (error as { code?: unknown }).code === 'number' ? Number((error as { code: number }).code) : null
+      if (code === null) {
+        reject(error)
+        return
+      }
+      resolvePromise({ exitCode: code, stdout: String(stdout), stderr: String(stderr), timedOut: false })
+    })
+  })
 }
 
 function existing(paths: readonly string[]): string | undefined {
@@ -195,6 +339,15 @@ function kicadCandidates(root: string): { cli: string[]; kicad: string[]; eesche
   }
 }
 
+/** Install root that owns one resolved `kicad-cli`, per layout convention. */
+function installRootFromCli(cli: string): string {
+  const segments = cli.split(sep)
+  const macIndex = segments.indexOf('Contents')
+  if (macIndex > 0) return segments.slice(0, macIndex).join(sep) || sep
+  if (segments[segments.length - 2]?.toLowerCase() === 'bin') return segments.slice(0, -2).join(sep) || sep
+  return dirname(cli)
+}
+
 function solidcraftCandidates(root: string): string[] {
   const exe = process.platform === 'win32' ? '.exe' : ''
   const app = basename(root).toLowerCase().endsWith('.app')
@@ -216,13 +369,27 @@ function solidcraftCandidates(root: string): string[] {
 
 /** Small, immutable host capability implementation. */
 export class HardwareArtifactService {
-  private readonly options: Required<Pick<HardwareArtifactsOptions, 'spawnProcess' | 'probeVersion'>>
+  private readonly options: Required<Pick<HardwareArtifactsOptions, 'spawnProcess' | 'probeVersion' | 'runCommand'>>
+  private readonly cacheRoot: string
+  private readonly glbTimeoutMs: number
+  private readonly maxSourceBytes: number
+  private lastDiscovery?: DiscoveryResult
+  /** Completed GLB exports keyed by `sourcePath:revision`. */
+  private readonly glbCache = new Map<string, GlbResult>()
+  /** In-flight GLB exports keyed by the same key, so concurrent callers share one run. */
+  private readonly glbPending = new Map<string, Promise<GlbResult>>()
+  /** BOM projections keyed by `sourcePath:revision`. */
+  private readonly bomCache = new Map<string, BomResult>()
 
   constructor(private readonly config: HardwareArtifactsOptions = {}) {
     this.options = {
       probeVersion: config.probeVersion ?? defaultVersionProbe,
       spawnProcess: config.spawnProcess ?? ((command, args, settings) => spawn(command, [...args], settings)),
+      runCommand: config.runCommand ?? defaultRunCommand,
     }
+    this.cacheRoot = canonical(config.cacheRoot ?? join(tmpdir(), 'huaqiu-hardware-artifacts'))
+    this.glbTimeoutMs = config.glbTimeoutMs ?? 120_000
+    this.maxSourceBytes = config.maxSourceBytes ?? 32 * 1024 * 1024
   }
 
   /** Resolve configured installations from validated absolute paths only. */
@@ -237,21 +404,24 @@ export class HardwareArtifactService {
     }
     const candidates = kicadRoot === undefined
       ? { cli: [], kicad: [], eeschema: [], pcbnew: [] }
-      : kicadCandidates(kicadCli && basename(kicadCli).toLowerCase().startsWith('kicad-cli') ? dirname(dirname(dirname(kicadCli))) : kicadRoot)
+      : kicadCandidates(kicadCli === undefined ? kicadRoot : installRootFromCli(kicadCli))
     const pcbEditor = existing(candidates.pcbnew)
     const schematicEditor = existing(candidates.eeschema)
     const projectManager = existing(candidates.kicad)
+    const version = kicadCli === undefined ? undefined : this.options.probeVersion(kicadCli)
     const kicad: InstallationInfo = kicadCli === undefined
       ? { configured: false, error: 'KiCad installation is not configured' }
-      : {
-          configured: true,
-          root: kicadRoot,
-          cli: kicadCli,
-          ...(projectManager === undefined ? {} : { projectManager }),
-          ...(pcbEditor === undefined ? {} : { pcbEditor }),
-          ...(schematicEditor === undefined ? {} : { schematicEditor }),
-          ...(this.options.probeVersion(kicadCli) === undefined ? {} : { version: this.options.probeVersion(kicadCli) }),
-        }
+      : version === undefined
+        ? { configured: false, root: kicadRoot, cli: kicadCli, error: `${kicadCli} did not answer a version probe` }
+        : {
+            configured: true,
+            root: kicadRoot,
+            cli: kicadCli,
+            version,
+            ...(projectManager === undefined ? {} : { projectManager }),
+            ...(pcbEditor === undefined ? {} : { pcbEditor }),
+            ...(schematicEditor === undefined ? {} : { schematicEditor }),
+          }
 
     const solidRoot = this.config.solidcraftRoot ? canonical(this.config.solidcraftRoot) : undefined
     const solidExecutable = solidRoot === undefined ? undefined : existing(solidcraftCandidates(solidRoot))
@@ -312,7 +482,9 @@ export class HardwareArtifactService {
       try {
         manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProjectManifest
       } catch (error) {
-        return { cwd, manifestPath, projects: [], issue: { code: 'bad-manifest', message: `invalid .hardware-engineering.json: ${String(error)}` } }
+        const result: DiscoveryResult = { cwd, manifestPath, projects: [], issue: { code: 'bad-manifest', message: `invalid .hardware-engineering.json: ${String(error)}` } }
+        this.lastDiscovery = result
+        return result
       }
     }
 
@@ -320,7 +492,9 @@ export class HardwareArtifactService {
     if (explicitProject !== undefined && explicitProject.trim() !== '') {
       const requested = isAbsolute(explicitProject) ? canonical(explicitProject) : resolve(cwd, explicitProject)
       if (!existsSync(requested)) {
-        return { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects: [], issue: { code: 'missing-project', message: `${requested} does not exist` } }
+        const result: DiscoveryResult = { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects: [], issue: { code: 'missing-project', message: `${requested} does not exist` } }
+        this.lastDiscovery = result
+        return result
       }
       projectPaths.add(requested)
     } else if (manifest?.project !== undefined && manifest.project.trim() !== '') {
@@ -331,13 +505,17 @@ export class HardwareArtifactService {
 
     const projects: HardwareProject[] = [...projectPaths].sort().map(path => this.projectFrom(path, cwd, manifest))
     if (projects.length === 0) {
-      return { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects, issue: { code: 'no-project', message: `no .kicad_pro found under ${cwd}` } }
+      const result: DiscoveryResult = { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects, issue: { code: 'no-project', message: `no .kicad_pro found under ${cwd}` } }
+      this.lastDiscovery = result
+      return result
     }
     if (projects.length > 1) {
-      return { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects, issue: { code: 'selection-required', message: `${projects.length} projects found; select one explicitly` } }
+      const result: DiscoveryResult = { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects, issue: { code: 'selection-required', message: `${projects.length} projects found; select one explicitly` } }
+      this.lastDiscovery = result
+      return result
     }
     const selected = projects[0] as HardwareProject
-    return {
+    const result: DiscoveryResult = {
       cwd,
       ...(manifest === undefined ? {} : { manifestPath }),
       projects,
@@ -346,6 +524,13 @@ export class HardwareArtifactService {
         ? { issue: { code: 'selection-required', message: 'select an artifact explicitly' } }
         : {}),
     }
+    this.lastDiscovery = result
+    return result
+  }
+
+  /** The most recent discovery, used to authorize source reads. */
+  discovery(): DiscoveryResult | undefined {
+    return this.lastDiscovery
   }
 
   private projectFrom(projectPath: string, cwd: string, manifest?: ProjectManifest): HardwareProject {
@@ -354,38 +539,78 @@ export class HardwareArtifactService {
     const resolvePath = (value: string): string =>
       isAbsolute(value) ? canonical(value) : resolve(dir, value)
 
-    const schematicPath = manifest?.schematic !== undefined
-      ? resolvePath(manifest.schematic)
-      : existing([join(dir, `${name}.kicad_sch`), ...walkFiles(dir, file => file.toLowerCase().endsWith('.kicad_sch'))])
-    const boards = manifest?.boards !== undefined
-      ? manifest.boards.map(board => artifact('pcb', resolvePath(board.path), projectPath))
-      : walkFiles(dir, file => file.toLowerCase().endsWith('.kicad_pcb')).map(path => artifact('pcb', path, projectPath))
+    // The root schematic is authoritative: an explicit manifest entry, then the
+    // project-named file, then a single unambiguous candidate. Unrelated
+    // sibling `.kicad_sch` files are never promoted to sheets.
+    const explicitSchematic = manifest?.schematic === undefined ? undefined : resolvePath(manifest.schematic)
+    let schematicPath = explicitSchematic !== undefined && existsSync(explicitSchematic) ? explicitSchematic : undefined
+    if (schematicPath === undefined) {
+      const named = join(dir, `${name}.kicad_sch`)
+      if (existsSync(named)) schematicPath = named
+      else {
+        const candidates = readdirSync(dir, { withFileTypes: true })
+          .filter(entry => entry.isFile() && entry.name.toLowerCase().endsWith('.kicad_sch'))
+          .map(entry => join(dir, entry.name))
+          .sort()
+        if (candidates.length === 1) schematicPath = candidates[0]
+      }
+    }
+
+    // Hierarchy comes from sheet references only, resolved recursively with a
+    // cycle guard: parsing the root must never advertise unrelated files.
+    const sheets: HardwareArtifact[] = []
+    if (schematicPath !== undefined) {
+      const visited = new Set<string>([canonical(schematicPath)])
+      const queue = childSheetFiles(canonical(schematicPath))
+      while (queue.length > 0) {
+        const next = queue.shift() as string
+        const canonicalNext = canonical(next)
+        if (visited.has(canonicalNext)) continue
+        visited.add(canonicalNext)
+        if (!existsSync(canonicalNext) || extname(canonicalNext).toLowerCase() !== '.kicad_sch') continue
+        sheets.push(artifact('schematic', canonicalNext, projectPath, canonical(schematicPath)))
+        queue.push(...childSheetFiles(canonicalNext))
+      }
+    }
+
+    // Board ranking: manifest ownership first, then the project-named board, then
+    // the only candidate. Multiple unowned boards stay ambiguous on purpose.
+    const manifestBoards = manifest?.boards === undefined
+      ? []
+      : manifest.boards
+        .filter(entry => existsSync(resolvePath(entry.path)))
+        .map(entry => artifact('pcb', resolvePath(entry.path), projectPath))
+    const scannedBoards = walkFiles(dir, file => file.toLowerCase().endsWith('.kicad_pcb'))
+      .map(path => artifact('pcb', path, projectPath))
+    const boards = manifestBoards.length > 0
+      ? manifestBoards
+      : [...scannedBoards].sort((left, right) => boardRank(left, right, name))
+    const owned = boards.find(board => basename(board.path, '.kicad_pcb') === name) ?? boards[0]
+    const ownershipAmbiguous = manifestBoards.length === 0 && boards.length > 1
+      && basename(owned?.path ?? '', '.kicad_pcb') !== name
+
     const mechanical = manifest?.mechanical !== undefined
       ? manifest.mechanical.map(model => artifact('mechanical-3d', resolvePath(model.path), projectPath))
       : walkFiles(dir, file => MECHANICAL_EXTENSIONS.has(extname(file).toLowerCase()))
         .map(path => artifact('mechanical-3d', path, projectPath))
-    const sheets = schematicPath === undefined
-      ? []
-      : walkFiles(dir, file => file.toLowerCase().endsWith('.kicad_sch'))
-        .filter(path => path !== schematicPath && isInside(path, dir))
-        .map(path => artifact('schematic', path, projectPath, schematicPath))
 
     const sourceSchematic = schematicPath === undefined ? undefined : artifact('schematic', schematicPath, projectPath)
-    const sourceBoard = boards[0]
+    const sourceBoard = ownershipAmbiguous ? undefined : owned
     return {
       path: projectPath,
       name,
-      ...(sourceSchematic === undefined ? {} : { schematic: sourceSchematic }),
+      ...(sourceSchematic === undefined ? {} : { rootSheet: sourceSchematic, schematic: sourceSchematic }),
       ...(sourceSchematic === undefined ? {} : {
         bom: { ...artifact('bom', sourceSchematic.path, projectPath, sourceSchematic.path), title: `BOM — ${sourceSchematic.title}` },
       }),
       ...(sourceBoard === undefined ? {} : {
         pcb3d: { ...artifact('pcb-3d', sourceBoard.path, projectPath, sourceBoard.path), title: `3D — ${sourceBoard.title}` },
+        defaultBoard: sourceBoard.path,
       }),
       sheets,
       boards,
       mechanical,
-      selectionRequired: boards.length > 1 || sheets.length > 1,
+      selectionRequired: boards.length > 1 && ownershipAmbiguous,
     }
   }
 
@@ -393,31 +618,391 @@ export class HardwareArtifactService {
   open(request: OpenArtifactRequest): OpenArtifactResult {
     const path = canonical(request.artifactPath)
     if (!existsSync(path)) {
-      throw Object.assign(new Error(`artifact does not exist: ${path}`), { code: 'missing-artifact', status: 404 })
+      throw errorWithCode(`artifact does not exist: ${path}`, 'missing-artifact', 404)
     }
     const installed = this.installations()
-    const isKicad = request.application === 'kicad'
+    const ext = extname(path).toLowerCase()
     let command: string | undefined
-    if (isKicad) {
-      const ext = extname(path).toLowerCase()
-      if (ext === '.kicad_sch') command = installed.kicad.schematicEditor
-      else if (ext === '.kicad_pcb') command = installed.kicad.pcbEditor
-      else if (ext === '.kicad_pro') command = installed.kicad.projectManager
-      else throw Object.assign(new Error(`unsupported KiCad artifact: ${ext}`), { code: 'unsupported-artifact', status: 415 })
-      if (command === undefined) {
-        throw Object.assign(new Error('the configured KiCad installation has no editor for this artifact'), { code: 'missing-executable', status: 412 })
-      }
-    } else {
-      command = installed.solidcraft.executable
-      if (command === undefined) {
-        throw Object.assign(new Error('SolidCraft is not configured'), { code: 'not-configured', status: 412 })
-      }
-      if (!MECHANICAL_EXTENSIONS.has(extname(path).toLowerCase())) {
-        throw Object.assign(new Error(`unsupported SolidCraft artifact: ${extname(path)}`), { code: 'unsupported-artifact', status: 415 })
-      }
+    if (ext === '.kicad_sch') command = installed.kicad.schematicEditor
+    else if (ext === '.kicad_pcb') command = installed.kicad.pcbEditor
+    else if (ext === '.kicad_pro') command = installed.kicad.projectManager
+    else throw errorWithCode(`unsupported KiCad artifact: ${ext}`, 'unsupported-artifact', 415)
+    if (command === undefined) {
+      throw errorWithCode('the configured KiCad installation has no editor for this artifact', 'missing-executable', 412)
     }
     const settings = { cwd: dirname(path), detached: true, stdio: 'ignore' as const, windowsHide: true, shell: false as const }
     const child = this.options.spawnProcess(command, [path], settings)
     return { launched: true, command, args: [path], cwd: settings.cwd, ...(child.pid === undefined ? {} : { pid: child.pid }) }
   }
+
+  /** Workspace roots a read may target: explicit request, last discovery, config. */
+  private authorizedRoots(roots?: readonly string[]): string[] {
+    const candidates = new Set<string>()
+    for (const root of roots ?? []) {
+      if (root !== undefined && root.trim() !== '') candidates.add(canonical(root))
+    }
+    const discovered = this.lastDiscovery?.cwd
+    if (discovered !== undefined) candidates.add(canonical(discovered))
+    return [...candidates]
+  }
+
+  /**
+   * Authorize one artifact path: canonical, realpath-checked, inside a
+   * workspace root, and of an expected type. A browser request cannot turn
+   * this into an arbitrary filesystem read, even from loopback.
+   */
+  private authorize(artifactPath: string, roots: readonly string[] | undefined): { path: string; kind: 'schematic' | 'pcb' } {
+    if (!isAbsolute(artifactPath)) {
+      throw errorWithCode('artifact identity must be an absolute path', 'invalid-identity', 400)
+    }
+    const requested = canonical(artifactPath)
+    const kind = SOURCE_EXTENSIONS[extname(requested).toLowerCase()]
+    if (kind === undefined) {
+      throw errorWithCode(`unsupported artifact type: ${extname(requested)}`, 'unsupported-artifact', 415)
+    }
+    const authorized = this.authorizedRoots(roots)
+    if (authorized.length === 0) {
+      throw errorWithCode('no authorized workspace is known to the host', 'unauthorized', 403)
+    }
+    // Boundary check before existence: a path outside the workspace is refused
+    // whether or not it exists, so the route cannot probe the filesystem.
+    const permittedLexically = authorized.some((root) => isInside(requested, canonical(root)))
+    if (!permittedLexically) {
+      throw errorWithCode('artifact is outside the authorized workspace', 'unauthorized', 403)
+    }
+    if (!existsSync(requested)) {
+      throw errorWithCode(`artifact does not exist: ${requested}`, 'missing-artifact', 404)
+    }
+    const real = realOrUndefined(requested)
+    if (real === undefined) {
+      throw errorWithCode(`artifact cannot be resolved: ${requested}`, 'invalid-identity', 400)
+    }
+    const permitted = authorized.some((root) => {
+      const realRoot = realOrUndefined(root) ?? root
+      return isInside(real, realRoot)
+    })
+    if (!permitted) {
+      throw errorWithCode('artifact is outside the authorized workspace', 'unauthorized', 403)
+    }
+    const info = statSync(real)
+    if (!info.isFile()) {
+      throw errorWithCode(`artifact is not a regular file: ${requested}`, 'invalid-identity', 400)
+    }
+    if ((SOURCE_EXTENSIONS[extname(real).toLowerCase()]) === undefined) {
+      throw errorWithCode('artifact type changed during resolution', 'unsupported-artifact', 415)
+    }
+    return { path: real, kind: SOURCE_EXTENSIONS[extname(real).toLowerCase()] as 'schematic' | 'pcb' }
+  }
+
+  /** Saved source text plus a content-addressed revision. */
+  async readSource(request: SourceRequest): Promise<SourceResult> {
+    const { path, kind } = this.authorize(request.artifactPath, request.roots)
+    const info = statSync(path)
+    if (info.size > this.maxSourceBytes) {
+      throw errorWithCode(`artifact is larger than ${this.maxSourceBytes} bytes`, 'too-large', 413)
+    }
+    const body = await readFile(path)
+    const revision = createHash('sha256').update(body).digest('hex')
+    if (request.expectedRevision !== undefined && request.expectedRevision !== ''
+      && request.expectedRevision !== revision) {
+      throw errorWithCode(
+        `source changed since it was selected (expected ${request.expectedRevision}, found ${revision})`,
+        'stale-revision',
+        409,
+      )
+    }
+    return {
+      path,
+      kind,
+      revision,
+      bytes: body.byteLength,
+      mtimeMs: info.mtimeMs,
+      text: body.toString('utf8'),
+    }
+  }
+
+  private sourceRevision(path: string): string {
+    const info = statSync(path)
+    if (info.size > this.maxSourceBytes) {
+      throw errorWithCode(`artifact is larger than ${this.maxSourceBytes} bytes`, 'too-large', 413)
+    }
+    return createHash('sha256').update(readFileSync(path)).digest('hex')
+  }
+
+  /** Cache directory for one board's derived outputs. */
+  private glbDirectory(boardPath: string): string {
+    const digest = createHash('sha256').update(boardPath).digest('hex').slice(0, 16)
+    return join(this.cacheRoot, 'glb', digest)
+  }
+
+  /**
+   * Generate (or reuse) the GLB for one board.
+   *
+   * - cache key includes the source content hash, so same-size/same-mtime edits invalidate
+   * - one in-flight export is shared by concurrent callers for the same revision
+   * - output is written to a temp file and renamed only after it validates
+   * - a timeout or abort leaves no partial file behind
+   */
+  async exportGlb(request: GlbRequest): Promise<GlbResult> {
+    const { path } = this.authorize(request.artifactPath, request.roots)
+    if (extname(path).toLowerCase() !== '.kicad_pcb') {
+      throw errorWithCode('GLB export requires a .kicad_pcb artifact', 'unsupported-artifact', 415)
+    }
+    const installed = this.installations()
+    if (!installed.kicad.configured || installed.kicad.cli === undefined) {
+      throw errorWithCode(
+        installed.kicad.error ?? 'the configured KiCad installation has no kicad-cli',
+        'not-configured',
+        412,
+      )
+    }
+    const cli = installed.kicad.cli
+    const revision = this.sourceRevision(path)
+    const key = `${path}:${revision}`
+    const cached = this.glbCache.get(key)
+    if (cached !== undefined && existsSync(cached.file)) {
+      const info = statSync(cached.file)
+      return { ...cached, bytes: info.size, cached: true }
+    }
+    const pending = this.glbPending.get(key)
+    if (pending !== undefined) return pending
+
+    const directory = this.glbDirectory(path)
+    const target = join(directory, `board-${revision.slice(0, 16)}.glb`)
+    const running = (async (): Promise<GlbResult> => {
+      mkdirSync(directory, { recursive: true })
+      const tempDirectory = join(directory, `tmp-${process.pid}-${String(Date.now())}`)
+      mkdirSync(tempDirectory, { recursive: true })
+      const tempFile = join(tempDirectory, 'board.glb')
+      try {
+        const result = await this.options.runCommand(
+          cli,
+          ['pcb', 'export', 'glb', '--output', tempFile, path],
+          { cwd: dirname(path), timeoutMs: this.glbTimeoutMs, ...(request.signal === undefined ? {} : { signal: request.signal }) },
+        )
+        if (result.timedOut) {
+          throw errorWithCode(`kicad-cli pcb export glb timed out after ${this.glbTimeoutMs} ms`, 'export-timeout', 504)
+        }
+        if (result.exitCode !== 0) {
+          const detail = (result.stderr.trim() || result.stdout.trim() || `exit ${String(result.exitCode)}`).slice(0, 800)
+          throw errorWithCode(`kicad-cli pcb export glb failed: ${detail}`, 'export-failed', 502)
+        }
+        if (!existsSync(tempFile)) {
+          throw errorWithCode('kicad-cli pcb export glb produced no output', 'export-failed', 502)
+        }
+        const bytes = statSync(tempFile).size
+        if (bytes === 0 || readFileSync(tempFile).subarray(0, 4).toString('ascii') !== 'glTF') {
+          throw errorWithCode('kicad-cli wrote an invalid GLB', 'export-failed', 502)
+        }
+        renameSync(tempFile, target)
+        const generated = {
+          path,
+          revision,
+          bytes,
+          generatedAt: new Date().toISOString(),
+          cached: false,
+          file: target,
+        } satisfies GlbResult
+        this.glbCache.set(key, generated)
+        return generated
+      } finally {
+        rmSync(tempDirectory, { recursive: true, force: true })
+      }
+    })()
+
+    this.glbPending.set(key, running)
+    try {
+      return await running
+    } finally {
+      this.glbPending.delete(key)
+    }
+  }
+
+  /**
+   * Grouped BOM for one saved root schematic.
+   *
+   * Reuses KiCad's own BOM extraction (`kicad-cli sch export bom`), the same
+   * authoritative source `analyze_kicad_module` consumes, rather than building a
+   * second component analyser. Grouping key is every non-reference column, so
+   * different MPNs never merge and DNP stays explicit.
+   */
+  async exportBom(request: {
+    readonly artifactPath: string
+    readonly roots?: readonly string[]
+    readonly signal?: AbortSignal
+  }): Promise<BomResult> {
+    const { path, kind } = this.authorize(request.artifactPath, request.roots)
+    if (kind !== 'schematic') {
+      throw errorWithCode('BOM export requires a .kicad_sch artifact', 'unsupported-artifact', 415)
+    }
+    const installed = this.installations()
+    if (!installed.kicad.configured || installed.kicad.cli === undefined) {
+      throw errorWithCode(installed.kicad.error ?? 'the configured KiCad installation has no kicad-cli', 'not-configured', 412)
+    }
+    const revision = this.sourceRevision(path)
+    const key = `${path}:${revision}`
+    const cached = this.bomCache.get(key)
+    if (cached !== undefined) return { ...cached, cached: true }
+
+    const directory = join(this.cacheRoot, 'bom', createHash('sha256').update(path).digest('hex').slice(0, 16))
+    const tempDirectory = join(directory, `tmp-${process.pid}-${String(Date.now())}`)
+    mkdirSync(tempDirectory, { recursive: true })
+    const tempFile = join(tempDirectory, 'bom.csv')
+    try {
+      const result = await this.options.runCommand(
+        installed.kicad.cli,
+        ['sch', 'export', 'bom', '--output', tempFile, path],
+        { cwd: dirname(path), timeoutMs: 60_000, ...(request.signal === undefined ? {} : { signal: request.signal }) },
+      )
+      if (result.timedOut) throw errorWithCode('kicad-cli sch export bom timed out', 'export-timeout', 504)
+      if (result.exitCode !== 0) {
+        const detail = (result.stderr.trim() || result.stdout.trim() || `exit ${String(result.exitCode)}`).slice(0, 800)
+        throw errorWithCode(`kicad-cli sch export bom failed: ${detail}`, 'export-failed', 502)
+      }
+      if (!existsSync(tempFile)) throw errorWithCode('kicad-cli produced no BOM output', 'export-failed', 502)
+      const rows = groupBomRows(parseCsv(readFileSync(tempFile, 'utf8')))
+      const generated: BomResult = {
+        path,
+        revision,
+        generatedAt: new Date().toISOString(),
+        cached: false,
+        rows,
+        source: 'kicad-cli-bom',
+      }
+      this.bomCache.set(key, generated)
+      return generated
+    } finally {
+      rmSync(tempDirectory, { recursive: true, force: true })
+    }
+  }
+
+  /** Serve a generated GLB file, re-validating the cache entry first. */  glbFile(boardPath: string, revision: string): string {
+    const key = `${canonical(boardPath)}:${revision}`
+    const entry = this.glbCache.get(key)
+    if (entry === undefined || !existsSync(entry.file)) {
+      throw errorWithCode('generated GLB is not available for this revision', 'stale-revision', 409)
+    }
+    return entry.file
+  }
+
+  /** Drop cached derived outputs for one board (or all of them). */
+  clearCache(boardPath?: string): void {
+    if (boardPath === undefined) {
+      this.glbCache.clear()
+      rmSync(this.cacheRoot, { recursive: true, force: true })
+      return
+    }
+    const prefix = `${canonical(boardPath)}:`
+    for (const key of [...this.glbCache.keys()]) {
+      if (key.startsWith(prefix)) this.glbCache.delete(key)
+    }
+    rmSync(this.glbDirectory(canonical(boardPath)), { recursive: true, force: true })
+  }
+}
+
+/** Ownership order: project-named board first, then shallower, then alphabetical. */
+function boardRank(left: HardwareArtifact, right: HardwareArtifact, projectName: string): number {  const leftNamed = basename(left.path, '.kicad_pcb') === projectName ? 0 : 1
+  const rightNamed = basename(right.path, '.kicad_pcb') === projectName ? 0 : 1
+  if (leftNamed !== rightNamed) return leftNamed - rightNamed
+  const leftDepth = left.path.split(sep).length
+  const rightDepth = right.path.split(sep).length
+  if (leftDepth !== rightDepth) return leftDepth - rightDepth
+  return left.path.localeCompare(right.path)
+}
+
+/** RFC4180-style CSV reader: quoted fields, doubled quotes, CRLF rows. */
+export function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ''
+  let quoted = false
+  const source = text.replace(/^\uFEFF/u, '')
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]
+    if (quoted) {
+      if (char === '"') {
+        if (source[index + 1] === '"') {
+          field += '"'
+          index += 1
+        } else {
+          quoted = false
+        }
+      } else {
+        field += char
+      }
+      continue
+    }
+    if (char === '"') {
+      quoted = true
+    } else if (char === ',') {
+      row.push(field)
+      field = ''
+    } else if (char === '\r') {
+      continue
+    } else if (char === '\n') {
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ''
+    } else {
+      field += char
+    }
+  }
+  if (field !== '' || row.length > 0) {
+    row.push(field)
+    rows.push(row)
+  }
+  return rows.filter(cells => cells.some(cell => cell.trim() !== ''))
+}
+
+/**
+ * Group KiCad's per-reference BOM rows.
+ *
+ * Identity is every column except the reference and quantity columns, so a
+ * different MPN or a DNP flag always produces a separate line; ordering follows
+ * the first reference seen, which keeps the table stable between reads.
+ */
+export function groupBomRows(table: readonly string[][]): BomRow[] {
+  const [header, ...body] = table
+  if (header === undefined) return []
+  const columns = header.map(cell => cell.trim())
+  const referenceIndex = columns.findIndex(cell => /^reference$/iu.test(cell))
+  const quantityIndex = columns.findIndex(cell => /^quantity$/iu.test(cell))
+  const valueIndex = columns.findIndex(cell => /^value$/iu.test(cell))
+  const footprintIndex = columns.findIndex(cell => /^footprint$/iu.test(cell))
+  const dnpIndex = columns.findIndex(cell => /^dnp$/iu.test(cell))
+  const groups = new Map<string, { references: string[]; fields: Record<string, string>; dnp: boolean }>()
+  for (const cells of body) {
+    const reference = referenceIndex === -1 ? '' : (cells[referenceIndex] ?? '').trim()
+    if (reference === '') continue
+    const fields: Record<string, string> = {}
+    columns.forEach((column, index) => {
+      if (index === referenceIndex || index === quantityIndex || index === valueIndex
+        || index === footprintIndex || index === dnpIndex) return
+      const text = (cells[index] ?? '').trim()
+      if (text !== '') fields[column] = text
+    })
+    const dnpText = dnpIndex === -1 ? '' : (cells[dnpIndex] ?? '').trim()
+    const dnp = /^(1|true|yes|dnp|x)$/iu.test(dnpText)
+    const identity = JSON.stringify([
+      valueIndex === -1 ? '' : (cells[valueIndex] ?? '').trim(),
+      footprintIndex === -1 ? '' : (cells[footprintIndex] ?? '').trim(),
+      dnp,
+      Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))),
+    ])
+    const group = groups.get(identity) ?? { references: [], fields, dnp }
+    group.references.push(reference)
+    groups.set(identity, group)
+  }
+  return [...groups.entries()].map(([identity, group]) => {
+    const [value, footprint, dnp] = JSON.parse(identity) as [string, string, boolean]
+    return {
+      references: group.references,
+      quantity: group.references.length,
+      value,
+      footprint,
+      dnp,
+      fields: group.fields,
+    } satisfies BomRow
+  })
 }

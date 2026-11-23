@@ -1,16 +1,24 @@
 /** Product-owned navigation and artifact identity. No shadow project database. */
 
-export type HardwareDestination = 'schematic' | 'pcb' | 'dfm' | 'bom' | '3d' | 'order'
-export type NativeApplication = 'kicad' | 'solidcraft'
+/** The five persistent product destinations. DFM and mechanical are out of scope. */
+export type HardwareDestination = 'schematic' | 'pcb' | 'bom' | '3d' | 'order'
+
+/**
+ * Native applications a destination can hand off to.
+ *
+ * `3d` maps to KiCad because its source artifact is the selected `.kicad_pcb`;
+ * SolidCraft is agent environment context only in this POC and never receives
+ * a native-open action.
+ */
+export type NativeApplication = 'kicad'
 
 export const DESTINATIONS: readonly HardwareDestination[] = Object.freeze([
-  'schematic', 'pcb', 'dfm', 'bom', '3d', 'order',
+  'schematic', 'pcb', 'bom', '3d', 'order',
 ])
 
 export const DESTINATION_LABELS: Readonly<Record<HardwareDestination, string>> = Object.freeze({
   schematic: 'Schematic',
   pcb: 'PCB',
-  dfm: 'DFM',
   bom: 'BOM',
   '3d': '3D CAD',
   order: 'Order Placing',
@@ -18,8 +26,7 @@ export const DESTINATION_LABELS: Readonly<Record<HardwareDestination, string>> =
 
 /** Which native application a destination can open, if any. */
 export function applicationFor(destination: HardwareDestination): NativeApplication | undefined {
-  if (destination === 'schematic' || destination === 'pcb' || destination === 'dfm' || destination === 'bom') return 'kicad'
-  if (destination === '3d') return 'solidcraft'
+  if (destination === 'schematic' || destination === 'pcb' || destination === 'bom' || destination === '3d') return 'kicad'
   return undefined
 }
 
@@ -29,6 +36,7 @@ export interface HardwareArtifactInfo {
   readonly path: string
   readonly title: string
   readonly sourcePath?: string
+  readonly revision?: string
 }
 
 export interface HardwareProjectInfo {
@@ -38,9 +46,11 @@ export interface HardwareProjectInfo {
   readonly schematic?: HardwareArtifactInfo
   readonly bom?: HardwareArtifactInfo
   readonly pcb3d?: HardwareArtifactInfo
+  readonly rootSheet?: HardwareArtifactInfo
   readonly sheets?: readonly HardwareArtifactInfo[]
   readonly boards?: readonly HardwareArtifactInfo[]
-  readonly mechanical?: readonly HardwareArtifactInfo[]
+  readonly defaultBoard?: string
+  readonly selectionRequired?: boolean
 }
 
 export interface InstallationsInfo {
@@ -73,7 +83,7 @@ export interface HardwareState {
   readonly schematicPath?: string
   readonly sheetPath?: string
   readonly pcbPath?: string
-  readonly mechanicalPath?: string
+  readonly bomPath?: string
   readonly discovery?: DiscoveryInfo
   readonly installations?: InstallationsInfo
   readonly revision: number
@@ -84,7 +94,8 @@ export interface HardwareActions {
   setActive(destination: HardwareDestination): void
   setWorkspaceRoot(root: string): void
   setDiscovery(discovery: DiscoveryInfo): void
-  selectArtifact(path: string, kind: 'schematic' | 'pcb' | 'mechanical-3d'): void
+  selectProject(path: string): void
+  selectArtifact(path: string, kind: 'schematic' | 'pcb'): void
   setInstallations(installations: InstallationsInfo): void
   setNotice(notice?: string): void
   refresh(): void
@@ -101,12 +112,26 @@ export interface HardwareInstallationConfig {
   readonly solidcraftRoot?: string
 }
 
+/** Parameters carried by one `sidebar.right.openTab` navigation. */
+export interface ViewerNavigationParams {
+  readonly destination: HardwareDestination
+  /** Canonical absolute artifact path for this destination. */
+  readonly path?: string
+  /** Artifact kind discriminator (`schematic` | `pcb` | `bom` | `pcb-3d`). */
+  readonly kind?: string
+  /** Source revision of the artifact at navigation time, when known. */
+  readonly revision?: string
+  readonly projectPath?: string
+  /** Monotonic navigation counter: increments even when params are unchanged. */
+  readonly navigationRevision: number
+}
+
 /** Functions the UI receives through the slot `inject` face. */
 export interface HardwareInjected {
   refreshDiscovery(cwd?: string, project?: string): Promise<void>
   openDestination(destination: HardwareDestination, path?: string): void
   openNative(application?: NativeApplication, artifactPath?: string): Promise<void>
-  saveInstallation(application: NativeApplication, root: string): Promise<void>
+  saveInstallation(application: 'kicad' | 'solidcraft', root: string): Promise<void>
   fetchInstallations(): Promise<void>
   useConfigForm?(): ConfigFormLike<HardwareInstallationConfig> | undefined
   useSessions?(selector: (state: {

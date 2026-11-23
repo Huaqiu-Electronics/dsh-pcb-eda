@@ -1,14 +1,12 @@
 /**
  * Browser half of `@huaqiu/dsh-hardware-ui`.
  *
- * Occupies existing DSH seats only: a root navigation occupant, a session
- * header action, a `keepMounted` right-panel tab body, and a settings section.
- * The shape below is structural on purpose: this package stays independently
- * installable and does not import DSH internals.
+ * Occupies existing DSH seats only: one root navigation occupant, one
+ * `keepMounted` right-panel tab body, and one settings section. Native open
+ * lives inside the viewer with the resolved artifact in scope, so no
+ * conversation-level action is registered.
  */
-import {
-  ContextualOpenAction, EngineeringNav, HardwareSettingsSection, HardwareViewerBody,
-} from './components.js'
+import { EngineeringNav, HardwareSettingsSection, HardwareViewerBody } from './components.js'
 import type {
   ConfigFormLike, HardwareActions, HardwareDestination, HardwareInjected,
   HardwareInstallationConfig, NativeApplication,
@@ -58,12 +56,19 @@ interface ClientContext {
   effect?(fn: () => (() => void) | void, label?: string): void
 }
 
-function kindForPath(path: string): string {
-  if (path.endsWith('.kicad_sch')) return 'schematic'
-  if (path.endsWith('.kicad_pcb')) return 'pcb'
-  if (path.endsWith('.kicad_pro')) return 'project'
-  if (/\.(step|stp|glb)$/iu.test(path)) return 'mechanical-3d'
+/** Artifact kind discriminator carried in navigation params. */
+export function kindForPath(path: string): string {
+  if (path.toLowerCase().endsWith('.kicad_sch')) return 'schematic'
+  if (path.toLowerCase().endsWith('.kicad_pcb')) return 'pcb'
+  if (path.toLowerCase().endsWith('.kicad_pro')) return 'project'
   return 'bom'
+}
+
+/** Destination-specific artifact kind used by the host `open` route. */
+function nativeKindFor(destination: HardwareDestination, path: string): string {
+  if (destination === '3d') return 'pcb-3d'
+  if (destination === 'bom') return 'bom'
+  return kindForPath(path)
 }
 
 /** Install all product UI contributions on a DSH client context. */
@@ -101,7 +106,12 @@ export function apply(ctx: ClientContext): void {
       const kind = path === undefined ? undefined : kindForPath(path)
       try {
         ctx.sidebarRight?.openTab(HARDWARE_TAB_KIND, {
-          params: { destination, path, kind, revision },
+          params: {
+            destination,
+            ...(path === undefined ? {} : { path }),
+            ...(kind === undefined ? {} : { kind }),
+            navigationRevision: revision,
+          },
           revealIfOpened: true,
         })
       } catch (error) {
@@ -110,14 +120,15 @@ export function apply(ctx: ClientContext): void {
     },
     async openNative(application?: NativeApplication, artifactPath?: string) {
       if (artifactPath === undefined || artifactPath === '') {
-        actions?.setNotice('Select an artifact before opening a native application.')
+        actions?.setNotice('Select an artifact before opening it in KiCad.')
         return
       }
+      const destination = store.create().getSnapshot().activeDestination
       try {
         await openArtifact({
           application: application ?? 'kicad',
           artifactPath,
-          kind: kindForPath(artifactPath),
+          kind: nativeKindFor(destination, artifactPath),
         })
       } catch (error) {
         actions?.setNotice(`Native launch failed: ${String(error)}`)
@@ -157,7 +168,7 @@ export function apply(ctx: ClientContext): void {
     name: 'conversation.header.leading',
     store,
     inject: captureActions,
-  }, EngineeringNav)), 'hardware-ui: six-destination navigation')
+  }, EngineeringNav)), 'hardware-ui: five-destination navigation')
 
   effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register({
     name: 'sidebar.right.pane.tab',
@@ -165,12 +176,6 @@ export function apply(ctx: ClientContext): void {
     store,
     inject: captureActions,
   }, HardwareViewerBody)), 'hardware-ui: viewer body')
-
-  effect(() => slots.inject('conversation.session.header.corner', () => slots.register({
-    name: 'conversation.session.header.corner',
-    store,
-    inject: captureActions,
-  }, ContextualOpenAction)), 'hardware-ui: contextual native action')
 
   effect(() => slots.inject('settings.section', () => slots.register({
     name: 'settings.section',

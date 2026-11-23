@@ -1,7 +1,7 @@
 /**
  * `@huaqiu/hardware-artifacts` — Hardware Engineering host capability.
  *
- * Provides `hardwareArtifacts`, mounts same-origin read/launch routes, and
+ * Provides `hardwareArtifacts`, mounts same-origin read/export/launch routes, and
  * contributes a compact validated installation block to the agent prompt.
  * Nothing here injects hqEdge, opens a shell, or mutates global process env.
  */

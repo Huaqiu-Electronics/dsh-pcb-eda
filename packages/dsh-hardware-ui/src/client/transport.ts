@@ -17,7 +17,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const body = await response.json().catch(() => undefined) as Envelope<T> | undefined
   if (!response.ok || body?.ok === false) {
     const detail = body?.error?.message ?? `HTTP ${response.status}`
-    throw new Error(detail)
+    throw new Error(body?.error?.code === undefined ? detail : `${body.error.code}: ${detail}`)
   }
   return body as T
 }
@@ -59,5 +59,77 @@ export async function openArtifact(requestBody: {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(requestBody),
+  })
+}
+
+/** Saved text of one authorized `.kicad_sch` or `.kicad_pcb`. */
+export interface ArtifactSource {
+  readonly path: string
+  readonly kind: 'schematic' | 'pcb'
+  readonly revision: string
+  readonly bytes: number
+  readonly mtimeMs?: number
+  readonly text: string
+}
+
+export async function loadArtifactSource(
+  artifactPath: string,
+  signal?: AbortSignal,
+  expectedRevision?: string,
+): Promise<ArtifactSource> {
+  const params = new URLSearchParams({ path: artifactPath })
+  if (expectedRevision !== undefined && expectedRevision !== '') params.set('revision', expectedRevision)
+  return request<ArtifactSource>(`/source?${params.toString()}`, { signal })
+}
+
+/** Generated PCB GLB for one authorized `.kicad_pcb`. */
+export interface GlbArtifact {
+  readonly url: string
+  readonly path: string
+  readonly revision: string
+  readonly bytes: number
+  readonly generatedAt: string
+  readonly cached: boolean
+}
+
+/** Grouped BOM rows produced by the host from the saved root schematic. */
+export interface BomRecord {
+  readonly references: readonly string[]
+  readonly quantity: number
+  readonly value: string
+  readonly footprint: string
+  readonly dnp: boolean
+  readonly fields: Readonly<Record<string, string>>
+}
+
+export interface BomProjection {
+  readonly path: string
+  readonly revision: string
+  readonly generatedAt: string
+  readonly cached: boolean
+  readonly rows: readonly BomRecord[]
+  readonly source: string
+}
+
+export async function loadBom(artifactPath: string, signal?: AbortSignal): Promise<BomProjection> {
+  return request<BomProjection>('/bom', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: artifactPath }),
+    signal,
+  })
+}
+
+/** Prepare the GLB; the returned `url` is served by the same host route. */
+export async function prepareBoardGlb(
+  artifactPath: string,
+  cwd?: string,
+  signal?: AbortSignal,
+): Promise<GlbArtifact & { readonly url: string }> {
+  return request<GlbArtifact & { readonly url: string }>('/glb', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ path: artifactPath, ...(cwd === undefined ? {} : { cwd }) }),
+    signal,
   })
 }

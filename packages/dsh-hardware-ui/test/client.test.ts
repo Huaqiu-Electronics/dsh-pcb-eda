@@ -1,5 +1,37 @@
-import { describe, expect, it } from 'vitest'
-import { apply, HARDWARE_TAB_ID, HARDWARE_TAB_KIND } from '../src/client/index.js'
+import { describe, expect, it, vi } from 'vitest'
+
+// The renderer and Three.js are browser-only (canvas/WebGL/`window`). These
+// tests exercise registration and state logic, so the canvas layer is stubbed
+// rather than loaded in Node.
+vi.mock('@huaqiu/ecad-renderer', () => ({
+  renderSchematic: async () => ({ canvas: {}, viewer: {}, dispose: () => {} }),
+  renderPcb: async () => ({ canvas: {}, viewer: {}, dispose: () => {} }),
+}))
+vi.mock('three', () => {
+  class Stub {
+    domElement = { style: {}, addEventListener() {}, removeEventListener() {} }
+    setFromObject() { return this }
+    getCenter() { return { x: 0, y: 0, z: 0 } }
+    getSize() { return { x: 1, y: 1, z: 1 } }
+    add() {}
+    clear() {}
+    lookAt() {}
+    updateProjectionMatrix() {}
+    dispose() {}
+    setPixelRatio() {}
+    setSize() {}
+    render() {}
+  }
+  return {
+    AmbientLight: Stub, DirectionalLight: Stub, Color: Stub, Scene: Stub,
+    Box3: Stub, PerspectiveCamera: Stub, Vector3: Stub, WebGLRenderer: Stub,
+  }
+})
+vi.mock('three/addons/loaders/GLTFLoader.js', () => ({ GLTFLoader: class { async loadAsync() { return { scene: { traverse() {} }, scenes: [] } } } }))
+
+import { apply, HARDWARE_TAB_ID, HARDWARE_TAB_KIND, kindForPath } from '../src/client/index.js'
+import { selectedArtifact } from '../src/client/components.js'
+import { DESTINATIONS, DESTINATION_LABELS, applicationFor } from '../src/client/model.js'
 import { createHardwareStore } from '../src/client/store.js'
 
 interface Registration {
@@ -31,15 +63,15 @@ function fakeContext(): { registrations: Registration[]; tabTypes: unknown[]; co
 }
 
 describe('client slot registrations', () => {
-  it('uses only supported DSH seats and one keep-mounted tab type', () => {
+  it('uses only supported DSH seats and no conversation-level native action', () => {
     const { registrations, tabTypes, context } = fakeContext()
     apply(context)
     expect(registrations.map(entry => entry.name)).toEqual([
       'conversation.header.leading',
       'sidebar.right.pane.tab',
-      'conversation.session.header.corner',
       'settings.section',
     ])
+    expect(registrations.map(entry => entry.name)).not.toContain('conversation.session.header.corner')
     expect(registrations[1]?.key).toBe(HARDWARE_TAB_ID)
     expect(tabTypes).toEqual([{
       id: HARDWARE_TAB_ID,
@@ -47,6 +79,28 @@ describe('client slot registrations', () => {
       keepMounted: true,
       title: expect.any(Function),
     }])
+  })
+
+})
+
+describe('five destinations', () => {
+  it('exposes exactly the persistent product destinations', () => {
+    expect(DESTINATIONS).toEqual(['schematic', 'pcb', 'bom', '3d', 'order'])
+    expect(Object.keys(DESTINATION_LABELS)).toEqual([...DESTINATIONS])
+  })
+
+  it('maps every preview destination to KiCad and leaves order without a native action', () => {
+    expect(applicationFor('schematic')).toBe('kicad')
+    expect(applicationFor('pcb')).toBe('kicad')
+    expect(applicationFor('bom')).toBe('kicad')
+    expect(applicationFor('3d')).toBe('kicad')
+    expect(applicationFor('order')).toBeUndefined()
+  })
+
+  it('classifies artifact kinds without inventing a mechanical destination', () => {
+    expect(kindForPath('/x/main.kicad_sch')).toBe('schematic')
+    expect(kindForPath('/x/main.kicad_pcb')).toBe('pcb')
+    expect(kindForPath('/x/main.kicad_pro')).toBe('project')
   })
 })
 
@@ -68,5 +122,54 @@ describe('product store', () => {
     off()
     first.actions.setActive('3d')
     expect(notified).toBe(1)
+  })
+
+  it('resets artifact selections when a project is adopted', () => {
+    const store = createHardwareStore()
+    const instance = store.create()
+    instance.actions.setDiscovery({
+      cwd: '/w',
+      projects: [{
+        path: '/w/a.kicad_pro', name: 'a',
+        schematic: { id: 'schematic:/w/a.kicad_sch', kind: 'schematic', path: '/w/a.kicad_sch', title: 'a.kicad_sch' },
+        sheets: [],
+        boards: [{ id: 'pcb:/w/a.kicad_pcb', kind: 'pcb', path: '/w/a.kicad_pcb', title: 'a.kicad_pcb' }],
+        defaultBoard: '/w/a.kicad_pcb',
+        selectionRequired: false,
+      }],
+      selected: {
+        path: '/w/a.kicad_pro', name: 'a',
+        schematic: { id: 'schematic:/w/a.kicad_sch', kind: 'schematic', path: '/w/a.kicad_sch', title: 'a.kicad_sch' },
+        sheets: [],
+        boards: [{ id: 'pcb:/w/a.kicad_pcb', kind: 'pcb', path: '/w/a.kicad_pcb', title: 'a.kicad_pcb' }],
+        defaultBoard: '/w/a.kicad_pcb',
+        selectionRequired: false,
+      },
+    })
+    expect(instance.getSnapshot()).toMatchObject({
+      projectPath: '/w/a.kicad_pro',
+      schematicPath: '/w/a.kicad_sch',
+      pcbPath: '/w/a.kicad_pcb',
+    })
+  })
+})
+
+describe('artifact resolution per destination', () => {
+  const state = {
+    activeDestination: 'schematic' as const,
+    schematicPath: '/w/main.kicad_sch',
+    pcbPath: '/w/main.kicad_pcb',
+    revision: 1,
+  }
+
+  it('resolves 3D from the board and BOM from the schematic', () => {
+    expect(selectedArtifact(state, '3d')?.path).toBe('/w/main.kicad_pcb')
+    expect(selectedArtifact(state, 'bom')?.path).toBe('/w/main.kicad_sch')
+    expect(selectedArtifact(state, 'pcb')?.path).toBe('/w/main.kicad_pcb')
+  })
+
+  it('resolves nothing when no artifact is selected', () => {
+    const empty = { activeDestination: 'schematic' as const, revision: 0 }
+    expect(selectedArtifact(empty, 'pcb')).toBeUndefined()
   })
 })
