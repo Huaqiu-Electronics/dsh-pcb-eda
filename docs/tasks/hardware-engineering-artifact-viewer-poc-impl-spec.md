@@ -42,10 +42,10 @@ Use the following local source trees as the implementation baseline:
 
 | Repository | Responsibility |
 |---|---|
-| `/Users/admin/code/dsh-pcb-eda` | Huaqiu DSH plugin monorepo and product implementation |
-| `/Users/admin/code/ecad-viewer` | Existing parser and 2D renderer dependencies |
-| `/Users/admin/code/kicad` | KiCad CLI behavior and quote/order reference |
-| `/Users/admin/code/deepseek-harness` | DSH shell contracts and extension-point reference |
+| `C:/code/dsh-pcb-eda` | Huaqiu DSH plugin monorepo and product implementation |
+| `C:/code/ecad-viewer` | Existing parser and 2D renderer dependencies |
+| `C:/code/kicad` | KiCad CLI behavior and quote/order reference |
+| `C:/code/deepseek-harness` | DSH shell contracts and extension-point reference |
 
 The gate-owned DSH shell baseline is `8097be700f`. Do not use the older `deepseek-harness-desktop` snapshot as the basis for implementation decisions.
 
@@ -451,7 +451,7 @@ Implement the client integration in `@huaqiu/dsh-hardware-ui`.
 
 Use the existing local repository:
 
-`/Users/admin/code/ecad-viewer`
+`C:/code/ecad-viewer`
 
 Do not reimplement its parser or 2D renderer.
 
