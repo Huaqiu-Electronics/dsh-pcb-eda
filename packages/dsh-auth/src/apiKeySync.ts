@@ -48,19 +48,19 @@ export interface VolatileCredentialStore {
 }
 
 /** Whether a store exposes the in-memory (non-persistent) mirror channel. */
-function isVolatileStore(store: CredentialStore): boolean {
+export function isVolatileStore(store: CredentialStore): boolean {
   return typeof (store as Partial<VolatileCredentialStore>).setVolatile === 'function'
 }
 
 /** Mirror a value, preferring the in-memory channel when the store supports it. */
-async function writeVolatile(store: CredentialStore, ref: string, value: string): Promise<void> {
+export async function writeVolatile(store: CredentialStore, ref: string, value: string): Promise<void> {
   const volatile = store as Partial<VolatileCredentialStore>
   if (typeof volatile.setVolatile === 'function') await volatile.setVolatile(ref, value)
   else await store.set(ref, value)
 }
 
 /** Clear a value, preferring the in-memory channel when the store supports it. */
-async function clearVolatile(store: CredentialStore, ref: string): Promise<void> {
+export async function clearVolatile(store: CredentialStore, ref: string): Promise<void> {
   const volatile = store as Partial<VolatileCredentialStore>
   if (typeof volatile.unsetVolatile === 'function') await volatile.unsetVolatile(ref)
   else await store.unset(ref)

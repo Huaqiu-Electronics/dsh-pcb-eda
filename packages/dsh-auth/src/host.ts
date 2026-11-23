@@ -21,6 +21,7 @@
  */
 
 import { getLogger, type PluginLogger } from '@huaqiu/dsh-plugin-log'
+import { AI_ENV_KEYS, resolveAiEndpoints, type AiEndpoints } from './gateway.js'
 
 // Lazy so test suites that `vi.mock('@deepseek-ai/dsh-home-paths', …)` before
 // the test's TMP constant is initialised don't trigger `dshHomePath('logs')` at
@@ -46,19 +47,34 @@ export interface HuaqiuAuthConfig {
   /** Seconds remote token-validation results are cached. Default 60. */
   validationTtlSeconds?: number
   /**
-   * Subscription balances endpoint resolved by HQ Edge from `HQ_AI_ENV`
-   * (`GET /sub-api/subscriptions/balances/current`). Absent → `/ai-usage`
-   * returns null instead of calling a stale/default endpoint.
+   * OpenAI-compatible Huaqiu AI gateway root. HQ Edge passes the concrete URL
+   * resolved from its `HQ_AI_ENV`; standalone DSH resolves it from the same
+   * selector (`prod` / `test`) via {@link resolveAiEndpoints}.
+   */
+  aiGatewayBaseUrl?: string
+  /**
+   * Which endpoint table produced the gateway URL. Diagnostic only — the
+   * browser half never reads `HQ_AI_ENV` (spec §8: the plugin is the single
+   * place that inspects these variables).
+   */
+  aiEnvironment?: 'prod' | 'test'
+  /**
+   * Subscription balances endpoint (`GET /sub-api/subscriptions/balances/current`).
+   * HQ Edge injects the concrete URL; standalone DSH resolves it from
+   * `HQ_AI_ENV`, so `/ai-usage` follows the same environment as the gateway.
+   * Empty under a host that injected nothing → `/ai-usage` returns null instead
+   * of calling a stale/default endpoint.
    */
   subscriptionBalancesUrl?: string
   /**
-   * Subscription landing-page origin resolved by HQ Edge from the SAME
-   * `HQ_AI_ENV`. Absent → the browser half keeps its standalone PROD default.
+   * Subscription landing-page origin, from the SAME `HQ_AI_ENV` (overlay > env >
+   * preset, standalone only). The browser half builds the GEN/ERC host-dialog
+   * URL from it instead of hardcoding gen.eda.cn.
    */
   subscriptionOrigin?: string
   /**
-   * Full「Go to profile」URL resolved by HQ Edge from the SAME `HQ_AI_ENV`.
-   * Absent → the browser half keeps its standalone PROD default.
+   * Full「Go to profile」URL from the SAME `HQ_AI_ENV` (overlay > env > preset,
+   * standalone only). Null → the browser half keeps its own PROD default.
    */
   profileUrl?: string
 }
@@ -71,8 +87,12 @@ export const DEFAULT_VALIDATION_TTL_SECONDS = 60
 
 /**
  * Resolve the effective config: overlay `config` (highest) > env (safety net
- * for non-supervisor installs) > defaults. Centralised here so only `dsh-auth`
- * inspects these variables (spec §8).
+ * for non-supervisor installs) > `HQ_AI_ENV` preset table.
+ *
+ * The preset table is the STANDALONE default only (see the AI-endpoint block):
+ * it is what makes a Desktop build follow `HQ_AI_ENV=test`. Under a host the
+ * supervisor's concrete values stay authoritative and an absent injection
+ * stays absent.
  */
 export function resolveHostConfig(
   config?: Partial<HuaqiuAuthConfig> | null,
@@ -106,18 +126,35 @@ export function resolveHostConfig(
     const parsed = Number.parseInt(vTtlRaw, 10)
     if (Number.isFinite(parsed) && parsed > 0) validationTtlSeconds = parsed
   }
-  // Resolved AI endpoints: overlay config (what HQ Edge injects) wins; explicit
-  // env URLs are the standalone escape hatch. HQ_AI_ENV itself is NOT read here
-  // — the prod/test mapping lives only in HQ Edge's central config.
-  const subscriptionBalancesUrl = (
-    config?.subscriptionBalancesUrl
-    ?? env.HQ_AI_SUBSCRIPTION_BALANCES_URL
-    ?? ''
-  ).trim()
-  const subscriptionOrigin = (config?.subscriptionOrigin ?? env.HQ_AI_SUBSCRIPTION_ORIGIN ?? '')
-    .trim()
-    .replace(/\/+$/, '')
-  const profileUrl = (config?.profileUrl ?? env.HQ_AI_PROFILE_URL ?? '').trim()
+  // Resolved AI endpoints. One selector decides all of them:
+  //   overlay config (what HQ Edge injects) > explicit env URL > `HQ_AI_ENV`
+  //   preset table — but the preset table is only consulted STANDALONE.
+  // Under a host, an absent injection must stay absent (no endpoint → `/ai-usage`
+  // returns null) instead of silently pointing the browser at a default
+  // environment the host never chose.
+  const ai = resolveAiEndpointsForConfig(config, env)
+  const standalone = baseUrl.trim().length === 0
+  const nonEmpty = (...values: readonly (string | undefined)[]): string => {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+    }
+    return ''
+  }
+  const subscriptionBalancesUrl = nonEmpty(
+    config?.subscriptionBalancesUrl,
+    env.HQ_AI_SUBSCRIPTION_BALANCES_URL,
+    standalone ? ai.subscriptionBalancesUrl : '',
+  )
+  const subscriptionOrigin = nonEmpty(
+    config?.subscriptionOrigin,
+    env.HQ_AI_SUBSCRIPTION_ORIGIN,
+    standalone ? ai.subscriptionOrigin : '',
+  ).replace(/\/+$/, '')
+  const profileUrl = nonEmpty(
+    config?.profileUrl,
+    env.HQ_AI_PROFILE_URL,
+    standalone ? ai.profileUrl : '',
+  ).replace(/\/+$/, '')
   return {
     hqEdgeBaseUrl: baseUrl,
     hostAuthPath,
@@ -128,7 +165,28 @@ export function resolveHostConfig(
     subscriptionBalancesUrl,
     subscriptionOrigin,
     profileUrl,
+    aiGatewayBaseUrl: ai.gatewayBaseUrl,
+    aiEnvironment: ai.environment,
   }
+}
+
+/**
+ * The effective Huaqiu AI endpoints for this configuration.
+ *
+ * Precedence: overlay `aiGatewayBaseUrl` (HQ Edge injected a concrete URL) >
+ * explicit `HQ_AI_GATEWAY_URL` > the `HQ_AI_ENV` preset table (`prod` /
+ * `test`). The subscription URLs stay on their own keys above so a host that
+ * only injects the gateway still keeps the deployment's other endpoints.
+ */
+export function resolveAiEndpointsForConfig(
+  config?: Partial<HuaqiuAuthConfig> | null,
+  env: NodeJS.ProcessEnv = process.env,
+): AiEndpoints {
+  const resolved = resolveAiEndpoints(env[AI_ENV_KEYS.selector], env, (value) => {
+    log().warn('invalid HQ_AI_ENV — falling back to prod', { value })
+  })
+  const overlay = (config?.aiGatewayBaseUrl ?? '').trim().replace(/\/+$/, '')
+  return overlay.length === 0 ? resolved : { ...resolved, gatewayBaseUrl: overlay }
 }
 
 export interface HostSession {

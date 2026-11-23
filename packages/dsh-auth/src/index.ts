@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { getLogger, type PluginLogger } from '@huaqiu/dsh-plugin-log'
 import {
   DEFAULT_HOST_AUTH_PATH,
+  resolveAiEndpointsForConfig,
   resolveHostConfig,
   type HuaqiuAuthConfig,
 } from './host.js'
@@ -19,10 +20,22 @@ import {
   type CredentialStore,
   type VolatileCredentialStore,
 } from './apiKeySync.js'
+import { HuaqiuStandaloneCredentialBridge } from './standaloneCredentials.js'
+import {
+  ensureHuaqiuGatewayProvider,
+  type ProviderLogger,
+  type SettingsPort,
+} from './provider.js'
 import { InMemoryHuaqiuAuthService, type HuaqiuAuthService } from './service.js'
 import { AUTH_ROUTE_PREFIX, createAuthHandler } from './routes.js'
 
 const log = getLogger('dsh-auth')
+
+/**
+ * How many 500 ms retries the standalone gateway seed makes while the
+ * `llm-pi-ai` row is still mounting (see the seeding effect in `apply`).
+ */
+const SEED_RETRIES = 40
 
 export type { HuaqiuAuthApi, HuaqiuAuthService, HuaqiuUserInfo } from './service.js'
 export { InMemoryHuaqiuAuthService } from './service.js'
@@ -33,6 +46,29 @@ export {
   HUAQIU_API_KEY_REF,
   type CredentialStore,
 } from './apiKeySync.js'
+export { HuaqiuStandaloneCredentialBridge } from './standaloneCredentials.js'
+export {
+  AI_ENV_KEYS,
+  HUAQIU_AI_API_KEY_REF,
+  HUAQIU_AI_MODEL_ID,
+  HUAQIU_AI_PROVIDER_ID,
+  joinEndpointUrl,
+  managedGatewayBaseUrls,
+  parseAiEnvironment,
+  resolveAiEndpoints,
+  type AiEndpoints,
+  type AiEnvironment,
+} from './gateway.js'
+export {
+  DEFAULT_MODEL_SETTINGS_NS,
+  PROVIDER_SETTINGS_NS,
+  ensureHuaqiuGatewayProvider,
+  huaqiuProviderEntry,
+  isManagedGatewayBaseUrl,
+  type ProviderAction,
+  type SettingsPort,
+} from './provider.js'
+export { resolveAiEndpointsForConfig } from './host.js'
 export type { HuaqiuAuthConfig } from './host.js'
 
 export const name = '@huaqiu/dsh-auth'
@@ -75,13 +111,38 @@ export function apply(ctx: Context, config?: Partial<HuaqiuAuthConfig>): void {
   // Host mode: mirror the operator token into the DSH credential reference
   // `HUAQIU_API_KEY` so the bundled `huaqiu` AI provider can resolve it per
   // request (task huaqiu-ai-gateway §5). The sync re-fetches the loopback
-  // token endpoint on an immediate round plus a 5 s non-overlapping poll;
-  // it is host-scoped only — standalone DSH keeps its browser-login flow and
-  // the reference stays unset (missing credential → explicit
-  // MISSING_CREDENTIAL, never a fallback key).
+  // token endpoint on an immediate round plus a 5 s non-overlapping poll.
+  //
+  // Standalone (no HQ Edge — the Desktop distribution): the credential arrives
+  // as a browser push, so a change-driven bridge mirrors it instead, and the
+  // gateway provider itself is seeded into `llm-pi-ai`'s settings section from
+  // the same `HQ_AI_ENV` (prod / test) table HQ Edge uses. Both paths end with
+  // the SAME shape: `HUAQIU_API_KEY` set in memory → `huaqiu / auto-model`
+  // usable after login, no restart and no manual key entry.
+  const resolved = resolveHostConfig(config)
+  const storeProvider = (): CredentialStore | null => {
+    const credentials = ctx.get('credentials') as
+      | (CredentialProvider & Partial<VolatileCredentialStore>)
+      | undefined
+    if (credentials === undefined) return null
+    const store: CredentialStore & Partial<VolatileCredentialStore> = {
+      set: (ref, value) => credentials.set(ref as CredentialRef, value),
+      unset: (ref) => credentials.unset(ref as CredentialRef),
+    }
+    if (typeof credentials.setVolatile === 'function') {
+      store.setVolatile = (ref, value) => credentials.setVolatile!(ref as CredentialRef, value)
+      store.unsetVolatile = (ref) => credentials.unsetVolatile!(ref as CredentialRef)
+    }
+    return store
+  }
+  const syncLog = {
+    debug: (msg: string, ctx2?: Record<string, unknown>) => log.debug(msg, ctx2),
+    info: (msg: string, ctx2?: Record<string, unknown>) => log.info(msg, ctx2),
+    warn: (msg: string, ctx2?: Record<string, unknown>) => log.warn(msg, ctx2),
+  }
+
   if (service.hostMode) {
     ctx.effect(() => {
-      const resolved = resolveHostConfig(config)
       const sync = new HuaqiuApiKeySync(
         resolved.hqEdgeBaseUrl ?? '',
         resolved.hostAuthPath ?? DEFAULT_HOST_AUTH_PATH,
@@ -97,29 +158,61 @@ export function apply(ctx: Context, config?: Partial<HuaqiuAuthConfig>): void {
         // no `.credentials.yaml` write, no cross-process lock. When the mounted
         // provider predates that channel the durable `set`/`unset` fallback is
         // used (the previous persistent behavior).
-        () => {
-          const credentials = ctx.get('credentials') as
-            | (CredentialProvider & Partial<VolatileCredentialStore>)
-            | undefined
-          if (credentials === undefined) return null
-          const store: CredentialStore & Partial<VolatileCredentialStore> = {
-            set: (ref, value) => credentials.set(ref as CredentialRef, value),
-            unset: (ref) => credentials.unset(ref as CredentialRef),
-          }
-          if (typeof credentials.setVolatile === 'function') {
-            store.setVolatile = (ref, value) => credentials.setVolatile!(ref as CredentialRef, value)
-            store.unsetVolatile = (ref) => credentials.unsetVolatile!(ref as CredentialRef)
-          }
-          return store
-        },
-        {
-          debug: (msg, ctx2) => log.debug(msg, ctx2),
-          info: (msg, ctx2) => log.info(msg, ctx2),
-          warn: (msg, ctx2) => log.warn(msg, ctx2),
-        },
+        storeProvider,
+        syncLog,
       )
       sync.start()
       return () => sync.dispose()
+    })
+  } else {
+    // 1. Browser login → `HUAQIU_API_KEY` (in memory).
+    ctx.effect(() => {
+      const bridge = new HuaqiuStandaloneCredentialBridge(service.auth, storeProvider, syncLog)
+      bridge.start()
+      return () => bridge.dispose()
+    })
+    // 2. `huaqiu` provider + default model, seeded from `HQ_AI_ENV`.
+    //
+    //    Both rows must already be mounted before their settings sections can
+    //    be edited: `describe()` only reports ACTIVE entries, and this plugin
+    //    activates before `llm-pi-ai` in the composed tree. So the seed waits
+    //    for the loader to settle and retries until the row appears (bounded),
+    //    instead of racing the composition and silently doing nothing.
+    ctx.inject(['settings'], (scoped) => {
+      const settings = (scoped as unknown as { settings?: SettingsPort }).settings
+      if (settings === undefined) return
+      const endpoints = resolveAiEndpointsForConfig(config)
+      scoped.effect(() => {
+        let disposed = false
+        const timers = new Set<ReturnType<typeof setTimeout>>()
+        const schedule = (fn: () => void): void => {
+          const timer = setTimeout(() => {
+            timers.delete(timer)
+            if (!disposed) fn()
+          }, 500)
+          timers.add(timer)
+        }
+        const attempt = (tryNumber: number): void => {
+          if (disposed) return
+          void ensureHuaqiuGatewayProvider(settings, endpoints, log as unknown as ProviderLogger)
+            .then((action) => {
+              // Rows still mounting: try again shortly. Any other outcome is
+              // final — either it wrote, or the composition has no gateway.
+              if (action === 'skipped-no-pi-ai-row' && tryNumber < SEED_RETRIES) schedule(() => attempt(tryNumber + 1))
+            })
+            .catch((error: unknown) => {
+              // Provisioning is best-effort: a composition without the two rows
+              // simply has no gateway to offer, and must never fail the boot.
+              log.warn('huaqiu gateway provider provisioning skipped', { error: String(error) })
+            })
+        }
+        attempt(0)
+        return () => {
+          disposed = true
+          for (const timer of timers) clearTimeout(timer)
+          timers.clear()
+        }
+      })
     })
   }
 

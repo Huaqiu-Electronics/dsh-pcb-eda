@@ -50,6 +50,60 @@ describe('resolveHostConfig', () => {
     expect(c.hostAuthPath).toBe('/api/v1/auth/token')
     expect(c.hostSessionTtlSeconds).toBe(300)
   })
+
+  // Standalone builds have no supervisor to inject the AI endpoints, so the
+  // `HQ_AI_ENV` table must drive ALL of them — gateway, balances, subscription
+  // origin and profile URL — otherwise a `test` build mixes environments.
+  it('resolves every AI endpoint from HQ_AI_ENV in standalone (prod default)', () => {
+    const c = resolveHostConfig(undefined, {})
+    expect(c.aiEnvironment).toBe('prod')
+    expect(c.aiGatewayBaseUrl).toBe('https://www.eda.cn/user-rest/ai/v1')
+    expect(c.subscriptionBalancesUrl).toBe('https://www.eda.cn/sub-api/subscriptions/balances/current')
+    expect(c.subscriptionOrigin).toBe('https://gen.eda.cn')
+    expect(c.profileUrl).toBe('https://www.eda.cn/account/profile')
+  })
+
+  it('switches every AI endpoint to the test table', () => {
+    const c = resolveHostConfig(undefined, { HQ_AI_ENV: 'test' })
+    expect(c.aiEnvironment).toBe('test')
+    expect(c.aiGatewayBaseUrl).toBe('http://www.fdatasheets.com/user-rest/ai/v1')
+    expect(c.subscriptionBalancesUrl).toBe('http://www.fdatasheets.com/sub-api/subscriptions/balances/current')
+    expect(c.subscriptionOrigin).toBe('http://gen.fdatasheets.com')
+    // TEST serves the account page one level higher than PROD.
+    expect(c.profileUrl).toBe('http://www.fdatasheets.com/account')
+  })
+
+  it('lets the host overlay win over the environment table', () => {
+    const c = resolveHostConfig({
+      hqEdgeBaseUrl: 'http://localhost:18080',
+      aiGatewayBaseUrl: 'http://127.0.0.1:9443/ai/v1',
+      subscriptionBalancesUrl: 'http://127.0.0.1:9443/balances',
+      subscriptionOrigin: 'http://127.0.0.1:9443',
+      profileUrl: 'http://127.0.0.1:9443/profile',
+    }, { HQ_AI_ENV: 'test' })
+    expect(c.aiGatewayBaseUrl).toBe('http://127.0.0.1:9443/ai/v1')
+    expect(c.subscriptionBalancesUrl).toBe('http://127.0.0.1:9443/balances')
+    expect(c.subscriptionOrigin).toBe('http://127.0.0.1:9443')
+    expect(c.profileUrl).toBe('http://127.0.0.1:9443/profile')
+  })
+
+  it('keeps host mode strict: no injection means no endpoint, not a preset', () => {
+    const c = resolveHostConfig({ hqEdgeBaseUrl: 'http://localhost:18080' }, { HQ_AI_ENV: 'test' })
+    expect(c.subscriptionBalancesUrl).toBe('')
+    expect(c.subscriptionOrigin).toBe('')
+    expect(c.profileUrl).toBe('')
+  })
+
+  it('prefers a non-empty per-endpoint env override over the preset', () => {
+    const c = resolveHostConfig(undefined, {
+      HQ_AI_ENV: 'prod',
+      HQ_AI_PROFILE_URL: 'http://local:9000/account/',
+      HQ_AI_SUBSCRIPTION_ORIGIN: 'http://gen.local:9000/',
+    })
+    expect(c.profileUrl).toBe('http://local:9000/account')
+    expect(c.subscriptionOrigin).toBe('http://gen.local:9000')
+    expect(c.subscriptionBalancesUrl).toBe('https://www.eda.cn/sub-api/subscriptions/balances/current')
+  })
 })
 
 describe('normalizeHostUser', () => {

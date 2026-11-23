@@ -115,14 +115,35 @@ describe('auth webServer routes (browser→node transport)', () => {
     expect((await post(`${AUTH_ROUTE_PREFIX}/nope`, {})).status).toBe(404)
   })
 
-  it('GET /config reports standalone mode (hostMode=false) and no AI origin', async () => {
-    // Only HQ Edge supplies the resolved endpoints; standalone (no overlay
-    // config, no env) reports no origin and no quota API base.
-    const standaloneSvc = new InMemoryHuaqiuAuthService({})
-    expect(standaloneSvc.hostMode).toBe(false)
-    expect(standaloneSvc.subscriptionOrigin).toBeNull()
-    expect(standaloneSvc.subscriptionApiBaseUrl).toBeNull()
-    expect(standaloneSvc.profileUrl).toBeNull()
+  it('GET /config reports standalone PROD defaults resolved from HQ_AI_ENV', async () => {
+    // Standalone has no supervisor, so the plugin's own `HQ_AI_ENV` table
+    // supplies all three endpoints. With the selector unset that is PROD — the
+    // same values the browser half used to hardcode, now stated explicitly.
+    const previous = process.env.HQ_AI_ENV
+    delete process.env.HQ_AI_ENV
+    try {
+      const standaloneSvc = new InMemoryHuaqiuAuthService({})
+      expect(standaloneSvc.hostMode).toBe(false)
+      expect(standaloneSvc.subscriptionOrigin).toBe('https://gen.eda.cn')
+      expect(standaloneSvc.subscriptionApiBaseUrl).toBe('https://www.eda.cn')
+      expect(standaloneSvc.profileUrl).toBe('https://www.eda.cn/account/profile')
+    } finally {
+      if (previous !== undefined) process.env.HQ_AI_ENV = previous
+    }
+  })
+
+  it('GET /config follows HQ_AI_ENV=test in standalone (no supervisor)', async () => {
+    const previous = process.env.HQ_AI_ENV
+    process.env.HQ_AI_ENV = 'test'
+    try {
+      const standaloneSvc = new InMemoryHuaqiuAuthService({})
+      expect(standaloneSvc.subscriptionOrigin).toBe(TEST_SUBSCRIPTION_ORIGIN)
+      expect(standaloneSvc.subscriptionApiBaseUrl).toBe('http://www.fdatasheets.com')
+      expect(standaloneSvc.profileUrl).toBe(TEST_PROFILE_URL)
+    } finally {
+      if (previous === undefined) delete process.env.HQ_AI_ENV
+      else process.env.HQ_AI_ENV = previous
+    }
   })
 
   it('GET /config exposes the subscription origin resolved from the same AI env', async () => {
