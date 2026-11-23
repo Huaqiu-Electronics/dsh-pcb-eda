@@ -3,7 +3,7 @@
  *
  * This package is a **bundle**, not a plugin. It is never mounted as a loader
  * row: DSH reads its `dsh.bundle.patch` (`./cordis.patch.yml`), merges that
- * patch into the profile's layer stack, and mounts the nine plugin rows the
+ * patch into the profile's layer stack, and mounts the eleven plugin rows the
  * patch inserts. The plugin packages themselves are ordinary `dependencies` of
  * this package, which is what makes them resolvable from the installation
  * anchor without a profile-local install.
@@ -59,6 +59,7 @@ export const HARDWARE_ENGINEERING_PLUGINS: readonly HardwareEngineeringPlugin[] 
   // Service providers first: consumers below wait on these two.
   Object.freeze({ id: 'huaqiu-auth', name: '@huaqiu/dsh-auth', inject: ['webServer'], provides: ['huaqiuAuth'], role: 'provider' }),
   Object.freeze({ id: 'huaqiu-artifacts', name: '@huaqiu/dsh-artifacts', inject: ['webServer'], provides: ['huaqiuArtifacts'], role: 'provider' }),
+  Object.freeze({ id: 'hardware-artifacts', name: '@huaqiu/hardware-artifacts', inject: ['webServer', 'systemPrompt'], provides: ['hardwareArtifacts'], role: 'provider' }),
 
   Object.freeze({ id: 'huaqiu-dsh-kicad', name: '@huaqiu/dsh-kicad', inject: ['skills', 'tools'], provides: [], role: 'capability' }),
   Object.freeze({
@@ -80,6 +81,7 @@ export const HARDWARE_ENGINEERING_PLUGINS: readonly HardwareEngineeringPlugin[] 
 
   Object.freeze({ id: 'ui-theme-huaqiu', name: '@huaqiu/dsh-ui-theme-huaqiu', inject: [], provides: [], role: 'presentation' }),
   Object.freeze({ id: 'dsh-huaqiu-about', name: '@huaqiu/dsh-huaqiu-about', inject: [], provides: [], role: 'presentation' }),
+  Object.freeze({ id: 'dsh-hardware-ui', name: '@huaqiu/dsh-hardware-ui', inject: [], provides: [], role: 'presentation' }),
 ]) as readonly HardwareEngineeringPlugin[]
 
 /** Package names the bundle depends on and mounts, in patch order. */

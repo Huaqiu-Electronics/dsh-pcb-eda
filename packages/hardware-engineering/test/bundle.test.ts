@@ -146,9 +146,10 @@ describe('patch ↔ ledger', () => {
   })
 
   it('exposes the service sets the activation test asserts on', () => {
-    expect(HARDWARE_ENGINEERING_PROVIDED_SERVICES).toEqual(['huaqiuArtifacts', 'huaqiuAuth'])
+    expect(HARDWARE_ENGINEERING_PROVIDED_SERVICES).toEqual(['hardwareArtifacts', 'huaqiuArtifacts', 'huaqiuAuth'])
     expect(HARDWARE_ENGINEERING_REQUIRED_SERVICES).toContain('huaqiuAuth')
     expect(HARDWARE_ENGINEERING_REQUIRED_SERVICES).toContain('huaqiuArtifacts')
+    expect(HARDWARE_ENGINEERING_REQUIRED_SERVICES).toContain('webServer')
   })
 })
 

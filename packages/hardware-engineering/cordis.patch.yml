@@ -3,7 +3,7 @@
 # THE PRODUCT BUNDLE. A profile selects this one package
 # (`dsh.profile.bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app',
 # '@huaqiu/hardware-engineering']`); this patch is what actually mounts the
-# nine Huaqiu plugin rows. The plugin packages are plain `dependencies` of
+# eleven Huaqiu plugin rows. The plugin packages are plain `dependencies` of
 # this package — declaring a dependency installs it, it does not activate it.
 #
 # ── Why the rows live here and not in the profile ──────────────────────────
@@ -56,6 +56,10 @@
       name: '@huaqiu/dsh-artifacts'
       inject: ['webServer']
 
+    - id: hardware-artifacts
+      name: '@huaqiu/hardware-artifacts'
+      inject: ['webServer', 'systemPrompt']
+
     # ── Node-side capability plugins ────────────────────────────────────────
     - id: huaqiu-dsh-kicad
       name: '@huaqiu/dsh-kicad'
@@ -83,3 +87,7 @@
 
     - id: dsh-huaqiu-about
       name: '@huaqiu/dsh-huaqiu-about'
+
+    # Product-owned engineering navigation and right-panel viewer.
+    - id: dsh-hardware-ui
+      name: '@huaqiu/dsh-hardware-ui'

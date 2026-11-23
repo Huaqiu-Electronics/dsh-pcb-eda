@@ -1,0 +1,9 @@
+# DSH bundle patch — @huaqiu/dsh-hardware-ui
+#
+# The browser half is loaded from the package's `./client` export by DSH's
+# classic client module loader (see `dsh.client.platform` in package.json).
+# The node half exists only to give the product bundle one installable identity;
+# it deliberately provides no host service and injects nothing.
+- insert:
+    - id: dsh-hardware-ui
+      name: '@huaqiu/dsh-hardware-ui'

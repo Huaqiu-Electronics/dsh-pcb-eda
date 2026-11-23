@@ -2,7 +2,7 @@
 
 The Huaqiu Hardware Engineering **product bundle** for DeepSeek Harness.
 
-It is not a plugin. It is the package a DSH profile selects so that the nine
+It is not a plugin. It is the package a DSH profile selects so that the eleven
 Huaqiu plugins ship with the installation and activate on first launch, offline,
 without HQ Edge.
 

@@ -1,0 +1,10 @@
+# dsh bundle patch: Hardware Engineering host capability.
+#
+# The row waits on the local web server and the prompt-context service it
+# contributes to. Filesystem, settings and subprocess access stay defensive.
+# No row here injects hqEdge: installation resolution and native launch are
+# local and shell-free by construction.
+- insert:
+    - id: hardware-artifacts
+      name: '@huaqiu/hardware-artifacts'
+      inject: ['webServer', 'systemPrompt']
