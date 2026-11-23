@@ -984,3 +984,23 @@ The final demonstration should use a real multi-artifact hardware project:
 The POC passes when the user can inspect the design inside the DSH workspace and open the exact selected artifact in its native application without manually navigating through the filesystem.
 
 **The success criterion is a convincing artifact-viewing and native-application handoff experience, not editor synchronization.**
+
+## UPDATES
+
+Reuse the ECAD rendering foundation
+
+@huaqiu/ecad-renderer and @huaqiu/kicad-sexpr-parser are the foundation. The new feature should build on them.
+
+I would make the package responsibilities explicit:
+Component	Responsibility
+@huaqiu/kicad-sexpr-parser	Parse native KiCad S-expression files
+@huaqiu/ecad-renderer	Render schematic and PCB geometry
+Existing PCB viewer	Existing PCB viewer behavior and Three.js integration
+Hardware Engineering UI	Navigation, artifact selection, viewer toolbar and workflow entry points
+Host capability	File resolution, artifact delivery and native application launch
+
+One important distinction: parsing and rendering are shared foundations, but BOM is a semantic view, not just another drawing mode.
+
+BOM should consume the parsed schematic structure and extract component properties, hierarchy, references, quantities, DNP and BOM-exclusion attributes. It should not scrape the rendered schematic or maintain an independent BOM database.
+
+I would also avoid forcing PCB, schematic and 3D into one renderer API if the underlying rendering requirements differ. Reuse the ECAD foundation where appropriate, and retain Three.js for 3D.
