@@ -93,8 +93,8 @@ export function apply(ctx: ClientContext): void {
   }
 
   const controller: HardwareController = {
-    discover(cwd, project) {
-      return loadProjects(cwd, project)
+    discover(cwd, project, session) {
+      return loadProjects(cwd, project, session)
     },
     installations() {
       return loadInstallations()

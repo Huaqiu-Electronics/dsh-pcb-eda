@@ -36,6 +36,7 @@ export {
 } from './order.js'
 export type { BoardFacts, PositionRow } from './order.js'
 export { createHardwareHandler, HARDWARE_ROUTE_PREFIX } from './routes.js'
+export type { HardwareHandlerOptions, WorkspaceResolver } from './routes.js'
 
 export const name = '@huaqiu/hardware-artifacts'
 export const inject = ['webServer', 'systemPrompt'] as const
@@ -107,17 +108,47 @@ interface SystemPromptFace {
 
 export function apply(ctx: Context, config: HardwareArtifactsPluginConfig = {}): void {
   /**
+   * Read one optional host service without declaring it in `inject`.
+   *
+   * `hardwareArtifacts` must stay usable — and unit-testable — in a profile
+   * where auth, sessions or a sandbox policy are absent; each caller degrades
+   * on its own instead of the whole plugin refusing to mount.
+   */
+  const hostService = <T>(name: string): T | undefined => {
+    const get = (ctx as Context & { get?: (name: string) => unknown }).get
+    return typeof get === 'function' ? get.call(ctx, name) as T | undefined : undefined
+  }
+
+  /**
    * The signed-in Huaqiu session, when the auth plugin is mounted.
    *
-   * Read lazily through `ctx.get` rather than declared in `inject`: hardware
-   * artifacts must stay usable — and unit-testable — in a profile without auth,
-   * and only the order path needs the token.
+   * Read lazily rather than declared in `inject`: only the order path needs the
+   * token.
    */
-  const huaqiuAuth = (): { auth?: { getAccessToken?: () => Promise<string | null> } } | undefined => {
-    const get = (ctx as Context & { get?: (name: string) => unknown }).get
-    return typeof get === 'function'
-      ? get.call(ctx, 'huaqiuAuth') as { auth?: { getAccessToken?: () => Promise<string | null> } } | undefined
-      : undefined
+  const huaqiuAuth = (): { auth?: { getAccessToken?: () => Promise<string | null> } } | undefined =>
+    hostService<{ auth?: { getAccessToken?: () => Promise<string | null> } }>('huaqiuAuth')
+
+  /**
+   * Workspace root of one DSH session, from the host's own session header.
+   *
+   * This is what makes authorization survive a workspace switch: the base for
+   * a read comes from the session the request names, so another session's
+   * discovery cannot revoke it. Falling back to the sandbox policy root keeps
+   * a session without a header usable instead of unauthorized.
+   */
+  const sessionWorkspace = async (sessionId: string): Promise<string | undefined> => {
+    const live = hostService<{ get?: (id: string) => { header?: { cwd?: string } } | undefined }>('sessions')
+      ?.get?.(sessionId)?.header?.cwd
+    if (live !== undefined) return live
+    try {
+      const stored = await hostService<{
+        stat?: (id: string) => Promise<{ header?: { cwd?: string } } | undefined>
+      }>('sessionPersistence')?.stat?.(sessionId)
+      if (stored?.header?.cwd !== undefined) return stored.header.cwd
+    } catch {
+      // A session the persistence layer cannot answer for is not an error here.
+    }
+    return hostService<{ workspaceRoot?: string }>('sandboxPolicy')?.workspaceRoot
   }
 
   const service = new HardwareArtifactService({
@@ -145,7 +176,7 @@ export function apply(ctx: Context, config: HardwareArtifactsPluginConfig = {}):
     ctx.effect(() => ctx.webServer.register({
       kind: 'prefix',
       path: HARDWARE_ROUTE_PREFIX,
-      handler: createHardwareHandler(service),
+      handler: createHardwareHandler(service, { resolveWorkspace: sessionWorkspace }),
     }), 'hardware-artifacts: local read/launch routes')
   }
 

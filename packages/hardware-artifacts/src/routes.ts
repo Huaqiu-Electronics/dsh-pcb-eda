@@ -1,9 +1,22 @@
 /** Read-only HTTP surface for the Hardware Engineering client. */
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFileSync } from 'node:fs'
-import type { ArtifactKind, DiscoveryResult, HardwareArtifactService, NativeApplication } from './service.js'
+import type { ArtifactKind, HardwareArtifactService, NativeApplication } from './service.js'
 
 export const HARDWARE_ROUTE_PREFIX = '/api/v1/hardware'
+
+/**
+ * Resolve the workspace root of one DSH session, host-side.
+ *
+ * Supplied by the plugin from the `sessions` service, so the base for an
+ * authorization check comes from the session header rather than from a value
+ * the browser sent — and never from whichever session discovered last.
+ */
+export type WorkspaceResolver = (sessionId: string) => Promise<string | undefined> | string | undefined
+
+export interface HardwareHandlerOptions {
+  readonly resolveWorkspace?: WorkspaceResolver
+}
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body)
@@ -48,8 +61,53 @@ function rootsOf(body: unknown): string[] {
   return [cwd, workspace].filter((value): value is string => value !== undefined)
 }
 
-export function createHardwareHandler(service: HardwareArtifactService): (req: IncomingMessage, res: ServerResponse) => void {
-  let lastDiscovery: DiscoveryResult | undefined
+/** The DSH session a request belongs to: a query field for reads, a body field for writes. */
+function sessionOf(url: URL, body?: unknown): string | undefined {
+  const fromBody = body === null || typeof body !== 'object'
+    ? undefined
+    : asString((body as Record<string, unknown>).session)
+  return fromBody ?? asString(url.searchParams.get('session') ?? undefined)
+}
+
+/**
+ * Everything one request may read: the roots it named plus the workspace of the
+ * session it belongs to.
+ *
+ * The session's workspace is resolved here, not taken from `cwd`: the browser
+ * sends whichever cwd its session hook held at render time, and a viewer that
+ * stayed mounted across a workspace switch would otherwise authorize against a
+ * workspace it no longer shows.
+ */
+async function authorizeRequest(
+  options: HardwareHandlerOptions,
+  url: URL,
+  body?: unknown,
+): Promise<{ roots: string[]; sessionId?: string }> {
+  const sessionId = sessionOf(url, body)
+  const roots = rootsOf(body)
+  // Reads carry theirs in the query string; writes in the body. Either way they
+  // only add to the session's workspace, never replace it.
+  for (const key of ['cwd', 'workspace']) {
+    const value = asString(url.searchParams.get(key) ?? undefined)
+    if (value !== undefined && !roots.includes(value)) roots.push(value)
+  }
+  if (sessionId === undefined || options.resolveWorkspace === undefined) {
+    return { roots }
+  }
+  try {
+    const workspace = await options.resolveWorkspace(sessionId)
+    if (workspace !== undefined && workspace !== '') roots.push(workspace)
+  } catch {
+    // An unresolvable session is not a reason to fail a local read: the caller's
+    // own roots still apply, and they can only come from this machine.
+  }
+  return { roots, sessionId }
+}
+
+export function createHardwareHandler(
+  service: HardwareArtifactService,
+  options: HardwareHandlerOptions = {},
+): (req: IncomingMessage, res: ServerResponse) => void {
   return (req, res) => {
     if (!isTrustedRequest(req)) {
       sendJson(res, 403, { ok: false, error: { code: 'forbidden', message: 'forbidden' } })
@@ -60,8 +118,22 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
         const url = new URL(req.url ?? '/', 'http://dsh.internal')
         const p = url.pathname
         if (req.method === 'GET' && p === `${HARDWARE_ROUTE_PREFIX}/projects`) {
-          const result = service.discover(asString(url.searchParams.get('cwd') ?? undefined) ?? process.cwd(), asString(url.searchParams.get('project') ?? undefined))
-          lastDiscovery = result
+          const sessionId = asString(url.searchParams.get('session') ?? undefined)
+          let workspace = asString(url.searchParams.get('cwd') ?? undefined)
+          if (workspace === undefined && sessionId !== undefined && options.resolveWorkspace !== undefined) {
+            try {
+              workspace = await options.resolveWorkspace(sessionId)
+            } catch {
+              workspace = undefined
+            }
+          }
+          // The workspace the session declares is the default; `process.cwd()`
+          // is only a last resort for an embed with no session at all.
+          const result = service.discover(
+            workspace ?? process.cwd(),
+            asString(url.searchParams.get('project') ?? undefined),
+            sessionId,
+          )
           sendJson(res, 200, { ok: true, ...result })
           return
         }
@@ -70,7 +142,12 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
           return
         }
         if (req.method === 'GET' && p === `${HARDWARE_ROUTE_PREFIX}/environment`) {
-          sendJson(res, 200, { ok: true, text: service.environmentText(lastDiscovery ?? service.discovery()), childEnv: service.childEnvironment() })
+          const sessionId = asString(url.searchParams.get('session') ?? undefined)
+          sendJson(res, 200, {
+            ok: true,
+            text: service.environmentText(service.discovery(sessionId)),
+            childEnv: service.childEnvironment(),
+          })
           return
         }
         if (req.method === 'GET' && p === `${HARDWARE_ROUTE_PREFIX}/source`) {
@@ -79,13 +156,14 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
             sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
             return
           }
-          const cwd = asString(url.searchParams.get('cwd') ?? undefined)
           const revision = asString(url.searchParams.get('revision') ?? undefined)
+          const { roots, sessionId } = await authorizeRequest(options, url)
           try {
             const source = await service.readSource({
               artifactPath,
               ...(revision === undefined ? {} : { expectedRevision: revision }),
-              ...(cwd === undefined ? {} : { roots: [cwd] }),
+              roots,
+              ...(sessionId === undefined ? {} : { sessionId }),
             })
             sendJson(res, 200, { ok: true, ...source })
           } catch (error) {
@@ -106,11 +184,13 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
             return
           }
           const schematic = asString(body.schematic)
+          const { roots, sessionId } = await authorizeRequest(options, url, body)
           try {
             const prepared = await service.fabricate({
               boardPath: artifactPath,
               ...(schematic === undefined ? {} : { schematicPath: schematic }),
-              roots: rootsOf(body),
+              roots,
+              ...(sessionId === undefined ? {} : { sessionId }),
             })
             sendJson(res, 200, {
               ok: true,
@@ -145,12 +225,14 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
             return
           }
           const schematic = asString(body.schematic)
+          const { roots, sessionId } = await authorizeRequest(options, url, body)
           try {
             const placed = await service.placeOrder({
               kind: 'pcb',
               boardPath: artifactPath,
               ...(schematic === undefined ? {} : { schematicPath: schematic }),
-              roots: rootsOf(body),
+              roots,
+              ...(sessionId === undefined ? {} : { sessionId }),
               ...(typeof body.quantity === 'number' ? { quantity: body.quantity } : {}),
               ...(body.launch === false ? { launch: false } : {}),
             })
@@ -179,12 +261,14 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
             return
           }
           const schematic = asString(body.schematic)
+          const { roots, sessionId } = await authorizeRequest(options, url, body)
           try {
             const placed = await service.placeOrder({
               kind: 'smt',
               boardPath: artifactPath,
               ...(schematic === undefined ? {} : { schematicPath: schematic }),
-              roots: rootsOf(body),
+              roots,
+              ...(sessionId === undefined ? {} : { sessionId }),
               ...(typeof body.quantity === 'number' ? { quantity: body.quantity } : {}),
               ...(body.launch === false ? { launch: false } : {}),
             })
@@ -218,8 +302,13 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
             sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
             return
           }
+          const { roots, sessionId } = await authorizeRequest(options, url, body)
           try {
-            const bom = await service.exportBom({ artifactPath, roots: rootsOf(body) })
+            const bom = await service.exportBom({
+              artifactPath,
+              roots,
+              ...(sessionId === undefined ? {} : { sessionId }),
+            })
             sendJson(res, 200, { ok: true, ...bom })
           } catch (error) {
             const { status, body } = failure(error)
@@ -234,8 +323,13 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
             sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
             return
           }
+          const { roots, sessionId } = await authorizeRequest(options, url, body)
           try {
-            const glb = await service.exportGlb({ artifactPath, roots: rootsOf(body) })
+            const glb = await service.exportGlb({
+              artifactPath,
+              roots,
+              ...(sessionId === undefined ? {} : { sessionId }),
+            })
             const query = new URLSearchParams({ path: glb.path, revision: glb.revision })
             sendJson(res, 200, {
               ok: true,

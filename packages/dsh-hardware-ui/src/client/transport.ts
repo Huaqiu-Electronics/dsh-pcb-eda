@@ -22,16 +22,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
-function query(cwd: string | undefined, project?: string): string {
+function query(cwd: string | undefined, project?: string, session?: string): string {
   const params = new URLSearchParams()
   if (cwd !== undefined && cwd !== '') params.set('cwd', cwd)
   if (project !== undefined && project !== '') params.set('project', project)
+  if (session !== undefined && session !== '') params.set('session', session)
   const text = params.toString()
   return text === '' ? '' : `?${text}`
 }
 
-export async function loadProjects(cwd?: string, project?: string): Promise<DiscoveryInfo> {
-  const body = await request<DiscoveryInfo>(`/projects${query(cwd, project)}`)
+export async function loadProjects(cwd?: string, project?: string, session?: string): Promise<DiscoveryInfo> {
+  const body = await request<DiscoveryInfo>(`/projects${query(cwd, project, session)}`)
   const fallback: DiscoveryInfo = {
     cwd: body.cwd,
     projects: Array.isArray(body.projects) ? body.projects : [],
@@ -54,6 +55,7 @@ export async function openArtifact(requestBody: {
   artifactPath: string
   kind: string
   projectPath?: string
+  session?: string
 }): Promise<void> {
   await request('/open', {
     method: 'POST',
@@ -74,12 +76,21 @@ export interface ArtifactSource {
 
 export async function loadArtifactSource(
   artifactPath: string,
-  signal?: AbortSignal,
-  expectedRevision?: string,
+  options: {
+    readonly signal?: AbortSignal
+    readonly expectedRevision?: string
+    readonly session?: string
+    /** Workspace root the panel already discovered; the host adds it to the session's own. */
+    readonly cwd?: string
+  } = {},
 ): Promise<ArtifactSource> {
   const params = new URLSearchParams({ path: artifactPath })
-  if (expectedRevision !== undefined && expectedRevision !== '') params.set('revision', expectedRevision)
-  return request<ArtifactSource>(`/source?${params.toString()}`, { signal })
+  if (options.expectedRevision !== undefined && options.expectedRevision !== '') {
+    params.set('revision', options.expectedRevision)
+  }
+  if (options.session !== undefined && options.session !== '') params.set('session', options.session)
+  if (options.cwd !== undefined && options.cwd !== '') params.set('cwd', options.cwd)
+  return request<ArtifactSource>(`/source?${params.toString()}`, options.signal === undefined ? {} : { signal: options.signal })
 }
 
 /** Generated PCB GLB for one authorized `.kicad_pcb`. */
@@ -111,12 +122,19 @@ export interface BomProjection {
   readonly source: string
 }
 
-export async function loadBom(artifactPath: string, signal?: AbortSignal): Promise<BomProjection> {
+export async function loadBom(
+  artifactPath: string,
+  options: { readonly session?: string; readonly cwd?: string; readonly signal?: AbortSignal } = {},
+): Promise<BomProjection> {
   return request<BomProjection>('/bom', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ path: artifactPath }),
-    signal,
+    body: JSON.stringify({
+      path: artifactPath,
+      ...(options.session === undefined ? {} : { session: options.session }),
+      ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
+    }),
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
   })
 }
 
@@ -125,12 +143,17 @@ export async function prepareBoardGlb(
   artifactPath: string,
   cwd?: string,
   signal?: AbortSignal,
+  session?: string,
 ): Promise<GlbArtifact & { readonly url: string }> {
   return request<GlbArtifact & { readonly url: string }>('/glb', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ path: artifactPath, ...(cwd === undefined ? {} : { cwd }) }),
-    signal,
+    body: JSON.stringify({
+      path: artifactPath,
+      ...(cwd === undefined ? {} : { cwd }),
+      ...(session === undefined ? {} : { session }),
+    }),
+    ...(signal === undefined ? {} : { signal }),
   })
 }
 
@@ -184,6 +207,7 @@ export async function prepareFabrication(
   schematicPath?: string,
   cwd?: string,
   signal?: AbortSignal,
+  session?: string,
 ): Promise<FabricationProjection> {
   return request<FabricationProjection>('/fabrication', {
     method: 'POST',
@@ -192,8 +216,9 @@ export async function prepareFabrication(
       path: boardPath,
       ...(schematicPath === undefined ? {} : { schematic: schematicPath }),
       ...(cwd === undefined ? {} : { cwd }),
+      ...(session === undefined ? {} : { session }),
     }),
-    signal,
+    ...(signal === undefined ? {} : { signal }),
   })
 }
 
@@ -223,7 +248,9 @@ export async function placeOrder(
   requestBody: {
     path: string
     schematic?: string
+    /** Workspace root, never the project file; the host authorizes against it. */
     cwd?: string
+    session?: string
     quantity?: number
     confirm: boolean
     launch?: boolean

@@ -141,6 +141,9 @@ export function EngineeringNav(props: HardwareProps): ReactNode {
   const active = useStore(state => state.activeDestination)
   const projectPath = useStore(state => state.projectPath)
   const selected = useStore(state => state.discovery?.selected)
+  // The navigation row is a `root` seat, so it has no session of its own; the
+  // first listed session stands in for "the workspace this product is showing".
+  const sessionId = useSessions?.(state => state.ids[0])
   const cwd = useSessions?.(state => {
     const id = state.ids[0]
     return id === undefined ? undefined : state.byId[id]?.cwd
@@ -148,11 +151,11 @@ export function EngineeringNav(props: HardwareProps): ReactNode {
 
   useEffect(() => {
     let live = true
-    discover(cwd)
+    discover(cwd, undefined, sessionId)
       .then((discovery) => { if (live) actions.setDiscovery(discovery) })
       .catch((error: unknown) => { if (live) actions.setNotice(`Artifact discovery failed: ${String(error)}`) })
     return () => { live = false }
-  }, [cwd, discover, actions])
+  }, [cwd, sessionId, discover, actions])
 
   const projectName = selected?.name ?? (projectPath === undefined ? undefined : basename(projectPath))
 
@@ -286,6 +289,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
   const installed = useStore(state => state.installations)
   const artifact = useStore(state => selectedArtifact(state, active))
   const reason = useStore(state => missingReason(state, active))
+  const workspaceRoot = useStore(state => state.workspaceRoot)
   const cwd = useSessions?.(state => {
     if (sessionId === undefined) return undefined
     return state.byId[sessionId]?.cwd
@@ -298,11 +302,11 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
 
   useEffect(() => {
     let live = true
-    discover(cwd, params?.projectPath)
+    discover(cwd, params?.projectPath, sessionId)
       .then((result) => { if (live) actions.setDiscovery(result, params?.path !== undefined) })
       .catch((error: unknown) => { if (live) actions.setNotice(`Artifact discovery failed: ${String(error)}`) })
     return () => { live = false }
-  }, [cwd, params?.projectPath, actions, discover])
+  }, [cwd, sessionId, params?.projectPath, actions, discover])
 
   useEffect(() => {
     let live = true
@@ -366,7 +370,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
         onChange: (event: ChangeEvent<HTMLSelectElement>) => {
           const path = event.currentTarget.value
           actions.selectProject(path)
-          discover(cwd, path)
+          discover(cwd, path, sessionId)
             .then(result => actions.setDiscovery(result))
             .catch((error: unknown) => actions.setNotice(String(error)))
         },
@@ -439,8 +443,9 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
             key: `preview:${info.tab.id}:${String(navRevision)}:${active}:${artifact?.path ?? ''}`,
             destination: active,
             artifact,
-            schematicPath,
-            projectPath,
+            ...(schematicPath === undefined ? {} : { schematicPath }),
+            ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+            ...(sessionId === undefined ? {} : { session: sessionId }),
             revision: navRevision,
             configured: kicadConfigured,
           })]

@@ -103,27 +103,40 @@ All under `/api/v1/hardware` (`packages/hardware-artifacts/src/routes.ts`).
 
 | Route | Method | Body / query | Purpose |
 | --- | --- | --- | --- |
-| `/projects` | GET | `cwd`, `project` | deterministic discovery |
+| `/projects` | GET | `session`, `cwd`, `project` | deterministic discovery |
 | `/installations` | GET | — | resolved KiCad/SolidCraft state |
-| `/environment` | GET | `cwd` | agent context text + child env |
-| `/source` | GET | `path`, `revision` | saved artifact text + content revision |
-| `/bom` | POST | `path`, `cwd`/`workspace` | grouped BOM projection |
-| `/glb` | POST | `path`, `cwd` | export or reuse a board GLB |
+| `/environment` | GET | `session` | agent context text + child env |
+| `/source` | GET | `session`, `path`, `revision`, `cwd` | saved artifact text + content revision |
+| `/fabrication` | POST | `session`, `path`, `schematic`, `cwd` | gerber/drill/CSV package, local only |
+| `/bom` | POST | `session`, `path`, `cwd`/`workspace` | grouped BOM projection |
+| `/glb` | POST | `session`, `path`, `cwd` | export or reuse a board GLB |
 | `/glb-file` | GET | `path` | stream the cached GLB |
+| `/order/pcb`, `/order/smt` | POST | `session`, `path`, `schematic`, `confirm` | real order upload |
+| `/order/open` | POST | `url` | reopen a created order page in the browser |
 | `/open` | POST | `application`, `artifactPath`, `kind` | native launch |
 
 Authorization, applied before dispatch:
 
 1. `Host` header must be loopback; `Origin`, when present, must be loopback
    (`403 forbidden` otherwise).
-2. Every artifact path is canonicalized and must stay inside the caller's
-   `cwd`/`workspace` roots or the host's own roots. Traversal, absolute
-   escapes, and symlinks that escape the root are rejected.
-3. Only `.kicad_sch` / `.kicad_pcb` (and declared mechanical types) are
+2. **Roots are per scope, and additive.** `session` names the DSH session the
+   request belongs to; the host resolves that session's workspace from its own
+   header (`sessions` → `sessionPersistence` → `sandboxPolicy`) and unions it
+   with whatever that same session discovered. Roots never come from a
+   process-wide "last discovery" and a request can only add roots, never revoke
+   another scope's — a workspace switch is just another session discovering, so
+   it cannot invalidate a viewer that stayed open. A caller-named root that is a
+   file (the panel holds the `.kicad_pro`) is read as its directory.
+3. Every read or export path is canonicalized and must stay inside those
+   roots. Traversal, absolute escapes, and symlinks that escape the root are
+   rejected. `/open` is the one route without a root check: it only launches an
+   existing `.kicad_sch` / `.kicad_pcb` / `.kicad_pro` in the configured editor,
+   and it must keep working when the session cannot be resolved.
+4. Only `.kicad_sch` / `.kicad_pcb` (and declared mechanical types) are
    readable; source reads are capped by `maxSourceBytes` (`413 too-large`).
-4. `revision` is honoured as an optimistic concurrency check
+5. `revision` is honoured as an optimistic concurrency check
    (`409 stale-revision`).
-5. Errors are `{ ok: false, error: { code, message } }` with a status that
+6. Errors are `{ ok: false, error: { code, message } }` with a status that
    names the failure: `not-configured`/`missing-executable`/`unsupported-artifact`
    (412/412/415), `export-timeout` (504), `export-failed` (502).
 

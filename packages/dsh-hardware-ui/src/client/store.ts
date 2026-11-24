@@ -60,11 +60,19 @@ const mutators = {
     draft.workspaceRoot = root
   },
   setDiscovery(draft: Mutable<HardwareState>, discovery: DiscoveryInfo, preserveSelection?: boolean): void {
+    // A different workspace invalidates every artifact path held from the old
+    // one: the host authorizes against the session's workspace, so keeping a
+    // selection across that move turns the next read into "artifact is outside
+    // the authorized workspace". The session's workspace moving is also
+    // user-triggered, so it takes the same reset path as a new project.
+    const moved = discovery.cwd !== undefined
+      && draft.workspaceRoot !== undefined
+      && discovery.cwd !== draft.workspaceRoot
     draft.discovery = discovery
     draft.workspaceRoot = discovery.cwd ?? draft.workspaceRoot
     // A viewer refresh must not clobber the artifact a navigation just selected:
     // it only learns which project the workspace resolves to.
-    if (preserveSelection === true) {
+    if (preserveSelection === true && !moved) {
       if (discovery.selected !== undefined) draft.projectPath = discovery.selected.path
     } else {
       adoptProject(draft, discovery.selected)

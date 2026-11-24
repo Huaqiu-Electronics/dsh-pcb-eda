@@ -97,8 +97,13 @@ export interface OpenArtifactResult {
 export interface SourceRequest {
   readonly artifactPath: string
   readonly expectedRevision?: string
-  /** Workspace roots the caller is currently authorized to read. */
+  /**
+   * Roots the caller names. They are *added* to the roots the host resolved
+   * for {@link sessionId}; naming one never revokes another.
+   */
   readonly roots?: readonly string[]
+  /** DSH session the read belongs to; its workspace is the authorization base. */
+  readonly sessionId?: string
 }
 
 export interface SourceResult {
@@ -113,6 +118,7 @@ export interface SourceResult {
 export interface GlbRequest {
   readonly artifactPath: string
   readonly roots?: readonly string[]
+  readonly sessionId?: string
   readonly signal?: AbortSignal
 }
 
@@ -179,6 +185,7 @@ export interface PlaceOrderRequest {
   readonly boardPath: string
   readonly schematicPath?: string
   readonly roots?: readonly string[]
+  readonly sessionId?: string
   readonly quantity?: number
   readonly signal?: AbortSignal
   /** Open the resulting page in the default browser; defaults to true. */
@@ -300,6 +307,39 @@ function realOrUndefined(path: string): string | undefined {
   } catch {
     return undefined
   }
+}
+
+/**
+ * Identity of one authorization scope. DSH sessions are the scope; an embed
+ * without sessions (tests, a bare host) shares the default entry.
+ */
+function scopeKey(sessionId?: string): string {
+  return sessionId === undefined || sessionId === '' ? '' : sessionId
+}
+
+/**
+ * A caller-named root, read as "the workspace this artifact belongs to".
+ *
+ * Callers may name a project file by mistake (the project `.kicad_pro` is the
+ * path the panel holds), and a file path authorizes nothing: no artifact is
+ * inside another file's path. Resolving to the containing directory keeps the
+ * caller's intent without widening beyond it.
+ */
+function rootOf(root: string): string {
+  const real = realOrUndefined(root) ?? canonical(root)
+  try {
+    return statSync(real).isDirectory() ? real : dirname(real)
+  } catch {
+    return real
+  }
+}
+
+/** Roots a discovery proved reachable: the workspace and every adopted project. */
+function discoveredRoots(discovery: DiscoveryResult | undefined): string[] {
+  if (discovery === undefined) return []
+  const roots = new Set<string>([discovery.cwd])
+  for (const project of discovery.projects) roots.add(dirname(project.path))
+  return [...roots]
 }
 
 function errorWithCode(message: string, code: string, status: number): Error {
@@ -573,7 +613,16 @@ export class HardwareArtifactService {
   private readonly cacheRoot: string
   private readonly glbTimeoutMs: number
   private readonly maxSourceBytes: number
-  private lastDiscovery?: DiscoveryResult
+  /**
+   * Last discovery per scope — one entry per DSH session, plus the unscoped
+   * default used by tests and non-DSH embeds.
+   *
+   * It is a map rather than one field on purpose: a single "most recent
+   * discovery" is shared by every open viewer, so switching to a session in
+   * another workspace silently revoked the authorization of the viewer that
+   * stayed open. Authorization must never depend on who asked last.
+   */
+  private readonly discoveries = new Map<string, DiscoveryResult>()
   /** Completed GLB exports keyed by `sourcePath:revision`. */
   private readonly glbCache = new Map<string, GlbResult>()
   /** In-flight GLB exports keyed by the same key, so concurrent callers share one run. */
@@ -663,6 +712,10 @@ export class HardwareArtifactService {
   /** Compact agent context: validated paths only, no project inventory dump. */
   environmentText(current?: DiscoveryResult): string {
     const installed = this.installations()
+    // The prompt has no session of its own; speaking for the only scope that
+    // ever discovered is honest, and with several open workspaces it says
+    // nothing rather than naming another session's project.
+    const scope = current ?? this.soleDiscovery()
     const lines = ['<hardware_environment>']
     lines.push('KiCad:')
     lines.push(`  configured: ${String(installed.kicad.configured)}`)
@@ -675,12 +728,12 @@ export class HardwareArtifactService {
     lines.push(`  configured: ${String(installed.solidcraft.configured)}`)
     if (installed.solidcraft.executable !== undefined) lines.push(`  executable: ${installed.solidcraft.executable}`)
     if (installed.solidcraft.error !== undefined) lines.push(`  error: ${installed.solidcraft.error}`)
-    if (current?.selected !== undefined) {
+    if (scope?.selected !== undefined) {
       lines.push('Current project:')
-      lines.push(`  root: ${current.cwd}`)
-      lines.push(`  project: ${current.selected.path}`)
-      if (current.selected.schematic !== undefined) lines.push(`  schematic: ${current.selected.schematic.path}`)
-      const board = current.selected.boards[0]
+      lines.push(`  root: ${scope.cwd}`)
+      lines.push(`  project: ${scope.selected.path}`)
+      if (scope.selected.schematic !== undefined) lines.push(`  schematic: ${scope.selected.schematic.path}`)
+      const board = scope.selected.boards[0]
       if (board !== undefined) lines.push(`  selected_pcb: ${board.path}`)
     }
     lines.push('</hardware_environment>')
@@ -691,8 +744,13 @@ export class HardwareArtifactService {
    * Deterministic discovery. An explicit project or manifest wins; otherwise
    * exactly one `.kicad_pro` may be selected automatically. Ambiguity is
    * returned as a selection requirement, never resolved by taking the first.
+   *
+   * @param cwdInput - workspace directory to walk.
+   * @param explicitProject - project chosen by the user, absolute or cwd-relative.
+   * @param sessionId - DSH session the discovery belongs to. Recording it per
+   *   session is what keeps one open viewer from revoking another's roots.
    */
-  discover(cwdInput: string, explicitProject?: string): DiscoveryResult {
+  discover(cwdInput: string, explicitProject?: string, sessionId?: string): DiscoveryResult {
     const cwd = canonical(cwdInput)
     const manifestPath = join(cwd, '.hardware-engineering.json')
     let manifest: ProjectManifest | undefined
@@ -700,9 +758,12 @@ export class HardwareArtifactService {
       try {
         manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProjectManifest
       } catch (error) {
-        const result: DiscoveryResult = { cwd, manifestPath, projects: [], issue: { code: 'bad-manifest', message: `invalid .hardware-engineering.json: ${String(error)}` } }
-        this.lastDiscovery = result
-        return result
+        return this.remember({
+          cwd,
+          manifestPath,
+          projects: [],
+          issue: { code: 'bad-manifest', message: `invalid .hardware-engineering.json: ${String(error)}` },
+        }, sessionId)
       }
     }
 
@@ -710,9 +771,12 @@ export class HardwareArtifactService {
     if (explicitProject !== undefined && explicitProject.trim() !== '') {
       const requested = isAbsolute(explicitProject) ? canonical(explicitProject) : resolve(cwd, explicitProject)
       if (!existsSync(requested)) {
-        const result: DiscoveryResult = { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects: [], issue: { code: 'missing-project', message: `${requested} does not exist` } }
-        this.lastDiscovery = result
-        return result
+        return this.remember({
+          cwd,
+          ...(manifest === undefined ? {} : { manifestPath }),
+          projects: [],
+          issue: { code: 'missing-project', message: `${requested} does not exist` },
+        }, sessionId)
       }
       projectPaths.add(requested)
     } else if (manifest?.project !== undefined && manifest.project.trim() !== '') {
@@ -723,17 +787,23 @@ export class HardwareArtifactService {
 
     const projects: HardwareProject[] = [...projectPaths].sort().map(path => this.projectFrom(path, cwd, manifest))
     if (projects.length === 0) {
-      const result: DiscoveryResult = { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects, issue: { code: 'no-project', message: `no .kicad_pro found under ${cwd}` } }
-      this.lastDiscovery = result
-      return result
+      return this.remember({
+        cwd,
+        ...(manifest === undefined ? {} : { manifestPath }),
+        projects,
+        issue: { code: 'no-project', message: `no .kicad_pro found under ${cwd}` },
+      }, sessionId)
     }
     if (projects.length > 1) {
-      const result: DiscoveryResult = { cwd, ...(manifest === undefined ? {} : { manifestPath }), projects, issue: { code: 'selection-required', message: `${projects.length} projects found; select one explicitly` } }
-      this.lastDiscovery = result
-      return result
+      return this.remember({
+        cwd,
+        ...(manifest === undefined ? {} : { manifestPath }),
+        projects,
+        issue: { code: 'selection-required', message: `${projects.length} projects found; select one explicitly` },
+      }, sessionId)
     }
     const selected = projects[0] as HardwareProject
-    const result: DiscoveryResult = {
+    return this.remember({
       cwd,
       ...(manifest === undefined ? {} : { manifestPath }),
       projects,
@@ -741,14 +811,23 @@ export class HardwareArtifactService {
       ...(selected.selectionRequired
         ? { issue: { code: 'selection-required', message: 'select an artifact explicitly' } }
         : {}),
-    }
-    this.lastDiscovery = result
-    return result
+    }, sessionId)
   }
 
-  /** The most recent discovery, used to authorize source reads. */
-  discovery(): DiscoveryResult | undefined {
-    return this.lastDiscovery
+  /** Last discovery for one scope, never another session's. */
+  discovery(sessionId?: string): DiscoveryResult | undefined {
+    return this.discoveries.get(scopeKey(sessionId))
+  }
+
+  /** The only discovery the host can speak for without being told a session. */
+  private soleDiscovery(): DiscoveryResult | undefined {
+    if (this.discoveries.size !== 1) return undefined
+    return [...this.discoveries.values()][0]
+  }
+
+  private remember(result: DiscoveryResult, sessionId?: string): DiscoveryResult {
+    this.discoveries.set(scopeKey(sessionId), result)
+    return result
   }
 
   private projectFrom(projectPath: string, cwd: string, manifest?: ProjectManifest): HardwareProject {
@@ -853,14 +932,23 @@ export class HardwareArtifactService {
     return { launched: true, command, args: [path], cwd: settings.cwd, ...(child.pid === undefined ? {} : { pid: child.pid }) }
   }
 
-  /** Workspace roots a read may target: explicit request, last discovery, config. */
-  private authorizedRoots(roots?: readonly string[]): string[] {
+  /**
+   * Workspace roots a read may target: what this scope discovered, plus what
+   * the caller named.
+   *
+   * Additive on purpose. The previous shape unioned the caller's roots with one
+   * process-wide "last discovery", so any other session's discovery — a
+   * workspace switch is exactly that — replaced the root the open viewer was
+   * authorized by, and its next read failed with "artifact is outside the
+   * authorized workspace". Roots now only ever accumulate within their scope.
+   */
+  private authorizedRoots(roots?: readonly string[], sessionId?: string): string[] {
     const candidates = new Set<string>()
+    for (const root of discoveredRoots(this.discovery(sessionId))) candidates.add(canonical(root))
     for (const root of roots ?? []) {
-      if (root !== undefined && root.trim() !== '') candidates.add(canonical(root))
+      if (root === undefined || root.trim() === '') continue
+      candidates.add(rootOf(root))
     }
-    const discovered = this.lastDiscovery?.cwd
-    if (discovered !== undefined) candidates.add(canonical(discovered))
     return [...candidates]
   }
 
@@ -869,7 +957,11 @@ export class HardwareArtifactService {
    * workspace root, and of an expected type. A browser request cannot turn
    * this into an arbitrary filesystem read, even from loopback.
    */
-  private authorize(artifactPath: string, roots: readonly string[] | undefined): { path: string; kind: 'schematic' | 'pcb' } {
+  private authorize(
+    artifactPath: string,
+    roots: readonly string[] | undefined,
+    sessionId?: string,
+  ): { path: string; kind: 'schematic' | 'pcb' } {
     if (!isAbsolute(artifactPath)) {
       throw errorWithCode('artifact identity must be an absolute path', 'invalid-identity', 400)
     }
@@ -878,7 +970,7 @@ export class HardwareArtifactService {
     if (kind === undefined) {
       throw errorWithCode(`unsupported artifact type: ${extname(requested)}`, 'unsupported-artifact', 415)
     }
-    const authorized = this.authorizedRoots(roots)
+    const authorized = this.authorizedRoots(roots, sessionId)
     if (authorized.length === 0) {
       throw errorWithCode('no authorized workspace is known to the host', 'unauthorized', 403)
     }
@@ -914,7 +1006,7 @@ export class HardwareArtifactService {
 
   /** Saved source text plus a content-addressed revision. */
   async readSource(request: SourceRequest): Promise<SourceResult> {
-    const { path, kind } = this.authorize(request.artifactPath, request.roots)
+    const { path, kind } = this.authorize(request.artifactPath, request.roots, request.sessionId)
     const info = statSync(path)
     if (info.size > this.maxSourceBytes) {
       throw errorWithCode(`artifact is larger than ${this.maxSourceBytes} bytes`, 'too-large', 413)
@@ -962,7 +1054,7 @@ export class HardwareArtifactService {
    * - a timeout or abort leaves no partial file behind
    */
   async exportGlb(request: GlbRequest): Promise<GlbResult> {
-    const { path } = this.authorize(request.artifactPath, request.roots)
+    const { path } = this.authorize(request.artifactPath, request.roots, request.sessionId)
     if (extname(path).toLowerCase() !== '.kicad_pcb') {
       throw errorWithCode('GLB export requires a .kicad_pcb artifact', 'unsupported-artifact', 415)
     }
@@ -1047,9 +1139,10 @@ export class HardwareArtifactService {
   async exportBom(request: {
     readonly artifactPath: string
     readonly roots?: readonly string[]
+    readonly sessionId?: string
     readonly signal?: AbortSignal
   }): Promise<BomResult> {
-    const { path, kind } = this.authorize(request.artifactPath, request.roots)
+    const { path, kind } = this.authorize(request.artifactPath, request.roots, request.sessionId)
     if (kind !== 'schematic') {
       throw errorWithCode('BOM export requires a .kicad_sch artifact', 'unsupported-artifact', 415)
     }
@@ -1156,12 +1249,13 @@ export class HardwareArtifactService {
     readonly boardPath: string
     readonly schematicPath?: string
     readonly roots?: readonly string[]
+    readonly sessionId?: string
     readonly signal?: AbortSignal
   }): Promise<FabricationResult & { readonly archiveData: Uint8Array; readonly assemblyFiles?: {
     readonly positions: string
     readonly bom: string
   } }> {
-    const { path } = this.authorize(request.boardPath, request.roots)
+    const { path } = this.authorize(request.boardPath, request.roots, request.sessionId)
     if (extname(path).toLowerCase() !== '.kicad_pcb') {
       throw errorWithCode('Fabrication packaging requires a .kicad_pcb artifact', 'unsupported-artifact', 415)
     }
@@ -1173,7 +1267,7 @@ export class HardwareArtifactService {
     const revision = this.sourceRevision(path)
     const schematicPath = request.schematicPath === undefined
       ? undefined
-      : this.authorize(request.schematicPath, request.roots).path
+      : this.authorize(request.schematicPath, request.roots, request.sessionId).path
     const key = `${path}:${revision}:${schematicPath ?? ''}`
     const cached = this.packageCache.get(key)
     if (cached !== undefined) return cached
@@ -1267,6 +1361,7 @@ export class HardwareArtifactService {
       boardPath: request.boardPath,
       ...(request.schematicPath === undefined ? {} : { schematicPath: request.schematicPath }),
       ...(request.roots === undefined ? {} : { roots: request.roots }),
+      ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     })
     // Checked after the install gate so a missing KiCad is reported as such,

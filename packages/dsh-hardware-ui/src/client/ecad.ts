@@ -37,9 +37,13 @@ export async function mountEcad(
   kind: EcadKind,
   artifactPath: string,
   container: HTMLElement,
-  options: { readonly signal: AbortSignal; readonly revision?: string },
+  options: { readonly signal: AbortSignal; readonly revision?: string; readonly session?: string },
 ): Promise<MountedEcad> {
-  const source = await loadArtifactSource(artifactPath, options.signal, options.revision)
+  const source = await loadArtifactSource(artifactPath, {
+    signal: options.signal,
+    ...(options.revision === undefined ? {} : { expectedRevision: options.revision }),
+    ...(options.session === undefined ? {} : { session: options.session }),
+  })
   if (options.signal.aborted) throw aborted(options.signal)
   if (source.kind !== undefined && source.kind !== kind) {
     throw new Error(`host returned a ${source.kind} artifact for a ${kind} preview`)

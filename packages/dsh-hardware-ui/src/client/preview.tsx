@@ -94,7 +94,13 @@ function Stage(props: {
   )
 }
 
-function EcadStage({ kind, path, revision }: { kind: 'schematic' | 'pcb'; path: string; revision?: string }): ReactNode {
+function EcadStage({ kind, path, revision, session, cwd }: {
+  kind: 'schematic' | 'pcb'
+  path: string
+  revision?: string
+  session?: string
+  cwd?: string
+}): ReactNode {
   const container = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [message, setMessage] = useState<string>()
@@ -112,6 +118,8 @@ function EcadStage({ kind, path, revision }: { kind: 'schematic' | 'pcb'; path: 
     mountEcad(kind, path, element, {
       signal: controller.signal,
       ...(revision === undefined ? {} : { revision }),
+      ...(session === undefined ? {} : { session }),
+      ...(cwd === undefined ? {} : { cwd }),
     })
       .then((result) => {
         if (!live) {
@@ -133,7 +141,7 @@ function EcadStage({ kind, path, revision }: { kind: 'schematic' | 'pcb'; path: 
       mounted?.dispose()
       element.replaceChildren()
     }
-  }, [kind, path, revision])
+  }, [kind, path, revision, session, cwd])
 
   return createElement(
     Stage,
@@ -164,7 +172,13 @@ function EcadStage({ kind, path, revision }: { kind: 'schematic' | 'pcb'; path: 
   )
 }
 
-function GlbStage({ boardPath, cwd, configured }: { boardPath: string; cwd?: string; configured: boolean }): ReactNode {
+function GlbStage({ boardPath, cwd, session, configured }: {
+  boardPath: string
+  /** Workspace root the host authorizes against; omitted when discovery did not report one. */
+  cwd?: string
+  session?: string
+  configured: boolean
+}): ReactNode {
   const container = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [message, setMessage] = useState<string>()
@@ -186,7 +200,7 @@ function GlbStage({ boardPath, cwd, configured }: { boardPath: string; cwd?: str
     setMessage('Exporting the PCB to GLB with kicad-cli…')
     element.replaceChildren()
     const run = async (): Promise<void> => {
-      const glb = await prepareBoardGlb(boardPath, cwd, controller.signal)
+      const glb = await prepareBoardGlb(boardPath, cwd, controller.signal, session)
       if (!live) return
       setRevision(glb.revision)
       setCached(glb.cached)
@@ -210,7 +224,7 @@ function GlbStage({ boardPath, cwd, configured }: { boardPath: string; cwd?: str
       mounted?.dispose()
       element.replaceChildren()
     }
-  }, [boardPath, cwd, configured])
+  }, [boardPath, cwd, session, configured])
 
   return createElement(
     Stage,
@@ -241,7 +255,12 @@ function GlbStage({ boardPath, cwd, configured }: { boardPath: string; cwd?: str
  * configuration state, not a failure: the stage reports it without calling the
  * host, the same way the 3D stage does.
  */
-function BomStage({ schematicPath, configured }: { schematicPath: string; configured: boolean }): ReactNode {
+function BomStage({ schematicPath, session, cwd, configured }: {
+  schematicPath: string
+  session?: string
+  cwd?: string
+  configured: boolean
+}): ReactNode {
   const [status, setStatus] = useState<Status>('loading')
   const [message, setMessage] = useState<string>()
   const [bom, setBom] = useState<BomProjection>()
@@ -255,7 +274,11 @@ function BomStage({ schematicPath, configured }: { schematicPath: string; config
     const controller = new AbortController()
     let live = true
     setStatus('loading')
-    loadBom(schematicPath, controller.signal)
+    loadBom(schematicPath, {
+      signal: controller.signal,
+      ...(session === undefined ? {} : { session }),
+      ...(cwd === undefined ? {} : { cwd }),
+    })
       .then((projection) => {
         if (!live) return
         setBom(projection)
@@ -267,7 +290,7 @@ function BomStage({ schematicPath, configured }: { schematicPath: string; config
         setMessage(describe(error))
       })
     return () => { live = false; controller.abort() }
-  }, [schematicPath, configured])
+  }, [schematicPath, session, cwd, configured])
 
   if (status !== 'ready' || bom === undefined) {
     return createElement(
@@ -331,7 +354,10 @@ export interface HardwarePreviewProps {
   readonly artifact?: HardwareArtifactInfo
   /** Selected schematic, used for the BOM/order context. */
   readonly schematicPath?: string
-  readonly projectPath?: string
+  /** Workspace root of the session on screen; every host read is authorized against it. */
+  readonly workspaceRoot?: string
+  /** DSH session the panel belongs to; sent with every host read. */
+  readonly session?: string
   /** Monotonic navigation revision; a change disposes the previous mount. */
   readonly revision: number
   /** Whether a validated KiCad installation exists. */
@@ -340,23 +366,42 @@ export interface HardwarePreviewProps {
 
 /** Destination → preview dispatcher. */
 export function HardwarePreview({
-  destination, artifact, schematicPath, projectPath, revision, configured = false,
+  destination, artifact, schematicPath, workspaceRoot, session, revision, configured = false,
 }: HardwarePreviewProps): ReactNode {
   if (artifact === undefined) return null
   const key = `${destination}:${artifact.path}:${String(revision)}`
   if (destination === 'schematic' || destination === 'pcb') {
     return createElement(EcadStage, {
-      key, kind: destination === 'schematic' ? 'schematic' : 'pcb', path: artifact.path, revision: artifact.revision,
+      key,
+      kind: destination === 'schematic' ? 'schematic' : 'pcb',
+      path: artifact.path,
+      ...(artifact.revision === undefined ? {} : { revision: artifact.revision }),
+      ...(session === undefined ? {} : { session }),
+      ...(workspaceRoot === undefined ? {} : { cwd: workspaceRoot }),
     })
   }
-  if (destination === '3d') return createElement(GlbStage, { key, boardPath: artifact.path, cwd: projectPath, configured })
-  if (destination === 'bom') return createElement(BomStage, { key, schematicPath: artifact.path, configured })
+  if (destination === '3d') {
+    return createElement(GlbStage, {
+      key, boardPath: artifact.path, ...(workspaceRoot === undefined ? {} : { cwd: workspaceRoot }),
+      ...(session === undefined ? {} : { session }), configured,
+    })
+  }
+  if (destination === 'bom') {
+    return createElement(BomStage, {
+      key,
+      schematicPath: artifact.path,
+      ...(session === undefined ? {} : { session }),
+      ...(workspaceRoot === undefined ? {} : { cwd: workspaceRoot }),
+      configured,
+    })
+  }
   return createElement(OrderPanel, {
     key,
     boardPath: artifact.path,
     boardTitle: artifact.title || artifact.path,
     ...(schematicPath === undefined ? {} : { schematicPath }),
-    ...(projectPath === undefined ? {} : { projectPath }),
+    ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
+    ...(session === undefined ? {} : { session }),
     configured,
   })
 }

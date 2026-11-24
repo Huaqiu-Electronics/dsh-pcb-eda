@@ -20,7 +20,13 @@ export interface OrderPanelProps {
   readonly boardPath: string
   readonly boardTitle: string
   readonly schematicPath?: string
-  readonly projectPath?: string
+  /**
+   * Workspace root of the session showing this panel. It is the authorization
+   * base the host re-checks; the project file is not, and never was.
+   */
+  readonly workspaceRoot?: string
+  /** DSH session the panel belongs to; the host authorizes against its workspace. */
+  readonly session?: string
   readonly configured: boolean
 }
 
@@ -126,7 +132,7 @@ function workflowCard(input: {
 }
 
 export function OrderPanel(props: OrderPanelProps): ReactNode {
-  const { boardPath, boardTitle, schematicPath, projectPath, configured } = props
+  const { boardPath, boardTitle, schematicPath, workspaceRoot, session, configured } = props
   const [config, setConfig] = useState<OrderConfigInfo>()
   const [prepared, setPrepared] = useState<FabricationProjection>()
   const [preparing, setPreparing] = useState(false)
@@ -162,7 +168,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     setPreparing(true)
     setMessage(undefined)
     setPlaced(undefined)
-    prepareFabrication(boardPath, schematicPath, projectPath, controller.signal)
+    prepareFabrication(boardPath, schematicPath, workspaceRoot, controller.signal, session)
       .then((value) => { if (!controller.signal.aborted) setPrepared(value) })
       .catch((error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return
@@ -170,7 +176,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       })
       .finally(() => { if (!controller.signal.aborted) setPreparing(false) })
     return () => { controller.abort() }
-  }, [boardPath, schematicPath, projectPath, configured])
+  }, [boardPath, schematicPath, workspaceRoot, session, configured])
 
   const facts = prepared?.facts
   const specs = useMemo(() => (facts === undefined ? [] : specRows(facts)), [facts])
@@ -182,7 +188,8 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       const result = await placeOrder(kind, {
         path: boardPath,
         ...(schematicPath === undefined ? {} : { schematic: schematicPath }),
-        ...(projectPath === undefined ? {} : { cwd: projectPath }),
+        ...(workspaceRoot === undefined ? {} : { cwd: workspaceRoot }),
+        ...(session === undefined ? {} : { session }),
         quantity,
         confirm: true,
       }, undefined)

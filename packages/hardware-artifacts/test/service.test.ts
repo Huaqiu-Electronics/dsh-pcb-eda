@@ -287,6 +287,51 @@ describe('authorized source reads', () => {
     }
   })
 
+  /**
+   * Regression: a workspace switch is just another session's discovery, so a
+   * single process-wide "last discovery" used to revoke every viewer that
+   * stayed open in the previous workspace — the read then failed with
+   * "artifact is outside the authorized workspace" while the file was intact.
+   */
+  it('scopes authorization to the session, so a workspace switch revokes nothing', async () => {
+    const sch = write('main.kicad_sch', schematic([]))
+    const other = mkdtempSync(join(tmpdir(), 'hw-other-workspace-'))
+    try {
+      const service = new HardwareArtifactService()
+      service.discover(root, undefined, 'session-a')
+      service.discover(other, undefined, 'session-b')
+
+      // Session A still reads its own workspace although B discovered last.
+      await expect(service.readSource({ artifactPath: sch, sessionId: 'session-a' }))
+        .resolves.toMatchObject({ path: realpathSync(sch) })
+      // And B's discovery did not widen A's boundary.
+      await expect(service.readSource({ artifactPath: sch, sessionId: 'session-b' }))
+        .rejects.toMatchObject({ code: 'unauthorized', status: 403 })
+      // A read that names neither session nor root has no discovery to lean on.
+      await expect(service.readSource({ artifactPath: sch }))
+        .rejects.toMatchObject({ code: 'unauthorized', status: 403 })
+    } finally {
+      rmSync(other, { recursive: true, force: true })
+    }
+  })
+
+  it('reads a project file named as the workspace root as its directory', async () => {
+    const sch = write('main.kicad_sch', schematic([]))
+    const project = write('main.kicad_pro', '{}')
+    const service = new HardwareArtifactService()
+    // The panel holds the project path, not the workspace; naming it must not
+    // authorize an empty set of files.
+    await expect(service.readSource({ artifactPath: sch, roots: [project] }))
+      .resolves.toMatchObject({ path: realpathSync(sch) })
+  })
+
+  it('keeps the unscoped discovery working for embeds without sessions', async () => {
+    const sch = write('main.kicad_sch', schematic([]))
+    const service = new HardwareArtifactService()
+    service.discover(root)
+    await expect(service.readSource({ artifactPath: sch })).resolves.toMatchObject({ path: realpathSync(sch) })
+  })
+
   it('rejects traversal and relative identities', async () => {
     const service = new HardwareArtifactService()
     await expect(service.readSource({ artifactPath: '../escape.kicad_sch', roots: [root] }))

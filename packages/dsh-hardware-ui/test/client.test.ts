@@ -212,6 +212,44 @@ describe('product store', () => {
     expect(instance.getSnapshot().schematicPath).toBe('/w/child.kicad_sch')
     expect(instance.getSnapshot().projectPath).toBe('/w/a.kicad_pro')
   })
+
+  /**
+   * Regression: a preserved selection belongs to one workspace. Keeping it
+   * after the workspace moved left the panel reading a path the host no longer
+   * authorizes — "artifact is outside the authorized workspace".
+   */
+  it('drops a preserved selection when the workspace moved', () => {
+    const store = createHardwareStore()
+    const instance = store.create()
+    const project = (root: string) => ({
+      path: `${root}/a.kicad_pro`, name: 'a',
+      schematic: { id: `schematic:${root}/a.kicad_sch`, kind: 'schematic', path: `${root}/a.kicad_sch`, title: 'a.kicad_sch' },
+      sheets: [],
+      boards: [{ id: `pcb:${root}/a.kicad_pcb`, kind: 'pcb', path: `${root}/a.kicad_pcb`, title: 'a.kicad_pcb' }],
+      defaultBoard: `${root}/a.kicad_pcb`,
+      selectionRequired: false,
+    })
+    instance.actions.setDiscovery({ cwd: '/old', projects: [project('/old')], selected: project('/old') })
+    instance.actions.applyNavigation({ destination: 'schematic', path: '/old/child.kicad_sch', navigationRevision: 1 })
+
+    instance.actions.setDiscovery({ cwd: '/new', projects: [project('/new')], selected: project('/new') }, true)
+    expect(instance.getSnapshot()).toMatchObject({
+      workspaceRoot: '/new',
+      projectPath: '/new/a.kicad_pro',
+      schematicPath: '/new/a.kicad_sch',
+      pcbPath: '/new/a.kicad_pcb',
+    })
+  })
+
+  it('drops every selection when the new workspace has no project', () => {
+    const store = createHardwareStore()
+    const instance = store.create()
+    instance.actions.applyNavigation({ destination: 'pcb', path: '/old/a.kicad_pcb', navigationRevision: 1 })
+    instance.actions.setDiscovery({ cwd: '/old', projects: [] })
+    instance.actions.setDiscovery({ cwd: '/new', projects: [] }, true)
+    expect(instance.getSnapshot().pcbPath).toBeUndefined()
+    expect(instance.getSnapshot().workspaceRoot).toBe('/new')
+  })
 })
 
 describe('artifact resolution per destination', () => {

@@ -143,8 +143,13 @@ export interface ViewerNavigationParams {
  * `actions`, so no shared mutable action capture is needed.
  */
 export interface HardwareController {
-  /** Host-side artifact discovery for one workspace root. */
-  discover(cwd?: string, project?: string): Promise<DiscoveryInfo>
+  /**
+   * Host-side artifact discovery for one workspace root.
+   *
+   * `session` scopes the result: the host remembers discovery per session, so
+   * two viewers in different workspaces never overwrite each other's roots.
+   */
+  discover(cwd?: string, project?: string, session?: string): Promise<DiscoveryInfo>
   /** Host-side installation validation. */
   installations(): Promise<InstallationsInfo>
   saveInstallation(application: 'kicad' | 'solidcraft', root: string): Promise<void>
