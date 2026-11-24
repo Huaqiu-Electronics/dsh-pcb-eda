@@ -146,22 +146,6 @@
         "提升 KiCad 启动期桥接稳定性"
       ]
     },
-    "@huaqiu/dsh-kicad-drc": {
-      "version": "0.6.30",
-      "hosts": [
-        "kicad"
-      ],
-      "requiresHqEdge": false,
-      "minHqEdge": null,
-      "maxHqEdge": null,
-      "minDsh": null,
-      "displayName": "设计规则检查",
-      "description": "KiCad DRC 结果展示与导出",
-      "sizeBytes": 302118,
-      "changes": [
-        "DRC 结果分类展示优化"
-      ]
-    },
     "@huaqiu/dsh-tool-freerouting": {
       "version": "0.6.16",
       "hosts": [
