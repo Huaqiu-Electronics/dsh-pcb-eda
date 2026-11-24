@@ -56,6 +56,7 @@ export interface HardwareProjectInfo {
 export interface InstallationsInfo {
   readonly kicad?: {
     readonly configured: boolean
+    readonly root?: string
     readonly version?: string
     readonly cli?: string
     readonly pcbEditor?: string
@@ -64,6 +65,7 @@ export interface InstallationsInfo {
   }
   readonly solidcraft?: {
     readonly configured: boolean
+    readonly root?: string
     readonly executable?: string
     readonly error?: string
   }
@@ -93,9 +95,11 @@ export interface HardwareState {
 export interface HardwareActions {
   setActive(destination: HardwareDestination): void
   setWorkspaceRoot(root: string): void
-  setDiscovery(discovery: DiscoveryInfo): void
+  setDiscovery(discovery: DiscoveryInfo, preserveSelection?: boolean): void
   selectProject(path: string): void
   selectArtifact(path: string, kind: 'schematic' | 'pcb'): void
+  /** Adopt one `sidebar.right.openTab` navigation into viewer state. */
+  applyNavigation(params: ViewerNavigationParams): void
   setInstallations(installations: InstallationsInfo): void
   setNotice(notice?: string): void
   refresh(): void
@@ -110,6 +114,8 @@ export interface ConfigFormLike<T> {
 export interface HardwareInstallationConfig {
   readonly kicadRoot?: string
   readonly solidcraftRoot?: string
+  /** Set once the first-run setup wizard has been completed or skipped. */
+  readonly onboardingComplete?: boolean
 }
 
 /** Parameters carried by one `sidebar.right.openTab` navigation. */
@@ -126,16 +132,30 @@ export interface ViewerNavigationParams {
   readonly navigationRevision: number
 }
 
-/** Functions the UI receives through the slot `inject` face. */
-export interface HardwareInjected {
-  refreshDiscovery(cwd?: string, project?: string): Promise<void>
-  openDestination(destination: HardwareDestination, path?: string): void
-  openNative(application?: NativeApplication, artifactPath?: string): Promise<void>
+/**
+ * The product's business face, delivered verbatim to every registered
+ * component.
+ *
+ * It deliberately has no `hooks` member: DSH rebinds a `hooks` compartment into
+ * `use<Name>` selector hooks over observables, so a plain function bundle there
+ * would arrive as a broken selector instead of the object the component reads.
+ * Each member is an ordinary function; state writes stay in the component's own
+ * `actions`, so no shared mutable action capture is needed.
+ */
+export interface HardwareController {
+  /** Host-side artifact discovery for one workspace root. */
+  discover(cwd?: string, project?: string): Promise<DiscoveryInfo>
+  /** Host-side installation validation. */
+  installations(): Promise<InstallationsInfo>
   saveInstallation(application: 'kicad' | 'solidcraft', root: string): Promise<void>
-  fetchInstallations(): Promise<void>
-  useConfigForm?(): ConfigFormLike<HardwareInstallationConfig> | undefined
-  useSessions?(selector: (state: {
-    readonly ids: readonly string[]
-    readonly byId: Readonly<Record<string, { readonly cwd?: string }>>
-  }) => string | undefined): string | undefined
+  /** The host-backed configuration form, when the settings service is mounted. */
+  configForm(): ConfigFormLike<HardwareInstallationConfig> | undefined
+  /** Open or retarget the product viewer tab. */
+  openDestination(destination: HardwareDestination, path?: string): void
+  /** Launch the exact artifact in its configured native application. */
+  openNative(request: {
+    application: NativeApplication
+    artifactPath: string
+    kind: string
+  }): Promise<void>
 }

@@ -45,20 +45,44 @@ export async function mountEcad(
     throw new Error(`host returned a ${source.kind} artifact for a ${kind} preview`)
   }
 
+  // The renderer owns the backing resolution but not the CSS size, and it fits
+  // the view to the canvas during `load()`. Supplying our own already-sized
+  // canvas is therefore the only way the first fit matches the panel instead of
+  // the renderer's 300x150 default.
+  const canvas = document.createElement('canvas')
+  canvas.style.cssText = 'position:absolute;inset:0;display:block;width:100%;height:100%;outline:none'
+  container.append(canvas)
+
   let rendered
   if (kind === 'schematic') {
-    rendered = await renderSchematic(new SchematicParser().parse(source.text), { container, interactive: true })
+    rendered = await renderSchematic(new SchematicParser().parse(source.text), { canvas, container, interactive: true })
   } else {
-    rendered = await renderPcb(new BoardParser().parse(source.text), { container, interactive: true })
+    rendered = await renderPcb(new BoardParser().parse(source.text), { canvas, container, interactive: true })
   }
 
   if (options.signal.aborted) {
     rendered.dispose()
+    canvas.remove()
     throw aborted(options.signal)
   }
 
+  // The viewer fits once during `load()`, before React has finished laying the
+  // viewer tab out. Re-fit on the next painted frame so the first view matches
+  // the panel it is actually in rather than the pre-layout canvas. Only at
+  // mount: a later resize must not undo the user's own pan/zoom.
+  const viewer = rendered.viewer as { zoom_fit_top_item?: () => void }
+  if (typeof viewer.zoom_fit_top_item === 'function') {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => { requestAnimationFrame(() => { resolve() }) })
+    })
+    if (!options.signal.aborted) viewer.zoom_fit_top_item()
+  }
+
   return {
-    dispose: () => { rendered.dispose() },
+    dispose: () => {
+      rendered.dispose()
+      canvas.remove()
+    },
     sourceRevision: source.revision,
     source,
   }

@@ -1,12 +1,17 @@
 /**
- * One store handle shared by the navigation, viewer and settings
- * registrations. It follows DSH's declared-store contract: a spec (init +
- * complete write set) plus a per-scope instance factory. The handle is created
- * inside `apply()`, never at module scope, so a plugin reload cannot resurrect
- * an old snapshot.
+ * Product state handle: a spec (init + complete write set) plus a per-scope
+ * instance factory, following DSH's declared-store contract.
+ *
+ * DSH pins one handle to one slot scope ("one handle, one scope"): the
+ * navigation and settings seats are `root`, the right-panel viewer seat is
+ * `session`. That is why `apply()` creates two handles — `root` state for the
+ * product chrome, `session` state for one viewer — instead of sharing one.
+ * Handles are created inside `apply()`, never at module scope, so a plugin
+ * reload cannot resurrect an old snapshot.
  */
 import type {
   HardwareActions, HardwareDestination, HardwareState, DiscoveryInfo, InstallationsInfo,
+  ViewerNavigationParams,
 } from './model.js'
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
@@ -54,10 +59,16 @@ const mutators = {
   setWorkspaceRoot(draft: Mutable<HardwareState>, root: string): void {
     draft.workspaceRoot = root
   },
-  setDiscovery(draft: Mutable<HardwareState>, discovery: DiscoveryInfo): void {
+  setDiscovery(draft: Mutable<HardwareState>, discovery: DiscoveryInfo, preserveSelection?: boolean): void {
     draft.discovery = discovery
     draft.workspaceRoot = discovery.cwd ?? draft.workspaceRoot
-    adoptProject(draft, discovery.selected)
+    // A viewer refresh must not clobber the artifact a navigation just selected:
+    // it only learns which project the workspace resolves to.
+    if (preserveSelection === true) {
+      if (discovery.selected !== undefined) draft.projectPath = discovery.selected.path
+    } else {
+      adoptProject(draft, discovery.selected)
+    }
     draft.revision += 1
   },
   selectProject(draft: Mutable<HardwareState>, path: string): void {
@@ -71,6 +82,19 @@ const mutators = {
       draft.sheetPath = path
     } else {
       draft.pcbPath = path
+    }
+    draft.revision += 1
+  },
+  applyNavigation(draft: Mutable<HardwareState>, params: ViewerNavigationParams): void {
+    draft.activeDestination = params.destination
+    if (params.projectPath !== undefined) draft.projectPath = params.projectPath
+    if (params.path !== undefined) {
+      if (params.destination === 'schematic' || params.destination === 'bom') {
+        draft.schematicPath = params.path
+        draft.sheetPath = params.path
+      } else if (params.destination === 'pcb' || params.destination === '3d' || params.destination === 'order') {
+        draft.pcbPath = params.path
+      }
     }
     draft.revision += 1
   },
@@ -104,9 +128,10 @@ export function createHardwareStore(): HardwareStoreHandle {
         actions: {
           setActive: destination => commit(draft => mutators.setActive(draft, destination)),
           setWorkspaceRoot: root => commit(draft => { draft.workspaceRoot = root }),
-          setDiscovery: discovery => commit(draft => mutators.setDiscovery(draft, discovery)),
+          setDiscovery: (discovery, preserveSelection) => commit(draft => mutators.setDiscovery(draft, discovery, preserveSelection)),
           selectProject: path => commit(draft => mutators.selectProject(draft, path)),
           selectArtifact: (path, kind) => commit(draft => mutators.selectArtifact(draft, path, kind)),
+          applyNavigation: params => commit(draft => mutators.applyNavigation(draft, params)),
           setInstallations: installations => commit(draft => mutators.setInstallations(draft, installations)),
           setNotice: notice => commit(draft => mutators.setNotice(draft, notice)),
           refresh: () => commit(draft => mutators.refresh(draft)),

@@ -12,6 +12,13 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameS
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
+import {
+  DEFAULT_ORDER_BASE_URL, DEFAULT_ORDER_PAGE_BASE, multipartBody,
+  ORDER_PATHS, orderBomCsv, orderBomRows, orderIdsFromUrl, packageName, parsePositions,
+  pcbOrderForm, pcbOrderUrl, positionsCsv, readBoardFacts, readExportDirectory, smtOrderForm,
+  smtOrderUrl, zipPackage,
+  type BoardFacts,
+} from './order.js'
 
 export type ArtifactKind = 'schematic' | 'pcb' | 'pcb-3d' | 'bom' | 'mechanical-3d'
 /** Native handoff is KiCad-only in this POC; SolidCraft stays agent context. */
@@ -137,15 +144,102 @@ export interface BomResult {
   readonly source: 'kicad-cli-bom'
 }
 
+export interface OrderPackageSummary {
+  readonly zipName: string
+  readonly zipBytes: number
+  readonly files: readonly { readonly name: string; readonly bytes: number }[]
+}
+
+/** A prepared fabrication package: what would be uploaded, nothing sent yet. */
+export interface FabricationResult {
+  readonly boardPath: string
+  readonly revision: string
+  readonly generatedAt: string
+  readonly facts: BoardFacts
+  readonly archive: OrderPackageSummary
+  /** Assembly inputs, present when a schematic was supplied. */
+  readonly assembly?: {
+    readonly positions: number
+    readonly bomLines: number
+    readonly positionsBytes: number
+    readonly bomBytes: number
+  }
+}
+
+export interface OrderConfigInfo {
+  readonly configured: boolean
+  readonly baseUrl: string
+  readonly hasToken: boolean
+  readonly provider: 'huaqiu'
+}
+
+export interface PlaceOrderRequest {
+  readonly kind: 'pcb' | 'smt'
+  readonly boardPath: string
+  readonly schematicPath?: string
+  readonly roots?: readonly string[]
+  readonly quantity?: number
+  readonly signal?: AbortSignal
+  /** Open the resulting page in the default browser; defaults to true. */
+  readonly launch?: boolean
+}
+
+export interface PlaceOrderResult {
+  readonly kind: 'pcb' | 'smt'
+  /** The exact URL KiCad's own action loads into its order webview. */
+  readonly orderUrl: string
+  /** The backend's raw URL, before KiCad's own query parameters were added. */
+  readonly responseUrl: string
+  /** True when the host handed `orderUrl` to the OS default browser. */
+  readonly launched: boolean
+  readonly launcher?: string
+  readonly status: 'launched' | 'ready'
+  readonly message: string
+  readonly endpoint: string
+  readonly facts: BoardFacts
+  readonly archive: OrderPackageSummary
+  readonly assembly?: FabricationResult['assembly']
+}
+
 export interface HardwareArtifactsOptions {
   readonly kicadRoot?: string
   readonly solidcraftRoot?: string
+  /** Origin for the place-order endpoints; defaults to the Huaqiu host. */
+  readonly orderBaseUrl?: string
+  readonly orderPageBase?: string
+  /** Huaqiu access token; only ever sent to the order endpoint. */
+  readonly accessToken?: string
+  /** Injectable transport for tests; defaults to global fetch. */
+  readonly postOrder?: (url: string, init: {
+    readonly body: Buffer
+    readonly contentType: string
+    readonly headers?: Readonly<Record<string, string>>
+    readonly signal?: AbortSignal
+  }) => Promise<{ readonly status: number; readonly text: string }>
+  /**
+   * Live accessor for the user-configured roots.
+   *
+   * The plugin passes the profile config reference, so a settings write that
+   * replaces a volatile field is visible on the next validation without the
+   * service caching a start-time snapshot.
+   */
+  readonly settings?: () => {
+    readonly kicadRoot?: string
+    readonly solidcraftRoot?: string
+    readonly orderBaseUrl?: string
+    readonly accessToken?: string
+  }
   readonly probeVersion?: (executable: string) => string | undefined
   readonly spawnProcess?: (
     command: string,
     args: readonly string[],
     options: { cwd: string; detached: boolean; stdio: 'ignore'; windowsHide: boolean; shell: false },
   ) => Pick<ChildProcess, 'pid'>
+  /**
+   * Command used to hand a URL to the OS. Defaults to `open` on macOS,
+   * `rundll32 url.dll,FileProtocolHandler` on Windows and `xdg-open` elsewhere.
+   */
+  readonly openExternal?: (url: string) => { readonly command: string; readonly args: readonly string[] }
   /** Runs one short-lived CLI command and returns its exit facts. */
   readonly runCommand?: (
     command: string,
@@ -202,6 +296,101 @@ function realOrUndefined(path: string): string | undefined {
 
 function errorWithCode(message: string, code: string, status: number): Error {
   return Object.assign(new Error(message), { code, status })
+}
+
+/**
+ * POST one multipart order payload.
+ *
+ * Kept out of the class so tests can inject their own transport; the default
+ * has a hard timeout and never logs the body (it carries the access token).
+ */
+async function defaultPostOrder(url: string, init: {
+  readonly body: Buffer
+  readonly contentType: string
+  readonly headers?: Readonly<Record<string, string>>
+  readonly signal?: AbortSignal
+}): Promise<{ readonly status: number; readonly text: string }> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => { controller.abort() }, 90_000)
+  const forward = (): void => { controller.abort() }
+  init.signal?.addEventListener('abort', forward, { once: true })
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...init.headers,
+        'content-type': init.contentType,
+        'content-length': String(init.body.byteLength),
+      },
+      // Node's fetch accepts a Buffer body; the DOM lib's BodyInit typing only
+      // names ArrayBuffer views backed by a non-shared buffer.
+      body: init.body as unknown as BodyInit,
+      signal: controller.signal,
+    })
+    return { status: response.status, text: await response.text() }
+  } finally {
+    clearTimeout(timer)
+    init.signal?.removeEventListener('abort', forward)
+  }
+}
+
+/**
+ * Command that opens one URL in the OS default browser.
+ *
+ * A URL argument is passed to a fixed executable with `shell: false`, so the
+ * page can never become a shell command.
+ */
+function defaultOpenExternal(url: string): { command: string; args: readonly string[] } {
+  if (process.platform === 'darwin') return { command: 'open', args: [url] }
+  if (process.platform === 'win32') return { command: 'rundll32', args: ['url.dll,FileProtocolHandler', url] }
+  return { command: 'xdg-open', args: [url] }
+}
+
+/**
+ * Validate an order page URL before handing it to the OS.
+ *
+ * The backend owns this URL, so the check is deliberately about *shape*, not
+ * about a specific host: HTTPS anywhere, plain HTTP only on loopback (local
+ * stubs), and never a URL with embedded credentials or a non-web scheme.
+ */
+function externalUrlTarget(raw: string): string {
+  if (raw.length === 0 || raw.length > 4096) {
+    throw errorWithCode('the order URL is empty or too long', 'invalid-order-url', 400)
+  }
+  let parsed: URL
+  try {
+    parsed = new URL(raw)
+  } catch {
+    throw errorWithCode('the order URL is not a valid absolute URL', 'invalid-order-url', 400)
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw errorWithCode(`refusing to open a ${parsed.protocol} URL`, 'invalid-order-url', 400)
+  }
+  if (parsed.username !== '' || parsed.password !== '') {
+    throw errorWithCode('refusing to open a URL with embedded credentials', 'invalid-order-url', 400)
+  }
+  const host = parsed.hostname.replace(/^\[|\]$/gu, '')
+  const loopback = host === 'localhost' || host === '::1' || host === '127.0.0.1' || host.startsWith('127.')
+  if (parsed.protocol === 'http:' && !loopback) {
+    throw errorWithCode('refusing to open a plain-HTTP order URL outside loopback', 'invalid-order-url', 400)
+  }
+  return parsed.toString()
+}
+
+/** First backend-owned order URL in a place-order response. */
+function orderUrlOf(body: unknown): string | undefined {
+  if (body === null || typeof body !== 'object') return undefined
+  const record = body as Record<string, unknown>
+  for (const key of ['url', 'redirect', 'data']) {
+    const value = record[key]
+    if (typeof value === 'string' && value !== '') return value
+    if (value !== null && typeof value === 'object') {
+      const nested = orderUrlOf(value)
+      if (nested !== undefined) return nested
+    }
+  }
+  const result = record.result
+  return result === undefined ? undefined : orderUrlOf(result)
 }
 
 function walkFiles(root: string, predicate: (name: string) => boolean): string[] {
@@ -369,7 +558,10 @@ function solidcraftCandidates(root: string): string[] {
 
 /** Small, immutable host capability implementation. */
 export class HardwareArtifactService {
-  private readonly options: Required<Pick<HardwareArtifactsOptions, 'spawnProcess' | 'probeVersion' | 'runCommand'>>
+  private readonly options: Required<Pick<
+    HardwareArtifactsOptions,
+    'spawnProcess' | 'probeVersion' | 'runCommand' | 'openExternal'
+  >>
   private readonly cacheRoot: string
   private readonly glbTimeoutMs: number
   private readonly maxSourceBytes: number
@@ -380,21 +572,39 @@ export class HardwareArtifactService {
   private readonly glbPending = new Map<string, Promise<GlbResult>>()
   /** BOM projections keyed by `sourcePath:revision`. */
   private readonly bomCache = new Map<string, BomResult>()
+  /** Prepared fabrication packages keyed by board, revision and schematic. */
+  private readonly packageCache = new Map<string, FabricationResult & {
+    readonly archiveData: Uint8Array
+    readonly assemblyFiles?: { readonly positions: string; readonly bom: string }
+  }>()
 
   constructor(private readonly config: HardwareArtifactsOptions = {}) {
     this.options = {
       probeVersion: config.probeVersion ?? defaultVersionProbe,
       spawnProcess: config.spawnProcess ?? ((command, args, settings) => spawn(command, [...args], settings)),
       runCommand: config.runCommand ?? defaultRunCommand,
+      openExternal: config.openExternal ?? defaultOpenExternal,
     }
     this.cacheRoot = canonical(config.cacheRoot ?? join(tmpdir(), 'huaqiu-hardware-artifacts'))
     this.glbTimeoutMs = config.glbTimeoutMs ?? 120_000
     this.maxSourceBytes = config.maxSourceBytes ?? 32 * 1024 * 1024
   }
 
+  /** Configured roots, read live so a settings write is visible immediately. */
+  private roots(): { kicadRoot?: string; solidcraftRoot?: string } {
+    const live = this.config.settings?.()
+    const kicadRoot = live?.kicadRoot ?? this.config.kicadRoot
+    const solidcraftRoot = live?.solidcraftRoot ?? this.config.solidcraftRoot
+    return {
+      ...(kicadRoot === undefined ? {} : { kicadRoot }),
+      ...(solidcraftRoot === undefined ? {} : { solidcraftRoot }),
+    }
+  }
+
   /** Resolve configured installations from validated absolute paths only. */
   installations(): Installations {
-    const kicadRoot = this.config.kicadRoot ? canonical(this.config.kicadRoot) : undefined
+    const roots = this.roots()
+    const kicadRoot = roots.kicadRoot ? canonical(roots.kicadRoot) : undefined
     let kicadCli: string | undefined
     if (kicadRoot !== undefined) {
       const cliPaths = basename(kicadRoot).toLowerCase().startsWith('kicad-cli')
@@ -423,7 +633,7 @@ export class HardwareArtifactService {
             ...(schematicEditor === undefined ? {} : { schematicEditor }),
           }
 
-    const solidRoot = this.config.solidcraftRoot ? canonical(this.config.solidcraftRoot) : undefined
+    const solidRoot = roots.solidcraftRoot ? canonical(roots.solidcraftRoot) : undefined
     const solidExecutable = solidRoot === undefined ? undefined : existing(solidcraftCandidates(solidRoot))
     const solidcraft: InstallationInfo = solidExecutable === undefined
       ? { configured: false, error: 'SolidCraft installation is not configured' }
@@ -876,7 +1086,300 @@ export class HardwareArtifactService {
     }
   }
 
-  /** Serve a generated GLB file, re-validating the cache entry first. */  glbFile(boardPath: string, revision: string): string {
+  // -------------------------------------------------------------------------
+  // Fabrication packaging and order submission
+  // -------------------------------------------------------------------------
+
+  /** Live order settings, read at call time so a settings write is immediate. */
+  private orderSettings(): { baseUrl: string; pageBase: string; accessToken?: string } {
+    const live = this.config.settings?.()
+    const configured = [live?.orderBaseUrl, this.config.orderBaseUrl, process.env.HUAQIU_ORDER_BASE_URL]
+      .find(value => value !== undefined && value.trim() !== '')
+    const baseUrl = (configured ?? DEFAULT_ORDER_BASE_URL).replace(/\/+$/u, '')
+    const pageBase = (this.config.orderPageBase ?? DEFAULT_ORDER_PAGE_BASE).replace(/\/+$/u, '')
+    const token = live?.accessToken ?? this.config.accessToken ?? process.env.HUAQIU_ACCESS_TOKEN
+    return {
+      baseUrl,
+      pageBase,
+      ...(token === undefined || token.trim() === '' ? {} : { accessToken: token.trim() }),
+    }
+  }
+
+  /** What the Order destination may do right now, without contacting anything. */
+  orderConfig(): OrderConfigInfo {
+    const installed = this.installations()
+    const settings = this.orderSettings()
+    return {
+      configured: installed.kicad.configured,
+      baseUrl: settings.baseUrl,
+      hasToken: settings.accessToken !== undefined,
+      provider: 'huaqiu',
+    }
+  }
+
+  /**
+   * Build the fabrication archive and the assembly inputs for one board.
+   *
+   * The gerber/drill export is `kicad-cli`'s own plotter, so the archive is the
+   * same set of files a KiCad "Place order" would upload. Cached by source
+   * revision: reopening the panel must not re-run the exporter.
+   */
+  async fabricate(request: {
+    readonly boardPath: string
+    readonly schematicPath?: string
+    readonly roots?: readonly string[]
+    readonly signal?: AbortSignal
+  }): Promise<FabricationResult & { readonly archiveData: Uint8Array; readonly assemblyFiles?: {
+    readonly positions: string
+    readonly bom: string
+  } }> {
+    const { path } = this.authorize(request.boardPath, request.roots)
+    if (extname(path).toLowerCase() !== '.kicad_pcb') {
+      throw errorWithCode('Fabrication packaging requires a .kicad_pcb artifact', 'unsupported-artifact', 415)
+    }
+    const installed = this.installations()
+    if (!installed.kicad.configured || installed.kicad.cli === undefined) {
+      throw errorWithCode(installed.kicad.error ?? 'the configured KiCad installation has no kicad-cli', 'not-configured', 412)
+    }
+    const cli = installed.kicad.cli
+    const revision = this.sourceRevision(path)
+    const schematicPath = request.schematicPath === undefined
+      ? undefined
+      : this.authorize(request.schematicPath, request.roots).path
+    const key = `${path}:${revision}:${schematicPath ?? ''}`
+    const cached = this.packageCache.get(key)
+    if (cached !== undefined) return cached
+
+    const directory = join(this.cacheRoot, 'fabrication', createHash('sha256').update(path).digest('hex').slice(0, 16))
+    const work = join(directory, `tmp-${process.pid}-${String(Date.now())}`)
+    const plots = join(work, 'plots')
+    const positionsFile = join(work, 'positions.raw.csv')
+    mkdirSync(plots, { recursive: true })
+
+    const signal = request.signal
+    const run = async (args: readonly string[], what: string, timeoutMs = 120_000): Promise<void> => {
+      const result = await this.options.runCommand(cli, args, {
+        cwd: dirname(path),
+        timeoutMs,
+        ...(signal === undefined ? {} : { signal }),
+      })
+      if (result.timedOut) throw errorWithCode(`kicad-cli ${what} timed out`, 'export-timeout', 504)
+      if (result.exitCode !== 0) {
+        const detail = (result.stderr.trim() || result.stdout.trim() || `exit ${String(result.exitCode)}`).slice(0, 800)
+        throw errorWithCode(`kicad-cli ${what} failed: ${detail}`, 'export-failed', 502)
+      }
+    }
+
+    try {
+      await run(['pcb', 'export', 'gerbers', '--output', plots, path], 'pcb export gerbers')
+      await run(['pcb', 'export', 'drill', '--output', plots, '--format', 'excellon',
+        '--excellon-units', 'mm', '--drill-origin', 'absolute', path], 'pcb export drill')
+      const plotNames = readdirSync(plots).filter(name => statSync(join(plots, name)).isFile()).sort()
+      if (plotNames.length === 0) throw errorWithCode('kicad-cli wrote no fabrication files', 'export-failed', 502)
+      const plotted = readExportDirectory(plots, plotNames)
+      const archiveData = zipPackage(plotted)
+      const facts = readBoardFacts(readFileSync(path, 'utf8'))
+
+      let assembly: FabricationResult['assembly']
+      let assemblyFiles: { positions: string; bom: string } | undefined
+      if (schematicPath !== undefined) {
+        await run(['pcb', 'export', 'pos', '--format', 'csv', '--units', 'mm', '--side', 'both',
+          '--output', positionsFile, path], 'pcb export pos')
+        const positions = parsePositions(readFileSync(positionsFile, 'utf8'))
+        const bom = await this.exportBom({
+          artifactPath: schematicPath,
+          ...(request.roots === undefined ? {} : { roots: request.roots }),
+          ...(signal === undefined ? {} : { signal }),
+        })
+        const bomRows = orderBomRows(positions, bom.rows)
+        const positionsText = positionsCsv(positions)
+        const bomText = orderBomCsv(bomRows)
+        assemblyFiles = { positions: positionsText, bom: bomText }
+        assembly = {
+          positions: positions.length,
+          bomLines: bomRows.length,
+          positionsBytes: Buffer.byteLength(positionsText, 'utf8'),
+          bomBytes: Buffer.byteLength(bomText, 'utf8'),
+        }
+      }
+
+      const result: FabricationResult & { archiveData: Uint8Array; assemblyFiles?: { positions: string; bom: string } } = {
+        boardPath: path,
+        revision,
+        generatedAt: new Date().toISOString(),
+        facts,
+        archive: {
+          zipName: `${packageName(path)}.zip`,
+          zipBytes: archiveData.byteLength,
+          files: plotted.map(file => ({ name: file.name, bytes: file.data.byteLength })),
+        },
+        archiveData,
+        ...(assembly === undefined ? {} : { assembly }),
+        ...(assemblyFiles === undefined ? {} : { assemblyFiles }),
+      }
+      this.packageCache.set(key, result)
+      return result
+    } finally {
+      rmSync(work, { recursive: true, force: true })
+    }
+  }
+
+  /**
+   * Submit one order to the Huaqiu openapi, exactly as the KiCad action does.
+   *
+   * PCB: every `PCB_FORM` field plus the gerber/drill archive as `file`.
+   * SMT: `pcbFile` + `coordFile` + `bomFile` and `reqParseVO`, with the caller's
+   * access token in `authorization`. The backend owns the order; this method
+   * only forwards the files and passes the returned URL through untouched.
+   */
+  async placeOrder(request: PlaceOrderRequest): Promise<PlaceOrderResult> {
+    const settings = this.orderSettings()
+    const bundle = await this.fabricate({
+      boardPath: request.boardPath,
+      ...(request.schematicPath === undefined ? {} : { schematicPath: request.schematicPath }),
+      ...(request.roots === undefined ? {} : { roots: request.roots }),
+      ...(request.signal === undefined ? {} : { signal: request.signal }),
+    })
+    const facts = bundle.facts
+    const endpoint = `${settings.baseUrl}${ORDER_PATHS[request.kind]}`
+
+    let parts: { name: string; value: string }[]
+    let files: { field: string; name: string; type: string; data: Uint8Array }[]
+    let headers: Record<string, string> | undefined
+
+    if (request.kind === 'pcb') {
+      const form = pcbOrderForm(facts, request.quantity === undefined ? {} : { quantity: request.quantity })
+      parts = Object.entries(form).map(([name, value]) => ({ name, value }))
+      files = [{ field: 'file', name: bundle.archive.zipName, type: 'application/zip', data: bundle.archiveData }]
+    } else {
+      if (settings.accessToken === undefined) {
+        throw errorWithCode(
+          'SMT order placement requires a Huaqiu access token; configure it in Settings → Hardware Engineering',
+          'unauthorized',
+          401,
+        )
+      }
+      if (bundle.assemblyFiles === undefined) {
+        throw errorWithCode('SMT order placement requires the project root schematic', 'invalid-request', 400)
+      }
+      const smt = smtOrderForm(facts, {
+        bomFileName: `${packageName(bundle.boardPath)}-bom.csv`,
+        coordFileName: `${packageName(bundle.boardPath)}-positions.csv`,
+        materialTypes: bundle.assembly?.bomLines ?? 0,
+        ...(request.quantity === undefined ? {} : { quantity: request.quantity }),
+      })
+      parts = [{
+        name: 'reqParseVO',
+        value: JSON.stringify({
+          pcb_order: pcbOrderForm(facts, request.quantity === undefined ? {} : { quantity: request.quantity }),
+          smt_order: smt,
+        }),
+      }]
+      files = [
+        { field: 'pcbFile', name: bundle.archive.zipName, type: 'application/zip', data: bundle.archiveData },
+        {
+          field: 'coordFile', name: String(smt.coord_file_name), type: 'application/octet-stream',
+          data: new TextEncoder().encode(bundle.assemblyFiles.positions),
+        },
+        {
+          field: 'bomFile', name: String(smt.bom_file_name), type: 'application/octet-stream',
+          data: new TextEncoder().encode(bundle.assemblyFiles.bom),
+        },
+      ]
+      headers = { authorization: settings.accessToken }
+    }
+
+    const boundary = `----huaqiu${createHash('sha256').update(`${endpoint}:${String(Date.now())}`).digest('hex').slice(0, 24)}`
+    const payload = multipartBody(parts, files, boundary)
+    const post = this.config.postOrder ?? defaultPostOrder
+
+    let response: { status: number; text: string }
+    try {
+      response = await post(endpoint, {
+        body: payload.body,
+        contentType: payload.contentType,
+        ...(headers === undefined ? {} : { headers }),
+        ...(request.signal === undefined ? {} : { signal: request.signal }),
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      throw errorWithCode(`the order endpoint could not be reached: ${detail}`, 'order-unreachable', 502)
+    }
+    if (response.status < 200 || response.status >= 300) {
+      throw errorWithCode(
+        `the order endpoint rejected the request (HTTP ${String(response.status)}): ${response.text.slice(0, 400)}`,
+        'order-rejected',
+        502,
+      )
+    }
+
+    let json: unknown
+    try {
+      json = JSON.parse(response.text)
+    } catch {
+      throw errorWithCode('the order endpoint returned an unreadable response', 'order-rejected', 502)
+    }
+    const responseUrl = orderUrlOf(json)
+    if (responseUrl === undefined) {
+      throw errorWithCode('the order endpoint returned no order URL', 'order-rejected', 502)
+    }
+
+    // Reproduce the URL KiCad's own action loads in its webview. For PCB that
+    // is a page composed around the returned id/guid; for assembly it is the
+    // backend URL plus the token and `source=bom`.
+    const orderUrl = request.kind === 'pcb'
+      ? pcbOrderUrl(settings.pageBase, orderIdsFromUrl(responseUrl), settings.accessToken)
+      : smtOrderUrl(responseUrl, settings.accessToken)
+    if (orderUrl === undefined) {
+      throw errorWithCode('the order endpoint returned an order id that cannot form a page URL', 'order-rejected', 502)
+    }
+
+    // Opening the page is the whole point of the action, but a browser that
+    // will not start must never discard a successfully created order.
+    const launch = request.launch !== false
+    let opened: { launched: boolean; launcher?: string } = { launched: false }
+    if (launch) {
+      try {
+        const result = this.openOrderUrl(orderUrl)
+        opened = { launched: true, launcher: result.command }
+      } catch {
+        opened = { launched: false }
+      }
+    }
+
+    return {
+      kind: request.kind,
+      orderUrl,
+      responseUrl,
+      ...opened,
+      status: opened.launched ? 'launched' : 'ready',
+      message: opened.launched
+        ? `Opened the ${request.kind === 'pcb' ? 'PCB' : 'assembly'} order page in your default browser.`
+        : `The ${request.kind === 'pcb' ? 'PCB' : 'assembly'} order page is ready; open the URL to continue.`,
+      endpoint,
+      facts,
+      archive: bundle.archive,
+      ...(bundle.assembly === undefined ? {} : { assembly: bundle.assembly }),
+    }
+  }
+
+  /**
+   * Open one order page in the OS default browser.
+   *
+   * This is the only place a URL reaches an external program; the URL is
+   * validated by shape first and passed as a plain argument.
+   */
+  openOrderUrl(raw: string): { launched: true; command: string; url: string } {
+    const url = externalUrlTarget(raw)
+    const spec = this.options.openExternal(url)
+    this.options.spawnProcess(spec.command, spec.args, {
+      cwd: tmpdir(), detached: true, stdio: 'ignore', windowsHide: true, shell: false,
+    })
+    return { launched: true, command: spec.command, url }
+  }
+
+  /** Serve a generated GLB file, re-validating the cache entry first. */
+  glbFile(boardPath: string, revision: string): string {
     const key = `${canonical(boardPath)}:${revision}`
     const entry = this.glbCache.get(key)
     if (entry === undefined || !existsSync(entry.file)) {
@@ -887,6 +1390,7 @@ export class HardwareArtifactService {
 
   /** Drop cached derived outputs for one board (or all of them). */
   clearCache(boardPath?: string): void {
+    this.packageCache.clear()
     if (boardPath === undefined) {
       this.glbCache.clear()
       rmSync(this.cacheRoot, { recursive: true, force: true })
@@ -961,20 +1465,29 @@ export function parseCsv(text: string): string[][] {
  * Identity is every column except the reference and quantity columns, so a
  * different MPN or a DNP flag always produces a separate line; ordering follows
  * the first reference seen, which keeps the table stable between reads.
+ *
+ * Column names follow `kicad-cli sch export bom`'s default field set, which is
+ * `Refs,Value,Footprint,Qty,DNP`; a customized `--fields` header may spell the
+ * same columns out in full, and a grouped export may pack several references
+ * into one cell, so both spellings and both shapes are accepted.
  */
 export function groupBomRows(table: readonly string[][]): BomRow[] {
   const [header, ...body] = table
   if (header === undefined) return []
   const columns = header.map(cell => cell.trim())
-  const referenceIndex = columns.findIndex(cell => /^reference$/iu.test(cell))
-  const quantityIndex = columns.findIndex(cell => /^quantity$/iu.test(cell))
-  const valueIndex = columns.findIndex(cell => /^value$/iu.test(cell))
-  const footprintIndex = columns.findIndex(cell => /^footprint$/iu.test(cell))
-  const dnpIndex = columns.findIndex(cell => /^dnp$/iu.test(cell))
+  const find = (...aliases: readonly RegExp[]): number =>
+    columns.findIndex(cell => aliases.some(alias => alias.test(cell)))
+  const referenceIndex = find(/^refs?$/iu, /^references?$/iu)
+  const quantityIndex = find(/^qty$/iu, /^quantity$/iu)
+  const valueIndex = find(/^value$/iu)
+  const footprintIndex = find(/^footprint$/iu)
+  const dnpIndex = find(/^dnp$/iu)
   const groups = new Map<string, { references: string[]; fields: Record<string, string>; dnp: boolean }>()
   for (const cells of body) {
-    const reference = referenceIndex === -1 ? '' : (cells[referenceIndex] ?? '').trim()
-    if (reference === '') continue
+    const references = referenceIndex === -1
+      ? []
+      : (cells[referenceIndex] ?? '').split(/[,;\s]+/u).map(reference => reference.trim()).filter(reference => reference !== '')
+    if (references.length === 0) continue
     const fields: Record<string, string> = {}
     columns.forEach((column, index) => {
       if (index === referenceIndex || index === quantityIndex || index === valueIndex
@@ -991,7 +1504,7 @@ export function groupBomRows(table: readonly string[][]): BomRow[] {
       Object.fromEntries(Object.entries(fields).sort(([a], [b]) => a.localeCompare(b))),
     ])
     const group = groups.get(identity) ?? { references: [], fields, dnp }
-    group.references.push(reference)
+    group.references.push(...references)
     groups.set(identity, group)
   }
   return [...groups.entries()].map(([identity, group]) => {

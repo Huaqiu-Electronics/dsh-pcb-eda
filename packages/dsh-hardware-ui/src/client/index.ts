@@ -5,11 +5,18 @@
  * `keepMounted` right-panel tab body, and one settings section. Native open
  * lives inside the viewer with the resolved artifact in scope, so no
  * conversation-level action is registered.
+ *
+ * Two store handles, not one: DSH pins a handle to a single slot scope, and
+ * `conversation.header.leading`/`settings.section` are `root` while
+ * `sidebar.right.pane.tab` is `session`. Mounting one handle in both scopes is
+ * rejected at load time ("one handle, one scope"). The two halves therefore
+ * coordinate the only way the slot contract allows — through the tab
+ * parameters and their navigation revision.
  */
 import { EngineeringNav, HardwareSettingsSection, HardwareViewerBody } from './components.js'
 import type {
-  ConfigFormLike, HardwareActions, HardwareDestination, HardwareInjected,
-  HardwareInstallationConfig, NativeApplication,
+  ConfigFormLike, HardwareController, HardwareDestination, HardwareInstallationConfig,
+  ViewerNavigationParams,
 } from './model.js'
 import { createHardwareStore } from './store.js'
 import { loadInstallations, loadProjects, openArtifact } from './transport.js'
@@ -20,6 +27,8 @@ export const inject = ['slots', 'sidebarRight', 'sidebarRightTabs', 'configForms
 export const HARDWARE_SETTINGS_ID = 'hardware-engineering'
 export const HARDWARE_TAB_ID = '@huaqiu/dsh-hardware-ui'
 export const HARDWARE_TAB_KIND = 'hardware-engineering'
+/** Host plugin row id whose volatile config backs the product settings page. */
+export const HARDWARE_CONFIG_ENTRY = 'hardware-artifacts'
 
 interface SlotSpec {
   name: string
@@ -73,84 +82,53 @@ function nativeKindFor(destination: HardwareDestination, path: string): string {
 
 /** Install all product UI contributions on a DSH client context. */
 export function apply(ctx: ClientContext): void {
-  const store = createHardwareStore()
-  let actions: HardwareActions | undefined
-  let revision = 0
+  // Root scope: product chrome (navigation + settings) shares one instance.
+  const rootStore = createHardwareStore()
+  // Session scope: each viewer owns its own selection/discovery state.
+  const viewerStore = createHardwareStore()
+  let navigation = 0
   const effect = (fn: () => (() => void) | void, label: string): void => {
     if (ctx.effect !== undefined) ctx.effect(fn, label)
     else fn()
   }
 
-  const captureActions = (...args: unknown[]): { hooks: HardwareInjected } => {
-    for (const candidate of args) {
-      if (candidate !== null && typeof candidate === 'object'
-        && typeof (candidate as HardwareActions).setActive === 'function') {
-        actions = candidate as HardwareActions
-      }
-    }
-    return { hooks: injected }
-  }
-
-  const injected: HardwareInjected = {
-    async refreshDiscovery(cwd, project) {
-      try {
-        const result = await loadProjects(cwd, project)
-        actions?.setDiscovery(result)
-        if (result.issue?.code === 'bad-manifest') actions?.setNotice(result.issue.message)
-      } catch (error) {
-        actions?.setNotice(`Artifact discovery failed: ${String(error)}`)
-      }
+  const controller: HardwareController = {
+    discover(cwd, project) {
+      return loadProjects(cwd, project)
     },
-    openDestination(destination: HardwareDestination, path) {
-      revision += 1
-      const kind = path === undefined ? undefined : kindForPath(path)
-      try {
-        ctx.sidebarRight?.openTab(HARDWARE_TAB_KIND, {
-          params: {
-            destination,
-            ...(path === undefined ? {} : { path }),
-            ...(kind === undefined ? {} : { kind }),
-            navigationRevision: revision,
-          },
-          revealIfOpened: true,
-        })
-      } catch (error) {
-        actions?.setNotice(`Open viewer failed: ${String(error)}`)
-      }
-    },
-    async openNative(application?: NativeApplication, artifactPath?: string) {
-      if (artifactPath === undefined || artifactPath === '') {
-        actions?.setNotice('Select an artifact before opening it in KiCad.')
-        return
-      }
-      const destination = store.create().getSnapshot().activeDestination
-      try {
-        await openArtifact({
-          application: application ?? 'kicad',
-          artifactPath,
-          kind: nativeKindFor(destination, artifactPath),
-        })
-      } catch (error) {
-        actions?.setNotice(`Native launch failed: ${String(error)}`)
-        throw error
-      }
+    installations() {
+      return loadInstallations()
     },
     async saveInstallation(application, root) {
-      const form = ctx.configForms?.get<HardwareInstallationConfig>('hardware-artifacts')
+      const form = ctx.configForms?.get<HardwareInstallationConfig>(HARDWARE_CONFIG_ENTRY)
       if (form === undefined) throw new Error('host settings are unavailable')
       const field = application === 'kicad' ? 'kicadRoot' : 'solidcraftRoot'
       const accepted = await form.set(field, root)
       if (!accepted) throw new Error(`the host rejected the ${field} setting`)
     },
-    async fetchInstallations() {
-      try {
-        actions?.setInstallations(await loadInstallations())
-      } catch (error) {
-        actions?.setNotice(`Installation check failed: ${String(error)}`)
-      }
+    configForm() {
+      return ctx.configForms?.get<HardwareInstallationConfig>(HARDWARE_CONFIG_ENTRY)
     },
-    useConfigForm() {
-      return ctx.configForms?.get<HardwareInstallationConfig>('hardware-artifacts')
+    openDestination(destination, path) {
+      navigation += 1
+      const kind = path === undefined ? undefined : kindForPath(path)
+      const params: ViewerNavigationParams = {
+        destination,
+        ...(path === undefined ? {} : { path }),
+        ...(kind === undefined ? {} : { kind }),
+        navigationRevision: navigation,
+      }
+      ctx.sidebarRight?.openTab(HARDWARE_TAB_KIND, {
+        params: params as unknown as Readonly<Record<string, unknown>>,
+        revealIfOpened: true,
+      })
+    },
+    async openNative(request) {
+      await openArtifact({
+        application: request.application,
+        artifactPath: request.artifactPath,
+        kind: request.kind,
+      })
     },
   }
 
@@ -166,15 +144,15 @@ export function apply(ctx: ClientContext): void {
 
   effect(() => slots.inject('conversation.header.leading', () => slots.register({
     name: 'conversation.header.leading',
-    store,
-    inject: captureActions,
+    store: rootStore,
+    inject: () => controller,
   }, EngineeringNav)), 'hardware-ui: five-destination navigation')
 
   effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register({
     name: 'sidebar.right.pane.tab',
     key: HARDWARE_TAB_ID,
-    store,
-    inject: captureActions,
+    store: viewerStore,
+    inject: () => controller,
   }, HardwareViewerBody)), 'hardware-ui: viewer body')
 
   effect(() => slots.inject('settings.section', () => slots.register({
@@ -182,7 +160,7 @@ export function apply(ctx: ClientContext): void {
     id: HARDWARE_SETTINGS_ID,
     order: 85,
     label: () => 'Hardware Engineering',
-    store,
-    inject: captureActions,
+    store: rootStore,
+    inject: () => controller,
   }, HardwareSettingsSection)), 'hardware-ui: CAD installation settings')
 }

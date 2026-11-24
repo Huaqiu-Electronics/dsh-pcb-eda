@@ -22,6 +22,7 @@
     "manifest:prepare": "node scripts/release-manifest.mjs",
     "manifest:publish": "node scripts/release-manifest.mjs --publish",
     "launch-dsh": "node scripts/launch-dsh.mjs",
+    "launch-dsh:standalone": "node scripts/launch-dsh-standalone.mjs",
     "link-plugins:kicad": "node scripts/link-plugins-kicad.mjs",
     "unlink-plugins:kicad": "node scripts/link-plugins-kicad.mjs --unlink",
     "plugin-status:kicad": "node scripts/link-plugins-kicad.mjs --status"

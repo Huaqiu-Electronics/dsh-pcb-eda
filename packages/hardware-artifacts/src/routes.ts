@@ -94,6 +94,123 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
           }
           return
         }
+        if (req.method === 'GET' && p === `${HARDWARE_ROUTE_PREFIX}/order`) {
+          sendJson(res, 200, { ok: true, ...service.orderConfig() })
+          return
+        }
+        if (req.method === 'POST' && p === `${HARDWARE_ROUTE_PREFIX}/fabrication`) {
+          const body = await readJson(req) as Record<string, unknown>
+          const artifactPath = asString(body.path)
+          if (artifactPath === undefined) {
+            sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
+            return
+          }
+          const schematic = asString(body.schematic)
+          try {
+            const prepared = await service.fabricate({
+              boardPath: artifactPath,
+              ...(schematic === undefined ? {} : { schematicPath: schematic }),
+              roots: rootsOf(body),
+            })
+            sendJson(res, 200, {
+              ok: true,
+              boardPath: prepared.boardPath,
+              revision: prepared.revision,
+              generatedAt: prepared.generatedAt,
+              facts: prepared.facts,
+              archive: prepared.archive,
+              ...(prepared.assembly === undefined ? {} : { assembly: prepared.assembly }),
+            })
+          } catch (error) {
+            const { status, body: failureBody } = failure(error)
+            sendJson(res, status, failureBody)
+          }
+          return
+        }
+        if (req.method === 'POST' && p === `${HARDWARE_ROUTE_PREFIX}/order/pcb`) {
+          const body = await readJson(req) as Record<string, unknown>
+          if (body.confirm !== true) {
+            sendJson(res, 400, {
+              ok: false,
+              error: {
+                code: 'confirmation-required',
+                message: 'placing an order uploads the board files and requires explicit confirmation',
+              },
+            })
+            return
+          }
+          const artifactPath = asString(body.path)
+          if (artifactPath === undefined) {
+            sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
+            return
+          }
+          const schematic = asString(body.schematic)
+          try {
+            const placed = await service.placeOrder({
+              kind: 'pcb',
+              boardPath: artifactPath,
+              ...(schematic === undefined ? {} : { schematicPath: schematic }),
+              roots: rootsOf(body),
+              ...(typeof body.quantity === 'number' ? { quantity: body.quantity } : {}),
+              ...(body.launch === false ? { launch: false } : {}),
+            })
+            sendJson(res, 200, { ok: true, ...placed })
+          } catch (error) {
+            const { status, body: failureBody } = failure(error)
+            sendJson(res, status, failureBody)
+          }
+          return
+        }
+        if (req.method === 'POST' && p === `${HARDWARE_ROUTE_PREFIX}/order/smt`) {
+          const body = await readJson(req) as Record<string, unknown>
+          if (body.confirm !== true) {
+            sendJson(res, 400, {
+              ok: false,
+              error: {
+                code: 'confirmation-required',
+                message: 'placing an assembly order uploads the board, BOM and positions and requires explicit confirmation',
+              },
+            })
+            return
+          }
+          const artifactPath = asString(body.path)
+          if (artifactPath === undefined) {
+            sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
+            return
+          }
+          const schematic = asString(body.schematic)
+          try {
+            const placed = await service.placeOrder({
+              kind: 'smt',
+              boardPath: artifactPath,
+              ...(schematic === undefined ? {} : { schematicPath: schematic }),
+              roots: rootsOf(body),
+              ...(typeof body.quantity === 'number' ? { quantity: body.quantity } : {}),
+              ...(body.launch === false ? { launch: false } : {}),
+            })
+            sendJson(res, 200, { ok: true, ...placed })
+          } catch (error) {
+            const { status, body: failureBody } = failure(error)
+            sendJson(res, status, failureBody)
+          }
+          return
+        }
+        if (req.method === 'POST' && p === `${HARDWARE_ROUTE_PREFIX}/order/open`) {
+          const body = await readJson(req) as Record<string, unknown>
+          const orderUrl = asString(body.url)
+          if (orderUrl === undefined) {
+            sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'url is required' } })
+            return
+          }
+          try {
+            const opened = service.openOrderUrl(orderUrl)
+            sendJson(res, 200, { ok: true, ...opened })
+          } catch (error) {
+            const { status, body: failureBody } = failure(error)
+            sendJson(res, status, failureBody)
+          }
+          return
+        }
         if (req.method === 'POST' && p === `${HARDWARE_ROUTE_PREFIX}/bom`) {
           const body = await readJson(req) as Record<string, unknown>
           const artifactPath = asString(body.path)

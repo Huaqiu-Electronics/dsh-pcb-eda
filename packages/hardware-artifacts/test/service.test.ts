@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -7,7 +7,9 @@ import { HardwareArtifactService, groupBomRows, parseCsv } from '../src/service.
 let root: string
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'hw-artifacts-'))
+  // Canonicalized: the service authorizes through realpath, and macOS's
+  // /var -> /private/var symlink would otherwise fail every exact-path assertion.
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'hw-artifacts-')))
 })
 
 afterEach(() => {
@@ -476,6 +478,27 @@ describe('bom projection', () => {
     const variant = rows.find(row => row.references.includes('R3'))
     expect(variant?.quantity).toBe(1)
     expect(rows.find(row => row.dnp)?.references).toEqual(['U1'])
+  })
+
+  it('reads the default kicad-cli header (Refs/Qty) and grouped reference cells', () => {
+    // The default `kicad-cli sch export bom` field set, as emitted by KiCad 10.
+    const defaultHeader = [
+      '"Refs","Value","Footprint","Qty","DNP"',
+      '"C16","2n2","winterbloom:C_0402_HandSolder","1",""',
+      '"C17","2n2","winterbloom:C_0402_HandSolder","1",""',
+      '"R1, R2","10k","Resistor_SMD:R_0603_1608Metric","2",""',
+      '"U1","TL072","Package_SO:SOIC-8","1","DNP"',
+    ].join('\r\n')
+    const rows = groupBomRows(parseCsv(defaultHeader))
+    expect(rows).toHaveLength(3)
+    const capacitor = rows.find(row => row.references.includes('C16'))
+    expect(capacitor?.references).toEqual(['C16', 'C17'])
+    expect(capacitor?.quantity).toBe(2)
+    expect(rows.find(row => row.references.includes('R1'))?.references).toEqual(['R1', 'R2'])
+    expect(rows.find(row => row.dnp)?.references).toEqual(['U1'])
+    // A BOM with no recognizable reference column yields no rows rather than
+    // silently numbering unrelated cells.
+    expect(groupBomRows(parseCsv('"Value","Qty"\r\n"10k","1"'))).toHaveLength(0)
   })
 
   it('exports from the saved root schematic and caches by content revision', async () => {

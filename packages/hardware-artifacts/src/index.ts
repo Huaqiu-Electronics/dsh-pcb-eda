@@ -14,6 +14,7 @@ import { HardwareArtifactService } from './service.js'
 export type {
   ArtifactKind,
   DiscoveryResult,
+  FabricationResult,
   HardwareArtifact,
   HardwareProject,
   HardwareArtifactsOptions,
@@ -22,22 +23,69 @@ export type {
   NativeApplication,
   OpenArtifactRequest,
   OpenArtifactResult,
+  OrderConfigInfo,
+  PlaceOrderRequest,
+  PlaceOrderResult,
 } from './service.js'
 export { HardwareArtifactService } from './service.js'
+export {
+  DEFAULT_ORDER_PAGE_BASE, ORDER_PATHS, ORDER_SOURCE_TID, orderBomCsv, orderBomRows,
+  parsePositions, pcbOrderForm, pcbOrderUrl, positionsCsv, readBoardFacts, smtOrderForm,
+  smtOrderUrl, snapHoleTier, snapThickness, snapTraceTier,
+} from './order.js'
+export type { BoardFacts, PositionRow } from './order.js'
 export { createHardwareHandler, HARDWARE_ROUTE_PREFIX } from './routes.js'
 
 export const name = '@huaqiu/hardware-artifacts'
 export const inject = ['webServer', 'systemPrompt'] as const
 
-/** User-scoped installation settings persisted by DSH's host-backed config. */
+/**
+ * User-scoped installation settings persisted by DSH's host-backed config.
+ *
+ * Every field is `.volatile()`: DSH's settings service only projects volatile
+ * fields into editable forms, and only volatile writes are persisted to the
+ * active profile patch. A non-volatile field here would make the Hardware
+ * Engineering settings page read-only by construction.
+ */
 export const Config = Schema.object({
-  kicadRoot: Schema.string().default(''),
-  solidcraftRoot: Schema.string().default(''),
+  kicadRoot: Schema.string().default('').volatile(),
+  solidcraftRoot: Schema.string().default('').volatile(),
+  /** Set by the first-run wizard once setup was completed or skipped. */
+  onboardingComplete: Schema.boolean().default(false).volatile(),
+  /**
+   * Place-order origin. Empty uses `HUAQIU_ORDER_BASE_URL`, then the Huaqiu
+   * host. It is only the transport target; it does not imply the endpoint
+   * supports the order contract.
+   */
+  orderBaseUrl: Schema.string().default('').volatile(),
+  /**
+   * Huaqiu access token for the assembly endpoint. Volatile so it stays in the
+   * profile patch and never reaches the client bundle.
+   */
+  accessToken: Schema.string().default('').volatile(),
 })
 
+/**
+ * A schema field value: a plain value, or the stable reference a volatile
+ * field resolves to (`{ get(): T }`, see `@deepseek-ai/cosmokit`).
+ */
+export type ConfigValue<T> = T | { get(): T }
+
 export interface HardwareArtifactsPluginConfig {
-  readonly kicadRoot?: string
-  readonly solidcraftRoot?: string
+  readonly kicadRoot?: ConfigValue<string>
+  readonly solidcraftRoot?: ConfigValue<string>
+  readonly onboardingComplete?: ConfigValue<boolean>
+  readonly orderBaseUrl?: ConfigValue<string>
+  readonly accessToken?: ConfigValue<string>
+}
+
+/** Read one config field, resolving a volatile reference at call time. */
+function readConfig<T>(value: ConfigValue<T> | undefined): T | undefined {
+  if (value === undefined) return undefined
+  if (typeof value === 'object' && value !== null && typeof (value as { get?: unknown }).get === 'function') {
+    return (value as { get(): T }).get()
+  }
+  return value as T
 }
 
 declare module '@deepseek-ai/cordis' {
@@ -58,8 +106,14 @@ interface SystemPromptFace {
 
 export function apply(ctx: Context, config: HardwareArtifactsPluginConfig = {}): void {
   const service = new HardwareArtifactService({
-    ...(config.kicadRoot ? { kicadRoot: config.kicadRoot } : {}),
-    ...(config.solidcraftRoot ? { solidcraftRoot: config.solidcraftRoot } : {}),
+    // The accessor keeps the service on the live profile config reference:
+    // a settings write is visible to the next validation without a restart.
+    settings: () => ({
+      kicadRoot: readConfig(config.kicadRoot),
+      solidcraftRoot: readConfig(config.solidcraftRoot),
+      orderBaseUrl: readConfig(config.orderBaseUrl),
+      accessToken: readConfig(config.accessToken),
+    }),
   })
   ctx.effect(() => ctx.provide('hardwareArtifacts', service))
 

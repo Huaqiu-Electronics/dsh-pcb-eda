@@ -38,9 +38,15 @@ interface Registration {
   readonly name: string
   readonly key?: string
   readonly id?: string
+  readonly store?: unknown
+  readonly inject?: (...args: unknown[]) => Record<string, unknown>
 }
 
-function fakeContext(): { registrations: Registration[]; tabTypes: unknown[]; context: Parameters<typeof apply>[0] } {
+function fakeContext(): {
+  registrations: Registration[]
+  tabTypes: unknown[]
+  context: Parameters<typeof apply>[0]
+} {
   const registrations: Registration[] = []
   const tabTypes: unknown[] = []
   const context = {
@@ -81,6 +87,28 @@ describe('client slot registrations', () => {
     }])
   })
 
+  it('never mounts one store handle in two scopes', () => {
+    const { registrations, context } = fakeContext()
+    apply(context)
+    const [nav, viewer, settings] = registrations
+    // Both root seats share one instance; the session seat must not.
+    expect(nav?.store).toBe(settings?.store)
+    expect(viewer?.store).not.toBe(nav?.store)
+  })
+
+  it('delivers the controller verbatim instead of a hooks compartment', () => {
+    const { registrations, context } = fakeContext()
+    apply(context)
+    for (const registration of registrations) {
+      const face = registration.inject?.()
+      expect(face).toBeDefined()
+      // A `hooks` member would be rebound into `use<Name>` selector hooks and
+      // the component would never see its functions.
+      expect(Object.keys(face ?? {})).not.toContain('hooks')
+      expect(face?.openDestination).toBeTypeOf('function')
+      expect(face?.discover).toBeTypeOf('function')
+    }
+  })
 })
 
 describe('five destinations', () => {
@@ -151,6 +179,38 @@ describe('product store', () => {
       schematicPath: '/w/a.kicad_sch',
       pcbPath: '/w/a.kicad_pcb',
     })
+  })
+
+  it('adopts a navigation without needing a remount', () => {
+    const store = createHardwareStore()
+    const instance = store.create()
+    instance.actions.applyNavigation({ destination: 'pcb', path: '/w/b.kicad_pcb', navigationRevision: 1 })
+    expect(instance.getSnapshot()).toMatchObject({
+      activeDestination: 'pcb',
+      pcbPath: '/w/b.kicad_pcb',
+    })
+    const before = instance.getSnapshot().revision
+    instance.actions.applyNavigation({ destination: 'pcb', path: '/w/b.kicad_pcb', navigationRevision: 2 })
+    expect(instance.getSnapshot().revision).toBeGreaterThan(before)
+  })
+
+  it('keeps a navigated artifact when discovery refreshes', () => {
+    const store = createHardwareStore()
+    const instance = store.create()
+    instance.actions.applyNavigation({ destination: 'schematic', path: '/w/child.kicad_sch', navigationRevision: 1 })
+    instance.actions.setDiscovery({
+      cwd: '/w',
+      selected: {
+        path: '/w/a.kicad_pro', name: 'a',
+        schematic: { id: 'schematic:/w/a.kicad_sch', kind: 'schematic', path: '/w/a.kicad_sch', title: 'a.kicad_sch' },
+        sheets: [],
+        boards: [{ id: 'pcb:/w/a.kicad_pcb', kind: 'pcb', path: '/w/a.kicad_pcb', title: 'a.kicad_pcb' }],
+        defaultBoard: '/w/a.kicad_pcb',
+        selectionRequired: false,
+      },
+    }, true)
+    expect(instance.getSnapshot().schematicPath).toBe('/w/child.kicad_sch')
+    expect(instance.getSnapshot().projectPath).toBe('/w/a.kicad_pro')
   })
 })
 

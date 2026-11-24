@@ -133,3 +133,115 @@ export async function prepareBoardGlb(
     signal,
   })
 }
+
+/** What the Order destination may do, as the host sees it. */
+export interface OrderConfigInfo {
+  readonly configured: boolean
+  readonly baseUrl: string
+  readonly hasToken: boolean
+  readonly provider: string
+}
+
+export async function loadOrderConfig(): Promise<OrderConfigInfo> {
+  return request<OrderConfigInfo>('/order')
+}
+
+export interface BoardFactsInfo {
+  readonly layers: number
+  readonly widthMm: number
+  readonly heightMm: number
+  readonly thicknessMm: number
+  readonly minTrackMm?: number
+  readonly minViaDrillMm?: number
+  readonly outerOz?: number
+  readonly innerOz?: number
+}
+
+export interface PackageInfo {
+  readonly zipName: string
+  readonly zipBytes: number
+  readonly files: readonly { readonly name: string; readonly bytes: number }[]
+}
+
+/** A fabrication package prepared on the host; nothing has been uploaded. */
+export interface FabricationProjection {
+  readonly boardPath: string
+  readonly revision: string
+  readonly generatedAt: string
+  readonly facts: BoardFactsInfo
+  readonly archive: PackageInfo
+  readonly assembly?: {
+    readonly positions: number
+    readonly bomLines: number
+    readonly positionsBytes: number
+    readonly bomBytes: number
+  }
+}
+
+export async function prepareFabrication(
+  boardPath: string,
+  schematicPath?: string,
+  cwd?: string,
+  signal?: AbortSignal,
+): Promise<FabricationProjection> {
+  return request<FabricationProjection>('/fabrication', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      path: boardPath,
+      ...(schematicPath === undefined ? {} : { schematic: schematicPath }),
+      ...(cwd === undefined ? {} : { cwd }),
+    }),
+    signal,
+  })
+}
+
+/** One placed order, as returned by the host after the backend answered. */
+export interface PlacedOrder {
+  readonly kind: 'pcb' | 'smt'
+  /** The exact URL KiCad's own action loads in its order webview. */
+  readonly orderUrl: string
+  /** The backend's raw URL, before KiCad's query parameters were added. */
+  readonly responseUrl: string
+  readonly launched: boolean
+  readonly launcher?: string
+  readonly status: 'launched' | 'ready'
+  readonly message: string
+  readonly endpoint: string
+  readonly archive: PackageInfo
+  readonly assembly?: FabricationProjection['assembly']
+}
+
+/**
+ * Submit one order. `confirm` is what the host requires; the panel sets it only
+ * after the user confirms the upload in the dialog. The host opens the order
+ * page in the default browser unless `launch` is false.
+ */
+export async function placeOrder(
+  kind: 'pcb' | 'smt',
+  requestBody: {
+    path: string
+    schematic?: string
+    cwd?: string
+    quantity?: number
+    confirm: boolean
+    launch?: boolean
+  },
+  signal?: AbortSignal,
+): Promise<PlacedOrder> {
+  return request<PlacedOrder>(`/order/${kind}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(requestBody),
+    ...(signal === undefined ? {} : { signal }),
+  })
+}
+
+/** Hand an already-created order page back to the OS default browser. */
+export async function openOrderUrl(url: string): Promise<{ readonly launched: boolean; readonly command: string }> {
+  return request<{ readonly launched: boolean; readonly command: string }>('/order/open', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ url }),
+  })
+}

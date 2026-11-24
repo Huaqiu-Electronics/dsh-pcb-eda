@@ -1,42 +1,97 @@
 /**
- * One preview surface per destination. Every asynchronous mount is keyed by the
- * navigation revision and owns an AbortController, so a superseded navigation
- * disposes its predecessor instead of painting over it.
+ * One preview surface per destination.
+ *
+ * Every asynchronous mount is keyed by the navigation revision and owns an
+ * AbortController, so a superseded navigation disposes its predecessor instead
+ * of painting over it. A load that finishes after the viewer moved on is
+ * disposed, never attached.
  */
 import { createElement, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { isAbortError, mountEcad } from './ecad.js'
 import { mountGlb } from './glb.js'
 import { loadBom, prepareBoardGlb, type BomProjection } from './transport.js'
+import { OrderPanel } from './order.js'
+import {
+  C, cardStyle, dotStyle, MONO, MONO_TEXT, pillStyle, R, SECTION_TITLE,
+} from './theme.js'
 import type { HardwareArtifactInfo, HardwareDestination } from './model.js'
 
 const STAGE: CSSProperties = {
-  position: 'relative', flex: '1 1 auto', minHeight: 240, overflow: 'hidden',
-  border: '1px solid var(--dsw-alias-border-default, rgba(127,127,127,0.3))', borderRadius: 8,
-  background: 'var(--dsw-alias-bg-base, #111318)',
+  position: 'relative', flex: '1 1 0', minHeight: 200, overflow: 'hidden',
+  border: `1px solid ${C.border}`, borderRadius: R.lg, background: C.base,
 }
-const MESSAGE: CSSProperties = {
-  display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%',
-  margin: 0, padding: 16, textAlign: 'center', fontSize: 12,
-  color: 'var(--dsw-alias-label-tertiary)',
+const OVERLAY: CSSProperties = {
+  position: 'absolute', bottom: 8, left: 8, display: 'flex', alignItems: 'center', gap: 6,
+  padding: '2px 8px', borderRadius: R.pill, background: 'rgba(0,0,0,0.55)', color: '#e4e4e7',
+  fontSize: 10, fontFamily: MONO, backdropFilter: 'blur(6px)', pointerEvents: 'none',
+  maxWidth: 'calc(100% - 16px)', overflow: 'hidden',
 }
-const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 12 }
-const TH: CSSProperties = { textAlign: 'left', padding: '4px 6px', borderBottom: '1px solid rgba(127,127,127,0.3)' }
-const TD: CSSProperties = { padding: '4px 6px', borderBottom: '1px solid rgba(127,127,127,0.15)', verticalAlign: 'top' }
+const TOP_RIGHT: CSSProperties = {
+  position: 'absolute', top: 8, right: 8, display: 'flex', alignItems: 'center', gap: 4,
+  padding: '1px 3px', pointerEvents: 'none',
+}
+const CENTER: CSSProperties = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+  height: '100%', gap: 6, padding: 20, textAlign: 'center',
+}
+const CENTER_TEXT: CSSProperties = { margin: 0, fontSize: 11, color: C.text3, maxWidth: 340, lineHeight: 1.6 }
+const TABLE: CSSProperties = { width: '100%', borderCollapse: 'collapse', fontSize: 11 }
+const TH: CSSProperties = {
+  textAlign: 'left', padding: '5px 8px', position: 'sticky', top: 0, zIndex: 1,
+  background: C.raised, color: C.text2, fontWeight: 600, fontSize: 10,
+  borderBottom: `1px solid ${C.border}`, whiteSpace: 'nowrap',
+}
+const TD: CSSProperties = {
+  padding: '4px 8px', borderBottom: `1px solid ${C.borderSoft}`, verticalAlign: 'top', color: C.text,
+}
 const SCRIPT: CSSProperties = {
-  margin: 0, padding: '8px 10px', borderRadius: 6, fontSize: 11, whiteSpace: 'pre-wrap', wordBreak: 'break-all',
-  background: 'color-mix(in srgb, currentColor 6%, transparent)',
+  margin: 0, padding: '6px 8px', borderRadius: R.md, fontSize: 10, whiteSpace: 'pre-wrap',
+  wordBreak: 'break-all', background: C.base, fontFamily: MONO, color: C.text2,
 }
 
 type Status = 'loading' | 'ready' | 'error'
 
 function describe(error: unknown): string {
-  if (error instanceof Error) return error.message
-  return String(error)
+  return error instanceof Error ? error.message : String(error)
 }
 
-function statusLine(status: Status, message?: string): ReactNode {
-  return createElement('p', { style: MESSAGE, role: 'status', 'data-hardware-stage': status }, message
-    ?? (status === 'loading' ? 'Loading saved artifact…' : ''))
+function shortRevision(revision: string | undefined): string {
+  return revision === undefined ? '' : revision.slice(0, 10)
+}
+
+function statusLine(status: Status, message?: string, hint?: string): ReactNode {
+  const text = message ?? (status === 'loading' ? 'Loading saved artifact…' : '')
+  return createElement(
+    'div',
+    { style: CENTER, role: 'status', 'data-hardware-stage': status },
+    status === 'loading'
+      ? createElement('span', {
+          style: {
+            width: 18, height: 18, borderRadius: R.pill, border: `2px solid ${C.borderSoft}`,
+            borderTopColor: C.info, animation: 'dsh-hw-spin 900ms linear infinite',
+          },
+        })
+      : createElement('span', { style: { ...pillStyle('warn'), fontFamily: MONO } }, 'unavailable'),
+    createElement('p', { style: CENTER_TEXT }, text),
+    hint === undefined ? null : createElement('p', { style: { ...CENTER_TEXT, fontSize: 10, color: C.text3 } }, hint),
+  )
+}
+
+function Stage(props: {
+  /** Passed as the third `createElement` argument; React folds it into props. */
+  readonly children?: ReactNode
+  readonly overlay?: ReactNode
+  readonly topRight?: ReactNode
+  readonly label: string
+  readonly attrs?: Record<string, unknown>
+}): ReactNode {
+  return createElement(
+    'div',
+    { style: { ...STAGE, display: 'flex', flexDirection: 'column' }, ...props.attrs },
+    props.topRight === undefined ? null : createElement('div', { style: TOP_RIGHT }, props.topRight),
+    props.children,
+    props.overlay === undefined ? null : createElement('div', { style: OVERLAY }, props.overlay),
+  )
 }
 
 function EcadStage({ kind, path, revision }: { kind: 'schematic' | 'pcb'; path: string; revision?: string }): ReactNode {
@@ -81,43 +136,68 @@ function EcadStage({ kind, path, revision }: { kind: 'schematic' | 'pcb'; path: 
   }, [kind, path, revision])
 
   return createElement(
-    'div',
-    { style: STAGE, 'data-hardware-ecad': kind },
-    ...(status === 'ready' ? [] : [statusLine(status, message)]),
-    createElement('div', { key: 'canvas', ref: container, style: { width: '100%', height: '100%' } }),
-    ...(status === 'ready' && sourceRevision !== undefined
-      ? [createElement('p', {
-          key: 'rev', style: { ...MESSAGE, height: 'auto', justifyContent: 'flex-start', padding: '4px 8px' },
-        }, `Saved source revision ${sourceRevision.slice(0, 12)}…`)]
-      : []),
+    Stage,
+    {
+      label: kind,
+      attrs: { 'data-hardware-ecad': kind },
+      topRight: status === 'ready'
+        ? [
+            createElement('span', { key: 'kind', style: { ...pillStyle('muted'), fontSize: 9.5 } }, kind === 'schematic' ? 'sheet' : 'board'),
+            sourceRevision === undefined
+              ? null
+              : createElement('span', { key: 'rev', style: { ...pillStyle('muted'), fontSize: 9.5 } }, `rev ${shortRevision(sourceRevision)}`),
+          ]
+        : undefined,
+      overlay: status === 'ready'
+        ? [createElement('span', { key: 'dot', style: dotStyle(kind === 'schematic' ? C.info : C.ok, 6) }),
+            'saved file · scroll to zoom, drag to pan']
+        : undefined,
+    },
+    createElement(
+      'div',
+      { style: { position: 'relative', flex: '1 1 0', minHeight: 160 } },
+      ...(status === 'ready'
+        ? []
+        : [statusLine(status, message, status === 'error' ? 'Saved-file preview only; the file must exist and parse.' : undefined)]),
+      createElement('div', { key: 'canvas', ref: container, style: { position: 'absolute', inset: 0 } }),
+    ),
   )
 }
 
-function GlbStage({ boardPath, cwd }: { boardPath: string; cwd?: string }): ReactNode {
+function GlbStage({ boardPath, cwd, configured }: { boardPath: string; cwd?: string; configured: boolean }): ReactNode {
   const container = useRef<HTMLDivElement>(null)
   const [status, setStatus] = useState<Status>('loading')
   const [message, setMessage] = useState<string>()
   const [revision, setRevision] = useState<string>()
+  const [cached, setCached] = useState(false)
 
   useEffect(() => {
     const element = container.current
     if (element === null) return
+    if (!configured) {
+      setStatus('error')
+      setMessage('KiCad is not configured.')
+      return
+    }
     const controller = new AbortController()
     let live = true
     let mounted: { dispose(): void } | undefined
     setStatus('loading')
-    setMessage(undefined)
+    setMessage('Exporting the PCB to GLB with kicad-cli…')
     element.replaceChildren()
     const run = async (): Promise<void> => {
       const glb = await prepareBoardGlb(boardPath, cwd, controller.signal)
       if (!live) return
       setRevision(glb.revision)
+      setCached(glb.cached)
+      setMessage('Loading the 3D model…')
       mounted = await mountGlb(glb.url, element, { signal: controller.signal })
       if (!live) {
         mounted.dispose()
         return
       }
       setStatus('ready')
+      setMessage(undefined)
     }
     run().catch((error: unknown) => {
       if (!live || isAbortError(error)) return
@@ -130,27 +210,48 @@ function GlbStage({ boardPath, cwd }: { boardPath: string; cwd?: string }): Reac
       mounted?.dispose()
       element.replaceChildren()
     }
-  }, [boardPath, cwd])
+  }, [boardPath, cwd, configured])
 
   return createElement(
-    'div',
-    { style: STAGE, 'data-hardware-glb': true },
-    ...(status === 'ready' ? [] : [statusLine(status, message)]),
-    createElement('div', { key: 'canvas', ref: container, style: { width: '100%', height: '100%' } }),
-    ...(status === 'ready' && revision !== undefined
-      ? [createElement('p', {
-          key: 'rev', style: { ...MESSAGE, height: 'auto', justifyContent: 'flex-start', padding: '4px 8px' },
-        }, `Generated from saved board revision ${revision.slice(0, 12)}…`)]
-      : []),
+    Stage,
+    {
+      label: '3d',
+      attrs: { 'data-hardware-glb': true },
+      topRight: status === 'ready'
+        ? [
+            createElement('span', { key: 'mode', style: pillStyle('muted', { fontSize: 9.5 }) }, cached ? 'cached' : 'generated'),
+            createElement('span', { key: 'rev', style: pillStyle('muted', { fontSize: 9.5 }) }, `rev ${shortRevision(revision)}`),
+          ]
+        : undefined,
+      overlay: status === 'ready' ? 'drag to orbit · wheel to zoom' : 'kicad-cli pcb export glb',
+    },
+    createElement(
+      'div',
+      { style: { position: 'relative', flex: '1 1 0', minHeight: 160 } },
+      ...(status === 'ready' ? [] : [statusLine(status, message)]),
+      createElement('div', { key: 'canvas', ref: container, style: { position: 'absolute', inset: 0 } }),
+    ),
   )
 }
 
-function BomStage({ schematicPath }: { schematicPath: string }): ReactNode {
+/**
+ * BOM table.
+ *
+ * Rows come from `kicad-cli sch export bom`, so a missing installation is a
+ * configuration state, not a failure: the stage reports it without calling the
+ * host, the same way the 3D stage does.
+ */
+function BomStage({ schematicPath, configured }: { schematicPath: string; configured: boolean }): ReactNode {
   const [status, setStatus] = useState<Status>('loading')
   const [message, setMessage] = useState<string>()
   const [bom, setBom] = useState<BomProjection>()
 
   useEffect(() => {
+    if (!configured) {
+      setStatus('error')
+      setMessage('KiCad is not configured.')
+      return
+    }
     const controller = new AbortController()
     let live = true
     setStatus('loading')
@@ -166,85 +267,81 @@ function BomStage({ schematicPath }: { schematicPath: string }): ReactNode {
         setMessage(describe(error))
       })
     return () => { live = false; controller.abort() }
-  }, [schematicPath])
+  }, [schematicPath, configured])
 
   if (status !== 'ready' || bom === undefined) {
-    return createElement('div', { style: { ...STAGE, overflow: 'auto' } }, statusLine(status, message))
+    return createElement(
+      Stage,
+      { label: 'bom', attrs: { 'data-hardware-bom': true }, overlay: 'kicad-cli sch export bom' },
+      createElement('div', { style: { flex: '1 1 0', display: 'flex' } }, statusLine(
+        status,
+        message,
+        status === 'error' && !configured
+          ? 'BOM rows come from kicad-cli sch export bom. Configure KiCad in Settings → Hardware Engineering.'
+          : undefined,
+      )),
+    )
   }
+
+  const total = bom.rows.reduce((sum, row) => sum + row.quantity, 0)
   return createElement(
     'div',
-    { style: { ...STAGE, overflow: 'auto', padding: 8 }, 'data-hardware-bom': true },
-    createElement('p', { style: { ...MESSAGE, height: 'auto', padding: '0 0 8px' } },
-      `${bom.rows.length} grouped lines from ${bom.path} (revision ${bom.revision.slice(0, 12)}…)`),
-    createElement('table', { style: TABLE },
-      createElement('thead', {}, createElement('tr', {},
-        ...['Refs', 'Qty', 'Value', 'Footprint', 'Notes'].map(label => createElement('th', { key: label, style: TH }, label)))),
-      createElement('tbody', {},
-        ...bom.rows.map((row, index) => createElement('tr', { key: `${row.references.join(',')}:${String(index)}` },
-          createElement('td', { style: TD }, row.references.join(' ')),
-          createElement('td', { style: TD }, String(row.quantity)),
+    {
+      style: cardStyle({ padding: 0, overflow: 'hidden', flex: '1 1 0', minHeight: 0 }),
+      'data-hardware-bom': true,
+    },
+    createElement(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderBottom: `1px solid ${C.border}` } },
+      createElement('span', { style: SECTION_TITLE }, `Bill of materials · ${String(bom.rows.length)} lines`),
+      createElement('div', { style: { display: 'flex', gap: 4, alignItems: 'center' } },
+        createElement('span', { style: pillStyle('muted') }, `${String(total)} placements`),
+        createElement('span', { style: pillStyle('muted') }, `rev ${shortRevision(bom.revision)}`),
+      ),
+    ),
+    createElement(
+      'div',
+      { style: { flex: '1 1 0', minHeight: 0, overflow: 'auto' } },
+      createElement(
+        'table',
+        { style: TABLE },
+        createElement('thead', {}, createElement('tr', {},
+          ...['Refs', 'Qty', 'Value', 'Footprint', 'Notes'].map(label =>
+            createElement('th', { key: label, style: TH }, label)))),
+        createElement('tbody', {},
+          ...bom.rows.map((row, index) => createElement('tr', {
+            key: `${row.references.join(',')}:${String(index)}`,
+            style: index % 2 === 1 ? { background: 'color-mix(in srgb, currentColor 3%, transparent)' } : undefined,
+          },
+          createElement('td', { style: { ...TD, ...MONO_TEXT, whiteSpace: 'nowrap' } }, row.references.join(' ')),
+          createElement('td', { style: { ...TD, ...MONO_TEXT } }, String(row.quantity)),
           createElement('td', { style: TD }, row.value),
-          createElement('td', { style: TD }, row.footprint),
-          createElement('td', { style: TD },
+          createElement('td', { style: { ...TD, color: C.text2, fontFamily: MONO, fontSize: 10 } }, row.footprint),
+          createElement('td', { style: { ...TD, color: C.text3, fontSize: 10 } },
             [row.dnp ? 'DNP' : '', ...Object.entries(row.fields).map(([key, value]) => `${key}=${value}`)]
               .filter(Boolean).join(' · ')),
-        ))),
+          ))),
+      ),
     ),
-  )
-}
-
-/**
- * Order Placing entry points.
- *
- * The UI never constructs a quote/order URL or a second backend: it shows the
- * exact existing agent tool call for the selected board so the purchase path
- * still runs through the tool's own confirmation flow.
- */
-function OrderStage({ boardPath, schematicPath }: { boardPath: string; schematicPath?: string }): ReactNode {
-  const [lines, setLines] = useState<number>()
-  useEffect(() => {
-    if (schematicPath === undefined) return
-    const controller = new AbortController()
-    let live = true
-    loadBom(schematicPath, controller.signal)
-      .then((bom) => { if (live) setLines(bom.rows.length) })
-      .catch(() => { if (live) setLines(undefined) })
-    return () => { live = false; controller.abort() }
-  }, [schematicPath])
-
-  const calls = [
-    { tool: 'quote_pcb', args: { pcbPath: boardPath } },
-    { tool: 'place_pcb_order', args: { pcbPath: boardPath } },
-    { tool: 'quote_smt', args: { pcbPath: boardPath } },
-    { tool: 'place_smt_order', args: { pcbPath: boardPath } },
-  ]
-  return createElement(
-    'div',
-    { style: { ...STAGE, overflow: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }, 'data-hardware-order': true },
-    createElement('p', { style: { ...MESSAGE, height: 'auto', padding: 0, justifyContent: 'flex-start' } },
-      `Selected board: ${boardPath}`),
-    createElement('p', { style: { ...MESSAGE, height: 'auto', padding: 0, justifyContent: 'flex-start' } },
-      lines === undefined ? 'BOM context unavailable.' : `BOM context: ${String(lines)} grouped lines from the selected project.`),
-    createElement('p', { style: { ...MESSAGE, height: 'auto', padding: 0, justifyContent: 'flex-start' } },
-      'Ask the agent to run one of these existing tool calls. Quoting and ordering keep their own confirmation step; this panel never places an order.'),
-    ...calls.map(call => createElement('div', { key: call.tool },
-      createElement('p', { style: { margin: '0 0 4px', fontSize: 12, fontWeight: 600 } }, call.tool),
-      createElement('pre', { style: SCRIPT }, JSON.stringify(call, null, 2)),
-    )),
   )
 }
 
 export interface HardwarePreviewProps {
   readonly destination: HardwareDestination
   readonly artifact?: HardwareArtifactInfo
+  /** Selected schematic, used for the BOM/order context. */
+  readonly schematicPath?: string
   readonly projectPath?: string
   /** Monotonic navigation revision; a change disposes the previous mount. */
   readonly revision: number
-  readonly notice?: string
+  /** Whether a validated KiCad installation exists. */
+  readonly configured?: boolean
 }
 
 /** Destination → preview dispatcher. */
-export function HardwarePreview({ destination, artifact, projectPath, revision }: HardwarePreviewProps): ReactNode {
+export function HardwarePreview({
+  destination, artifact, schematicPath, projectPath, revision, configured = false,
+}: HardwarePreviewProps): ReactNode {
   if (artifact === undefined) return null
   const key = `${destination}:${artifact.path}:${String(revision)}`
   if (destination === 'schematic' || destination === 'pcb') {
@@ -252,9 +349,14 @@ export function HardwarePreview({ destination, artifact, projectPath, revision }
       key, kind: destination === 'schematic' ? 'schematic' : 'pcb', path: artifact.path, revision: artifact.revision,
     })
   }
-  if (destination === '3d') return createElement(GlbStage, { key, boardPath: artifact.path, cwd: projectPath })
-  if (destination === 'bom') return createElement(BomStage, { key, schematicPath: artifact.path })
-  return createElement(OrderStage, {
-    key, boardPath: artifact.path, ...(projectPath === undefined ? {} : { schematicPath: artifact.sourcePath ?? undefined }),
+  if (destination === '3d') return createElement(GlbStage, { key, boardPath: artifact.path, cwd: projectPath, configured })
+  if (destination === 'bom') return createElement(BomStage, { key, schematicPath: artifact.path, configured })
+  return createElement(OrderPanel, {
+    key,
+    boardPath: artifact.path,
+    boardTitle: artifact.title || artifact.path,
+    ...(schematicPath === undefined ? {} : { schematicPath }),
+    ...(projectPath === undefined ? {} : { projectPath }),
+    configured,
   })
 }
