@@ -95,6 +95,7 @@ checks are safe and fast:
 | viewer fixture resolves the wrong board | stray `.kicad_prl` in the fixture dir | remove it; project state must be fixture-owned |
 | page served from an old build | `--no-build` after edits, or a server survived the restart | rebuild, then confirm the port was actually freed |
 | `unauthorized: artifact is outside the authorized workspace` after switching sessions | host authorized against one process-wide "last discovery", so the other session's workspace replaced it | authorize per `session` (resolved from the session header), keep roots additive, and never send a `.kicad_pro` where a workspace root belongs |
+| a full-screen modal "flashes" on load or refresh | it rendered on pre-hydration facts — `configForm` snapshot `status: 'loading'` reads as "not completed", and a store field that is still `undefined` reads as `false` | gate first paint on the sync status (`status !== 'loading'`) **and** on a settled probe; render nothing until both answered |
 | smoke runs pollute real state | using the real `DSH_HOME` | use a scratch `DSH_HOME` under `.smoke/` for destructive walks |
 
 ## Promotion to release

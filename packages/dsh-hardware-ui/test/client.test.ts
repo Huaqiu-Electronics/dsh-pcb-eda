@@ -33,6 +33,7 @@ import { apply, HARDWARE_TAB_ID, HARDWARE_TAB_KIND, kindForPath } from '../src/c
 import { selectedArtifact } from '../src/client/components.js'
 import { DESTINATIONS, DESTINATION_LABELS, applicationFor } from '../src/client/model.js'
 import { createHardwareStore } from '../src/client/store.js'
+import { wizardPhase } from '../src/client/wizard.js'
 
 interface Registration {
   readonly name: string
@@ -249,6 +250,50 @@ describe('product store', () => {
     instance.actions.setDiscovery({ cwd: '/new', projects: [] }, true)
     expect(instance.getSnapshot().pcbPath).toBeUndefined()
     expect(instance.getSnapshot().workspaceRoot).toBe('/new')
+  })
+})
+
+/**
+ * Regression: the wizard is a full-screen modal, and it used to mount on the
+ * pre-hydration facts (`status: 'loading'`, no probe yet) and unmount the moment
+ * the real answer arrived. That show-then-hide is the flash on first launch and
+ * on every browser refresh.
+ */
+describe('first-run wizard gating', () => {
+  const firstRun = {
+    hasForm: true, status: 'ready', onboardingComplete: false, kicadConfigured: false, dismissed: false,
+  }
+
+  it('opens on a genuine first run', () => {
+    expect(wizardPhase(firstRun)).toBe('open')
+  })
+
+  it('mounts nothing while the host config is still syncing', () => {
+    expect(wizardPhase({ ...firstRun, status: 'loading' })).toBe('waiting')
+    // The value is absent while loading, so "not completed yet" must not be read
+    // out of it.
+    expect(wizardPhase({ ...firstRun, status: 'loading', onboardingComplete: true })).toBe('waiting')
+  })
+
+  it('mounts nothing while the install probe is in flight', () => {
+    expect(wizardPhase({ ...firstRun, kicadConfigured: undefined })).toBe('waiting')
+  })
+
+  it('stays shut once the host recorded completion, with no probe needed', () => {
+    expect(wizardPhase({ ...firstRun, onboardingComplete: true, kicadConfigured: undefined })).toBe('completed')
+  })
+
+  it('never flashes on a machine whose KiCad already validates', () => {
+    expect(wizardPhase({ ...firstRun, kicadConfigured: true })).toBe('configured')
+  })
+
+  it('honours a dismissal even when the config write has not landed', () => {
+    expect(wizardPhase({ ...firstRun, dismissed: true })).toBe('dismissed')
+    expect(wizardPhase({ ...firstRun, dismissed: true, status: 'loading' })).toBe('dismissed')
+  })
+
+  it('renders nowhere without a host config form', () => {
+    expect(wizardPhase({ ...firstRun, hasForm: false })).toBe('no-form')
   })
 })
 

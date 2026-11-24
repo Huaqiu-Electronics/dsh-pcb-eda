@@ -5,12 +5,20 @@
  * exists. It only guides the user towards a local KiCad/SolidCraft executable:
  * everything on it is skippable, and completion is recorded in the host-backed
  * product config (`onboardingComplete`) rather than in browser storage.
+ *
+ * It is a full-screen modal, so it must never mount on a guess. Both facts it
+ * depends on arrive asynchronously — the host's synced config (is onboarding
+ * recorded?) and one local install probe (is KiCad already usable?) — and
+ * {@link wizardPhase} refuses to decide until they are known. Deciding on the
+ * initial `loading`/`undefined` values is what made the wizard flash on first
+ * launch and on every browser refresh: it mounted, then unmounted a frame later
+ * when the real answer landed.
  */
 import {
   createElement, useEffect, useMemo, useState, useSyncExternalStore,
   type CSSProperties, type ReactNode,
 } from 'react'
-import type { HardwareInstallationConfig } from './model.js'
+import type { HardwareInstallationConfig, InstallationsInfo } from './model.js'
 import type { HardwareProps } from './components.js'
 import { buttonStyle, C, dotStyle, INPUT, MUTED, MONO_TEXT, pillStyle, R } from './theme.js'
 
@@ -44,67 +52,150 @@ const FIELD_CARD: CSSProperties = {
 
 const STEPS = ['Welcome', 'KiCad', 'SolidCraft'] as const
 
+/**
+ * Dismissal remembered for the life of this client bundle, not one mount.
+ *
+ * The navigation seat is remounted by the framework (a conversation switch, a
+ * slot refresh), so component state alone lets a just-closed wizard come back
+ * for a frame while the host config write is still in flight. A browser refresh
+ * reloads the bundle, so the host config stays the only cross-session source of
+ * truth and this cannot outlive the tab.
+ */
+let dismissedInClient = false
+
+/**
+ * How the wizard resolves for one render.
+ *
+ * `waiting` and `no-form` render nothing, exactly like `completed`; they exist
+ * so the reason a modal is absent is testable instead of being implicit in an
+ * `if` chain.
+ */
+export type WizardPhase =
+  /** No host config form: there is nowhere to record completion. */
+  | 'no-form'
+  /** Config sync or the install probe has not answered yet. */
+  | 'waiting'
+  /** The host already recorded completion or a skip. */
+  | 'completed'
+  /** KiCad validates now, so first-run setup has nothing left to ask. */
+  | 'configured'
+  /** Closed in this browser session. */
+  | 'dismissed'
+  /** Render it. */
+  | 'open'
+
+/**
+ * Decide whether the wizard may mount, without guessing.
+ *
+ * Order matters: a completed onboarding needs no probe, so it must not wait on
+ * one; a `loading` config must not fall through to "not completed", which is the
+ * flash this function exists to prevent.
+ */
+export function wizardPhase(input: {
+  readonly hasForm: boolean
+  /** `ConfigFormSnapshot.status`; `loading` until the host answered once. */
+  readonly status?: string
+  readonly onboardingComplete: boolean
+  /** KiCad readiness; `undefined` while the probe is still in flight. */
+  readonly kicadConfigured?: boolean | undefined
+  readonly dismissed: boolean
+}): WizardPhase {
+  if (!input.hasForm) return 'no-form'
+  if (input.dismissed) return 'dismissed'
+  if (input.status === 'loading') return 'waiting'
+  if (input.onboardingComplete) return 'completed'
+  if (input.kicadConfigured === undefined) return 'waiting'
+  return input.kicadConfigured ? 'configured' : 'open'
+}
+
 export function OnboardingWizard(props: HardwareProps): ReactNode {
   const { actions, configForm, saveInstallation, installations, useStore } = props
   const installed = useStore(state => state.installations)
   const form = configForm()
-  const empty = useMemo<{ value?: HardwareInstallationConfig }>(() => ({}), [])
-  const snapshot = useSyncExternalStore<{ value?: HardwareInstallationConfig }>(
+  const empty = useMemo<{ value?: HardwareInstallationConfig; status?: string }>(() => ({}), [])
+  const snapshot = useSyncExternalStore<{ value?: HardwareInstallationConfig; status?: string }>(
     form === undefined ? () => () => {} : listener => form.subscribe(listener),
     form === undefined ? () => empty : () => form.getSnapshot(),
     form === undefined ? () => empty : () => form.getSnapshot(),
   )
 
   const [step, setStep] = useState(0)
-  const [closed, setClosed] = useState(false)
+  const [closed, setClosed] = useState(dismissedInClient)
   const [kicadRoot, setKicadRoot] = useState('')
   const [solidcraftRoot, setSolidcraftRoot] = useState('')
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  /**
+   * This seat's own install probe: `undefined` while in flight, `null` when it
+   * failed (the wizard stays usable, paths can be typed). A result another seat
+   * already wrote to the store counts too, so a mounted viewer does not make the
+   * navigation row probe twice before deciding.
+   */
+  const [probe, setProbe] = useState<InstallationsInfo | null>()
 
   useEffect(() => {
     let live = true
     installations()
-      .then((result) => { if (live) actions.setInstallations(result) })
-      .catch(() => { /* the wizard stays usable: paths can be entered manually */ })
+      .then((result) => {
+        if (!live) return
+        setProbe(result)
+        actions.setInstallations(result)
+      })
+      .catch(() => { if (live) setProbe(null) })
     return () => { live = false }
   }, [actions, installations])
 
-  useEffect(() => {
-    if (kicadRoot !== '' || installed?.kicad?.root === undefined) return
-    setKicadRoot(installed.kicad.root)
-  }, [installed?.kicad?.root, kicadRoot])
+  const facts = probe ?? installed
+  const phase = wizardPhase({
+    hasForm: form !== undefined,
+    status: snapshot.status,
+    onboardingComplete: snapshot.value?.onboardingComplete === true,
+    kicadConfigured: probe === undefined && installed === undefined
+      ? undefined
+      : facts?.kicad?.configured === true,
+    dismissed: closed,
+  })
 
-  const done = snapshot.value?.onboardingComplete === true
-  const kicadConfigured = installed?.kicad?.configured === true
-  if (closed || done || form === undefined || kicadConfigured) return null
+  useEffect(() => {
+    if (kicadRoot !== '' || facts?.kicad?.root === undefined) return
+    setKicadRoot(facts.kicad.root)
+  }, [facts?.kicad?.root, kicadRoot])
+
+  // `form === undefined` is already `no-form`; repeating it here is what lets
+  // TypeScript narrow it for the handlers below.
+  if (form === undefined || phase !== 'open') return null
+
+  const complete = async (): Promise<void> => {
+    // Close first: the write is a host round-trip, and the user's click must
+    // dismiss the modal whether or not the host accepts it.
+    dismissedInClient = true
+    setClosed(true)
+    try {
+      await form.set('onboardingComplete', true)
+    } catch {
+      // A refused host write must not trap the user in the wizard.
+    }
+  }
 
   const finish = async (): Promise<void> => {
     setBusy(true)
     try {
       if (kicadRoot !== '') await saveInstallation('kicad', kicadRoot)
       if (solidcraftRoot !== '') await saveInstallation('solidcraft', solidcraftRoot)
-      const refreshed = await installations()
-      actions.setInstallations(refreshed)
-      if (refreshed.kicad?.configured === true) {
-        setMessage('KiCad is ready for previews, 3D export, fabrication packaging, and native open.')
-      } else {
-        setMessage('Saved. KiCad still needs a valid kicad-cli; you can fix it later in Settings → Hardware Engineering.')
-      }
     } catch (error) {
       setMessage(String(error))
-    } finally {
       setBusy(false)
+      return
     }
-  }
-
-  const complete = async (): Promise<void> => {
+    // Record completion before the probe refresh: a valid KiCad root makes this
+    // wizard unmount on the next render, and a write issued after that would
+    // rely on an unmounted component finishing its async tail.
+    await complete()
     try {
-      await form.set('onboardingComplete', true)
+      actions.setInstallations(await installations())
     } catch {
-      // A refused host write must not trap the user in the wizard.
+      // The viewer re-probes on its own; nothing here depends on the answer.
     }
-    setClosed(true)
   }
 
   const next = async (): Promise<void> => {
@@ -113,7 +204,6 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
       return
     }
     await finish()
-    await complete()
   }
 
   const stepBody = (): ReactNode => {
@@ -152,8 +242,8 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
           'div',
           { style: SPREAD },
           createElement('h2', { style: TITLE }, 'KiCad installation'),
-          createElement('span', { style: installed?.kicad?.configured === true ? pillStyle('ok') : pillStyle('muted') },
-            installed?.kicad?.configured === true ? `v${installed.kicad.version ?? '?'}` : 'optional'),
+          createElement('span', { style: facts?.kicad?.configured === true ? pillStyle('ok') : pillStyle('muted') },
+            facts?.kicad?.configured === true ? `v${facts.kicad.version ?? '?'}` : 'optional'),
         ),
         createElement('p', { style: LEAD },
           'Enter a KiCad installation folder or a kicad-cli path. It is used for .kicad_sch / .kicad_pcb previews, PCB GLB export, fabrication packaging, and “Open in KiCad”.'),

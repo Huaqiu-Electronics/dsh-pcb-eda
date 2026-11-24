@@ -33,7 +33,10 @@ One product UI plugin (`@huaqiu/dsh-hardware-ui`) plus one host capability
   existing DSH `configForms` service; values persist in the profile's
   `cordis.patch.yml`.
 - A skippable first-run wizard guides the user to a local KiCad/SolidCraft
-  installation.
+  installation. It is a full-screen modal, so it renders only once both facts it
+  depends on are known — the host config sync (`status !== 'loading'`) and one
+  local install probe — instead of mounting on `loading`/`undefined` and hiding a
+  frame later, which is what flashed on first launch and on every refresh.
 - Order Placing packages the board with `kicad-cli`, posts the same forms KiCad
   posts, and opens the resulting order page — the exact URL KiCad loads in its
   own order webview — in the system default browser.
