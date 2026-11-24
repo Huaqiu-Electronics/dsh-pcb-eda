@@ -19,6 +19,7 @@ import type {
   ViewerNavigationParams,
 } from './model.js'
 import { createHardwareStore } from './store.js'
+import { COPY } from './copy.js'
 import { loadInstallations, loadProjects, openArtifact } from './transport.js'
 
 /** Real Cordis service names this browser plugin waits for. */
@@ -101,10 +102,12 @@ export function apply(ctx: ClientContext): void {
     },
     async saveInstallation(application, root) {
       const form = ctx.configForms?.get<HardwareInstallationConfig>(HARDWARE_CONFIG_ENTRY)
-      if (form === undefined) throw new Error('host settings are unavailable')
+      if (form === undefined) throw new Error(COPY.settings.hostSettingsUnavailable)
       const field = application === 'kicad' ? 'kicadRoot' : 'solidcraftRoot'
       const accepted = await form.set(field, root)
-      if (!accepted) throw new Error(`the host rejected the ${field} setting`)
+      if (!accepted) {
+        throw new Error(COPY.settings.hostRejected(application === 'kicad' ? 'KiCad' : 'SolidCraft'))
+      }
     },
     configForm() {
       return ctx.configForms?.get<HardwareInstallationConfig>(HARDWARE_CONFIG_ENTRY)
@@ -136,7 +139,7 @@ export function apply(ctx: ClientContext): void {
     id: HARDWARE_TAB_ID,
     kind: HARDWARE_TAB_KIND,
     keepMounted: true,
-    title: () => 'Hardware Engineering',
+    title: () => COPY.product.name,
   }) ?? (() => {}), 'hardware-ui: right-panel tab type')
 
   const slots = ctx.slots
@@ -159,7 +162,7 @@ export function apply(ctx: ClientContext): void {
     name: 'settings.section',
     id: HARDWARE_SETTINGS_ID,
     order: 85,
-    label: () => 'Hardware Engineering',
+    label: () => COPY.product.name,
     store: rootStore,
     inject: () => controller,
   }, HardwareSettingsSection)), 'hardware-ui: CAD installation settings')

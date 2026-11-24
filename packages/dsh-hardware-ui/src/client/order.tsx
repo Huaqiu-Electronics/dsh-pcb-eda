@@ -8,8 +8,9 @@
  */
 import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { isAbortError } from './ecad.js'
+import { COPY } from './copy.js'
 import {
-  loadOrderConfig, openOrderUrl, placeOrder, prepareFabrication,
+  loadOrderConfig, messageOf, openOrderUrl, placeOrder, prepareFabrication,
   type FabricationProjection, type OrderConfigInfo, type PlacedOrder,
 } from './transport.js'
 import {
@@ -38,18 +39,14 @@ function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
 }
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 function specRows(facts: FabricationProjection['facts']): { label: string; value: string }[] {
   return [
-    { label: 'Layers', value: `${String(facts.layers)} Cu` },
-    { label: 'Outline', value: `${facts.widthMm.toFixed(1)} × ${facts.heightMm.toFixed(1)} mm` },
-    { label: 'Thickness', value: `${facts.thicknessMm.toFixed(2)} mm` },
-    { label: 'Min trace', value: facts.minTrackMm === undefined ? 'default' : `${facts.minTrackMm.toFixed(2)} mm` },
-    { label: 'Min drill', value: facts.minViaDrillMm === undefined ? 'default' : `${facts.minViaDrillMm.toFixed(2)} mm` },
-    { label: 'Outer Cu', value: `${String(facts.outerOz ?? 1)} oz` },
+    { label: COPY.order.layers, value: COPY.order.layersValue(facts.layers) },
+    { label: COPY.order.outline, value: `${facts.widthMm.toFixed(1)} × ${facts.heightMm.toFixed(1)} mm` },
+    { label: COPY.order.thickness, value: `${facts.thicknessMm.toFixed(2)} mm` },
+    { label: COPY.order.minTrace, value: facts.minTrackMm === undefined ? COPY.order.defaultValue : `${facts.minTrackMm.toFixed(2)} mm` },
+    { label: COPY.order.minDrill, value: facts.minViaDrillMm === undefined ? COPY.order.defaultValue : `${facts.minViaDrillMm.toFixed(2)} mm` },
+    { label: COPY.order.outerCopper, value: COPY.order.copperValue(facts.outerOz ?? 1) },
   ]
 }
 
@@ -126,7 +123,7 @@ function workflowCard(input: {
         'data-hardware-order-action': input.tag.toLowerCase(),
         onClick: input.onAction,
       },
-      input.busy ? 'Submitting…' : input.action,
+      input.busy ? COPY.order.submitting : input.action,
     ),
   )
 }
@@ -154,7 +151,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
   useEffect(() => {
     loadOrderConfig()
       .then((value) => { if (live.current) setConfig(value) })
-      .catch((error: unknown) => { if (live.current) setMessage(describe(error)) })
+      .catch((error: unknown) => { if (live.current) setMessage(messageOf(error)) })
   }, [])
 
   // Preparing the package is local: gerbers, drill files and CSVs come from the
@@ -172,7 +169,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       .then((value) => { if (!controller.signal.aborted) setPrepared(value) })
       .catch((error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return
-        setMessage(describe(error))
+        setMessage(messageOf(error))
       })
       .finally(() => { if (!controller.signal.aborted) setPreparing(false) })
     return () => { controller.abort() }
@@ -197,7 +194,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       setConfirming(undefined)
       setAcknowledged(false)
     } catch (error) {
-      setMessage(describe(error))
+      setMessage(messageOf(error))
     } finally {
       setPlacing(undefined)
     }
@@ -222,7 +219,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       await openOrderUrl(placed.orderUrl)
       setPlaced({ ...placed, launched: true, status: 'launched' })
     } catch (error) {
-      setMessage(describe(error))
+      setMessage(messageOf(error))
     } finally {
       setReopening(false)
     }
@@ -242,13 +239,13 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
         'h3',
         { style: { margin: 0, fontSize: 13, fontWeight: 600, color: C.text, display: 'flex', alignItems: 'center', gap: 6 } },
         createElement('span', { style: dotStyle(C.accent) }),
-        'Fabrication & assembly',
+        COPY.order.title,
       ),
       preparing
-        ? createElement('span', { style: pillStyle('info') }, 'packaging…')
+        ? createElement('span', { style: pillStyle('info') }, COPY.order.packaging)
         : prepared !== undefined
-          ? createElement('span', { style: pillStyle('ok') }, 'package ready')
-          : createElement('span', { style: pillStyle(configured ? 'muted' : 'warn') }, configured ? 'not prepared' : 'KiCad missing'),
+          ? createElement('span', { style: pillStyle('ok') }, COPY.order.packageReady)
+          : createElement('span', { style: pillStyle(configured ? 'muted' : 'warn') }, configured ? COPY.order.packagePending : COPY.viewer.kicadMissing),
     ),
     createElement('p', { style: { ...MUTED, ...MONO_TEXT, fontSize: 10.5 } }, boardTitle),
   )
@@ -257,14 +254,14 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     'div',
     { style: cardStyle() },
     createElement('div', { style: SPREAD },
-      createElement('span', { style: SECTION_TITLE }, 'Fabrication package'),
+      createElement('span', { style: SECTION_TITLE }, COPY.order.packageCard),
       prepared === undefined
         ? null
-        : createElement('span', { style: pillStyle('muted') }, `${String(prepared.archive.files.length)} files · ${zipSize}`),
+        : createElement('span', { style: pillStyle('muted') }, COPY.order.packageFiles(prepared.archive.files.length, zipSize ?? '')),
     ),
     prepared === undefined
       ? createElement('p', { style: MUTED },
-        preparing ? 'Running kicad-cli pcb export gerbers and drill…' : 'Not prepared yet.')
+        preparing ? COPY.order.packageRunning : COPY.order.packageNotPrepared)
       : createElement(
         'div',
         {
@@ -284,47 +281,47 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
   const pcbCard = workflowCard({
     tag: 'PCB',
     tagColor: C.ok,
-    title: 'Bare board fabrication',
+    title: COPY.order.pcbTitle,
     subtitle: prepared === undefined
-      ? 'Quotes and orders the selected board through the Huaqiu fabrication service.'
-      : `${prepared.archive.zipName} · ${String(prepared.archive.files.length)} gerber/drill files · ${zipSize}`,
+      ? COPY.order.pcbSubtitle
+      : COPY.order.pcbSummary(prepared.archive.zipName, prepared.archive.files.length, zipSize ?? ''),
     details: specs.length === 0
-      ? [{ label: 'Board', value: boardTitle }]
+      ? [{ label: COPY.order.boardFile, value: boardTitle }]
       : specs,
-    action: 'Submit PCB order',
+    action: COPY.order.pcbAction,
     onAction: () => { setAcknowledged(false); setConfirming('pcb') },
     busy: placing === 'pcb',
     ...(configured && prepared !== undefined
-      ? tokenReady ? {} : { blocked: 'Sign in to Huaqiu to place an order — the order page opens under your account.' }
-      : { blocked: configured ? 'Waiting for the fabrication package.' : 'Configure KiCad to package the board files.' }),
+      ? tokenReady ? {} : { blocked: COPY.order.signInToOrder }
+      : { blocked: configured ? COPY.order.waitingForPackage : COPY.order.configureToPackage }),
   })
 
   const smtCard = workflowCard({
     tag: 'PCBA',
     tagColor: C.info,
-    title: 'Turnkey assembly',
+    title: COPY.order.smtTitle,
     subtitle: assembly === undefined
-      ? 'Needs the project root schematic for the BOM and component positions.'
-      : `${String(assembly.positions)} placements · ${String(assembly.bomLines)} BOM lines · ${formatBytes(assembly.bomBytes + assembly.positionsBytes)}`,
+      ? COPY.order.smtSubtitle
+      : COPY.order.smtSummary(assembly.positions, assembly.bomLines, formatBytes(assembly.bomBytes + assembly.positionsBytes)),
     details: [
-      { label: 'Placements', value: assembly === undefined ? '—' : String(assembly.positions) },
-      { label: 'BOM lines', value: assembly === undefined ? '—' : String(assembly.bomLines) },
-      { label: 'Token', value: tokenReady ? 'Huaqiu login' : 'signed out' },
+      { label: COPY.order.placements, value: assembly === undefined ? '—' : String(assembly.positions) },
+      { label: COPY.order.bomLines, value: assembly === undefined ? '—' : String(assembly.bomLines) },
+      { label: COPY.order.credential, value: tokenReady ? COPY.order.signedIn : COPY.order.signedOut },
     ],
-    action: 'Submit assembly order',
+    action: COPY.order.smtAction,
     onAction: () => { setAcknowledged(false); setConfirming('smt') },
     busy: placing === 'smt',
     ...(assembly === undefined
-      ? { blocked: 'Select a root schematic so the BOM and positions can be built.' }
+      ? { blocked: COPY.order.selectRootSchematic }
       : tokenReady
         ? {}
-        : { blocked: 'Sign in to Huaqiu to order assembly — the page opens under your account.' }),
+        : { blocked: COPY.order.signInToOrderSmt }),
   })
 
   const agentHint = createElement(
     'div',
     { style: { ...ROW, gap: 4, paddingTop: 2 } },
-    createElement('span', { style: { fontSize: 10, color: C.text3 } }, 'Agent entry points'),
+    createElement('span', { style: { fontSize: 10, color: C.text3 } }, COPY.order.agentEntryPoints),
     ...['quote_pcb', 'place_pcb_order', 'quote_smt', 'place_smt_order'].map(name => createElement(
       'span', { key: name, style: { ...pillStyle('muted'), fontSize: 9.5 } }, name,
     )),
@@ -334,17 +331,23 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     'div',
     { style: cardStyle({ borderColor: 'rgba(52,211,153,0.4)' }), 'data-hardware-order-result': placed.kind },
     createElement('div', { style: SPREAD },
-      createElement('span', { style: SECTION_TITLE }, `${placed.kind === 'pcb' ? 'PCB' : 'Assembly'} order created`),
+      createElement('span', { style: SECTION_TITLE },
+        placed.kind === 'pcb' ? COPY.order.resultTitlePcb : COPY.order.resultTitleSmt),
       createElement('span', { style: pillStyle(placed.launched ? 'ok' : 'muted') },
-        placed.launched ? 'opened in browser' : 'ready to open'),
+        placed.launched ? COPY.order.resultLaunched : COPY.order.resultReady),
     ),
-    createElement('p', { style: MUTED }, placed.message),
+    // The host sends its own English sentence in `placed.message`; the visible
+    // copy is derived here so the panel speaks one language. The host string is
+    // kept on the object for tooling, not rendered.
+    createElement('p', { style: MUTED },
+      placed.launched
+        ? COPY.order.resultLaunchedMessage(placed.kind === 'pcb' ? 'PCB' : '贴片')
+        : COPY.order.resultReadyMessage(placed.kind === 'pcb' ? 'PCB' : '贴片')),
     createElement('a', {
       style: LINK, href: placed.orderUrl, target: '_blank', rel: 'noreferrer noopener',
       'data-hardware-order-url': true,
     }, placed.orderUrl),
-    createElement('p', { style: { ...MUTED, fontSize: 10 } },
-      'Same page KiCad shows in its order webview, opened in your default browser.'),
+    createElement('p', { style: { ...MUTED, fontSize: 10 } }, COPY.order.resultNote),
     createElement('div', { style: ROW },
       createElement('button', {
         type: 'button',
@@ -352,9 +355,9 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
         disabled: reopening,
         'data-hardware-order-reopen': true,
         onClick: () => { void reopen() },
-      }, reopening ? 'Opening…' : 'Open in browser'),
+      }, reopening ? COPY.order.opening : COPY.order.openInBrowser),
       createElement('button', { type: 'button', style: buttonStyle('secondary'), onClick: () => { void copy() } },
-        copied ? 'Copied' : 'Copy URL'),
+        copied ? COPY.order.copied : COPY.order.copyUrl),
       createElement('span', { style: { ...MUTED, ...MONO_TEXT, fontSize: 10 } },
         `${placed.archive.zipName} · ${formatBytes(placed.archive.zipBytes)}`),
     ),
@@ -362,7 +365,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
 
   const dialog = confirming === undefined ? null : createElement(
     'div',
-    { style: DIALOG_BACKDROP, role: 'dialog', 'aria-modal': true, 'aria-label': 'Confirm order upload', 'data-hardware-order-confirm': confirming },
+    { style: DIALOG_BACKDROP, role: 'dialog', 'aria-modal': true, 'aria-label': COPY.order.confirmAria, 'data-hardware-order-confirm': confirming },
     createElement(
       'div',
       { style: DIALOG },
@@ -370,21 +373,20 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
         'div',
         { style: { display: 'flex', flexDirection: 'column', gap: 3 } },
         createElement('h4', { style: { margin: 0, fontSize: 13, fontWeight: 600 } },
-          confirming === 'pcb' ? 'Upload board files and create the PCB order?' : 'Upload the assembly package?'),
-        createElement('p', { style: MUTED },
-          'This sends the files below to the Huaqiu order service. The order is created there and its page opens in your default browser; payment still happens on that page.'),
+          confirming === 'pcb' ? COPY.order.confirmTitlePcb : COPY.order.confirmTitleSmt),
+        createElement('p', { style: MUTED }, COPY.order.confirmBody),
       ),
       createElement(
         'ul',
         { style: { margin: 0, paddingLeft: 16, fontSize: 11, color: C.text2, lineHeight: 1.7 } },
-        createElement('li', null, `${prepared?.archive.zipName ?? 'board.zip'} — gerbers and drill files (${zipSize ?? '—'})`),
+        createElement('li', null, COPY.order.confirmZip(prepared?.archive.zipName ?? 'board.zip', zipSize ?? '—')),
         ...(confirming === 'smt'
           ? [
-              createElement('li', { key: 'pos' }, `Component positions (${assembly === undefined ? '—' : formatBytes(assembly.positionsBytes)})`),
-              createElement('li', { key: 'bom' }, `Assembly BOM (${assembly === undefined ? '—' : formatBytes(assembly.bomBytes)})`),
+              createElement('li', { key: 'pos' }, COPY.order.confirmPositions(assembly === undefined ? '—' : formatBytes(assembly.positionsBytes))),
+              createElement('li', { key: 'bom' }, COPY.order.confirmBom(assembly === undefined ? '—' : formatBytes(assembly.bomBytes))),
             ]
           : []),
-        createElement('li', { key: 'host' }, createElement('span', { style: MONO_TEXT }, config?.baseUrl ?? 'the configured order service')),
+        createElement('li', { key: 'host' }, createElement('span', { style: MONO_TEXT }, COPY.order.confirmHost(config?.baseUrl))),
       ),
       createElement(
         'label',
@@ -395,7 +397,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
           onChange: (event: { currentTarget: HTMLInputElement }) => { setAcknowledged(event.currentTarget.checked) },
           'data-hardware-order-ack': true,
         }),
-        'I understand these board files leave this machine.',
+        COPY.order.confirmAck,
       ),
       createElement(
         'div',
@@ -403,14 +405,14 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
         createElement('button', {
           type: 'button', style: buttonStyle('quiet'),
           onClick: () => { setConfirming(undefined); setAcknowledged(false) },
-        }, 'Cancel'),
+        }, COPY.order.cancel),
         createElement('button', {
           type: 'button',
           style: { ...buttonStyle('primary'), ...disabled(!acknowledged || placing !== undefined) },
           disabled: !acknowledged || placing !== undefined,
           'data-hardware-order-confirm-submit': true,
           onClick: () => { void submit(confirming) },
-        }, placing === undefined ? 'Upload and open order page' : 'Uploading…'),
+        }, placing === undefined ? COPY.order.uploadAndOpen : COPY.order.uploading),
       ),
     ),
   )
@@ -431,7 +433,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     createElement(
       'div',
       { style: { ...SPREAD, ...cardStyle({ flexDirection: 'row', alignItems: 'center' }) } },
-      createElement('span', { style: { fontSize: 11, color: C.text2 } }, 'Production batch'),
+      createElement('span', { style: { fontSize: 11, color: C.text2 } }, COPY.order.batch),
       createElement(
         'select',
         {
@@ -439,9 +441,9 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
           'data-hardware-order-quantity': true,
           onChange: (event: { currentTarget: HTMLSelectElement }) => { setQuantity(Number(event.currentTarget.value)) },
         },
-        ...QUANTITIES.map(count => createElement('option', { key: count, value: count }, `${String(count)} units`)),
+        ...QUANTITIES.map(count => createElement('option', { key: count, value: count }, COPY.order.batchUnits(count))),
       ),
-      createElement('span', { style: { ...MUTED, ...MONO_TEXT, fontSize: 10 } }, `quote basis · ${String(quantity)} pcs`),
+      createElement('span', { style: { ...MUTED, ...MONO_TEXT, fontSize: 10 } }, COPY.order.quoteBasis(quantity)),
     ),
     packageCard,
     resultCard,

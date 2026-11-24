@@ -22,6 +22,8 @@ import {
 } from './model.js'
 import { HardwarePreview } from './preview.js'
 import { OnboardingWizard } from './wizard.js'
+import { COPY, issueText } from './copy.js'
+import { messageOf } from './transport.js'
 import {
   buttonStyle, C, cardStyle, disabled, DOT_COLORS, dotStyle, INPUT, MUTED, MONO, MONO_TEXT,
   pillStyle, R, SECTION_TITLE,
@@ -153,7 +155,7 @@ export function EngineeringNav(props: HardwareProps): ReactNode {
     let live = true
     discover(cwd, undefined, sessionId)
       .then((discovery) => { if (live) actions.setDiscovery(discovery) })
-      .catch((error: unknown) => { if (live) actions.setNotice(`Artifact discovery failed: ${String(error)}`) })
+      .catch((error: unknown) => { if (live) actions.setNotice(COPY.viewer.discoveryFailed(messageOf(error))) })
     return () => { live = false }
   }, [cwd, sessionId, discover, actions])
 
@@ -204,17 +206,17 @@ function missingReason(state: HardwareState, destination: HardwareDestination): 
   const discovery = state.discovery
   if (discovery === undefined) return undefined
   if (discovery.issue?.code === 'selection-required' && (discovery.projects?.length ?? 0) > 1) {
-    return `${String(discovery.projects?.length)} hardware projects found; choose one explicitly.`
+    return COPY.discovery.selectionRequiredCount(discovery.projects?.length ?? 0)
   }
-  if (discovery.selected === undefined) return 'No hardware project selected. Open or select a hardware project.'
+  if (discovery.selected === undefined) return COPY.discovery.noProjectSelected
   if (destination === 'schematic' || destination === 'bom') {
-    if (discovery.selected.schematic === undefined) return 'This project has no discoverable root schematic.'
+    if (discovery.selected.schematic === undefined) return COPY.discovery.noSchematic
   }
   if (destination === 'pcb' || destination === '3d') {
-    if ((discovery.selected.boards?.length ?? 0) === 0) return 'This project has no discoverable .kicad_pcb board.'
+    if ((discovery.selected.boards?.length ?? 0) === 0) return COPY.discovery.noBoard
   }
   if (destination === 'order') {
-    if ((discovery.selected.boards?.length ?? 0) === 0) return 'Select a board before quoting or ordering fabrication.'
+    if ((discovery.selected.boards?.length ?? 0) === 0) return COPY.discovery.noBoardToOrder
   }
   return undefined
 }
@@ -238,19 +240,19 @@ function nativeAction(
       disabled: !canOpen,
       'data-hardware-native-open': true,
       title: canOpen
-        ? `Open ${artifact.path} in KiCad`
-        : configured ? 'Select an artifact first' : 'Configure KiCad in Settings → Hardware Engineering',
+        ? COPY.viewer.openInKicadTitle(artifact.path)
+        : configured ? COPY.viewer.selectArtifactFirst : COPY.viewer.configureKicad,
       onClick: () => {
         if (artifact === undefined) return
         openNative({
           application,
           artifactPath: artifact.path,
           kind: active === '3d' ? 'pcb-3d' : active === 'bom' ? 'bom' : artifact.kind,
-        }).catch((error: unknown) => { notice(String(error)) })
+        }).catch((error: unknown) => { notice(messageOf(error)) })
       },
     },
     createElement('span', { style: dotStyle(configured ? C.ok : C.text3, 6) }),
-    'Open in KiCad',
+    COPY.viewer.openInKicad,
   )
 }
 
@@ -298,7 +300,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
     let live = true
     discover(cwd, params?.projectPath, sessionId)
       .then((result) => { if (live) actions.setDiscovery(result, params?.path !== undefined) })
-      .catch((error: unknown) => { if (live) actions.setNotice(`Artifact discovery failed: ${String(error)}`) })
+      .catch((error: unknown) => { if (live) actions.setNotice(COPY.viewer.discoveryFailed(messageOf(error))) })
     return () => { live = false }
   }, [cwd, sessionId, params?.projectPath, actions, discover])
 
@@ -306,7 +308,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
     let live = true
     installations()
       .then((result) => { if (live) actions.setInstallations(result) })
-      .catch((error: unknown) => { if (live) actions.setNotice(`Installation check failed: ${String(error)}`) })
+      .catch((error: unknown) => { if (live) actions.setNotice(COPY.viewer.installationFailed(messageOf(error))) })
     return () => { live = false }
   }, [actions, installations])
 
@@ -343,14 +345,14 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
     'div',
     { style: META },
     createElement('span', { style: META_PATH, title: artifact?.path ?? '' },
-      artifact === undefined ? 'no artifact selected' : artifact.path),
+      artifact === undefined ? COPY.viewer.noArtifact : artifact.path),
     createElement(
       'span',
       { style: { display: 'flex', alignItems: 'center', gap: 4, flex: '0 0 auto' } },
       ...(selectedProject === undefined ? [] : [createElement('span', { key: 'project', style: pillStyle('muted') }, selectedProject.name)]),
       ...(kicadConfigured
-        ? [createElement('span', { key: 'kicad', style: pillStyle('ok') }, `KiCad ${installed?.kicad?.version ?? ''}`.trim())]
-        : [createElement('span', { key: 'kicad', style: pillStyle('warn'), title: installed?.kicad?.error ?? '' }, 'KiCad missing')]),
+        ? [createElement('span', { key: 'kicad', style: pillStyle('ok') }, COPY.viewer.kicadVersion(installed?.kicad?.version ?? '').trim())]
+        : [createElement('span', { key: 'kicad', style: pillStyle('warn'), title: installed?.kicad?.error ?? '' }, COPY.viewer.kicadMissing)]),
     ),
   )
 
@@ -360,16 +362,16 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
     selectors.push(createElement(
       'select',
       {
-        key: 'project', style: selectStyle, value: projectPath ?? '', 'aria-label': 'Project',
+        key: 'project', style: selectStyle, value: projectPath ?? '', 'aria-label': COPY.viewer.projectField,
         onChange: (event: ChangeEvent<HTMLSelectElement>) => {
           const path = event.currentTarget.value
           actions.selectProject(path)
           discover(cwd, path, sessionId)
             .then(result => actions.setDiscovery(result))
-            .catch((error: unknown) => actions.setNotice(String(error)))
+            .catch((error: unknown) => actions.setNotice(messageOf(error)))
         },
       },
-      option('', 'Select a project…'),
+      option('', COPY.viewer.selectProject),
       ...(discovery?.projects ?? []).map(project => option(project.path, project.name)),
     ))
   }
@@ -380,7 +382,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
       selectors.push(createElement(
         'select',
         {
-          key: 'sheet', style: selectStyle, value: schematicPath ?? '', 'aria-label': 'Schematic sheet',
+          key: 'sheet', style: selectStyle, value: schematicPath ?? '', 'aria-label': COPY.viewer.schematicSheetField,
           onChange: (event: ChangeEvent<HTMLSelectElement>) => {
             const path = event.currentTarget.value
             actions.selectArtifact(path, 'schematic')
@@ -396,7 +398,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
       selectors.push(createElement(
         'select',
         {
-          key: 'board', style: selectStyle, value: pcbPath ?? '', 'aria-label': 'Board',
+          key: 'board', style: selectStyle, value: pcbPath ?? '', 'aria-label': COPY.viewer.boardField,
           onChange: (event: ChangeEvent<HTMLSelectElement>) => {
             const path = event.currentTarget.value
             actions.selectArtifact(path, 'pcb')
@@ -417,7 +419,11 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
       : [createElement('span', { key: 'notice', role: 'status', style: { ...MUTED, color: C.warn } }, noticeText)]),
     ...(discovery?.issue === undefined || discovery.issue.code === 'selection-required'
       ? []
-      : [createElement('span', { key: 'issue', role: 'status', style: MUTED }, discovery.issue.message)]),
+      : [createElement('span', { key: 'issue', role: 'status', style: MUTED },
+          issueText(discovery.issue, {
+            ...(discovery.cwd === undefined ? {} : { cwd: discovery.cwd }),
+            ...(discovery.projects === undefined ? {} : { count: discovery.projects.length }),
+          }))]),
   )
 
   return createElement(
@@ -448,7 +454,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
             style: cardStyle({ alignItems: 'center', justifyContent: 'center', flex: '1 1 0', gap: 6 }),
             'data-hardware-state': 'missing',
           },
-          createElement('span', { style: pillStyle('warn') }, 'nothing to show'),
+          createElement('span', { style: pillStyle('warn') }, COPY.viewer.nothingToShow),
           createElement('p', { role: 'status', style: { ...MUTED, textAlign: 'center', maxWidth: 320 } }, reason))]),
     ),
   )
@@ -488,11 +494,12 @@ export function HardwareSettingsSection(props: HardwareProps): ReactNode {
       const refreshed = await installations()
       actions.setInstallations(refreshed)
       const state = application === 'kicad' ? refreshed.kicad : refreshed.solidcraft
+      const applicationName = application === 'kicad' ? 'KiCad' : 'SolidCraft'
       setMessage(state?.configured === true
-        ? `${application === 'kicad' ? 'KiCad' : 'SolidCraft'} validated and saved.`
-        : `${application === 'kicad' ? 'KiCad' : 'SolidCraft'} saved, but validation failed: ${state?.error ?? 'not detected'}`)
+        ? COPY.settings.savedAndValidated(applicationName)
+        : COPY.settings.savedButInvalid(applicationName, state?.error ?? COPY.settings.notDetected))
     } catch (error) {
-      setMessage(String(error))
+      setMessage(messageOf(error))
     } finally {
       setBusy(undefined)
     }
@@ -537,7 +544,7 @@ export function HardwareSettingsSection(props: HardwareProps): ReactNode {
     createElement('p', { style: MUTED }, input.blurb),
     createElement('input', {
       style: INPUT, value: input.value, placeholder: input.placeholder, spellCheck: false,
-      'aria-label': `${input.title} path`,
+      'aria-label': COPY.settings.pathField(input.title),
       onChange: (event: ChangeEvent<HTMLInputElement>) => input.onChange(event.currentTarget.value),
     }),
     createElement(
@@ -547,7 +554,7 @@ export function HardwareSettingsSection(props: HardwareProps): ReactNode {
         type: 'button', style: { ...buttonStyle('secondary'), ...disabled(busy !== undefined) },
         disabled: busy !== undefined,
         onClick: () => { void save(input.key, input.value) },
-      }, busy === input.key ? 'Validating…' : 'Validate / save'),
+      }, busy === input.key ? COPY.settings.validating : COPY.settings.validate),
       input.detail === undefined
         ? null
         : createElement('span', { style: { ...MUTED, ...MONO_TEXT, fontSize: 10, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, input.detail),
@@ -557,19 +564,18 @@ export function HardwareSettingsSection(props: HardwareProps): ReactNode {
   return createElement(
     'div',
     { style: { display: 'flex', flexDirection: 'column', gap: 10 }, 'data-hardware-settings': true },
-    createElement('h2', { style: { margin: 0, fontSize: 15, fontWeight: 600 } }, 'Hardware Engineering'),
-    createElement('p', { style: MUTED },
-      'Local EDA and MCAD executables used for previews, fabrication packaging, one-click native open, and the agent environment context.'),
+    createElement('h2', { style: { margin: 0, fontSize: 15, fontWeight: 600 } }, COPY.settings.title),
+    createElement('p', { style: MUTED }, COPY.settings.lead),
     installationCard({
       key: 'kicad',
       letter: 'Ki',
       color: C.info,
-      title: 'KiCad EDA suite',
-      blurb: 'Accepts a KiCad installation root or a kicad-cli path. Drives .kicad_sch / .kicad_pcb preview, GLB export, BOM, gerber packaging and native open.',
+      title: COPY.settings.kicadTitle,
+      blurb: COPY.settings.kicadBlurb,
       value: kicadRoot,
-      placeholder: 'C:\\Program Files\\KiCad\\8.0\\  or  /usr/bin/kicad-cli',
+      placeholder: COPY.settings.kicadPlaceholder,
       ok: kicad?.configured === true,
-      status: kicad?.configured ? `v${kicad.version ?? '?'}` : 'not configured',
+      status: kicad?.configured ? `v${kicad.version ?? '?'}` : COPY.settings.notConfigured,
       ...(kicad?.cli === undefined ? {} : { detail: kicad.cli }),
       onChange: setKicadRoot,
     }),
@@ -577,12 +583,12 @@ export function HardwareSettingsSection(props: HardwareProps): ReactNode {
       key: 'solidcraft',
       letter: 'Sc',
       color: C.warn,
-      title: 'SolidCraft 3D CAD',
-      blurb: 'Agent environment context only in this POC. No native launch and no mechanical preview; the 3D destination renders the selected PCB.',
+      title: COPY.settings.solidcraftTitle,
+      blurb: COPY.settings.solidcraftBlurb,
       value: solidcraftRoot,
-      placeholder: 'C:\\Program Files\\SolidCraft\\bin\\SolidCraft.exe',
+      placeholder: COPY.settings.solidcraftPlaceholder,
       ok: solidcraft?.configured === true,
-      status: solidcraft?.configured ? 'configured' : 'not configured',
+      status: solidcraft?.configured ? COPY.settings.configured : COPY.settings.notConfigured,
       ...(solidcraft?.executable === undefined ? {} : { detail: solidcraft.executable }),
       onChange: setSolidcraftRoot,
     }),

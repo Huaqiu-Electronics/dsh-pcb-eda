@@ -9,8 +9,9 @@
 import { createElement, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { isAbortError, mountEcad } from './ecad.js'
 import { mountGlb } from './glb.js'
-import { loadBom, prepareBoardGlb, type BomProjection } from './transport.js'
+import { loadBom, messageOf, prepareBoardGlb, type BomProjection } from './transport.js'
 import { OrderPanel } from './order.js'
+import { COPY } from './copy.js'
 import {
   C, cardStyle, dotStyle, MONO, MONO_TEXT, pillStyle, R, SECTION_TITLE,
 } from './theme.js'
@@ -51,16 +52,12 @@ const SCRIPT: CSSProperties = {
 
 type Status = 'loading' | 'ready' | 'error'
 
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
-}
-
 function shortRevision(revision: string | undefined): string {
   return revision === undefined ? '' : revision.slice(0, 10)
 }
 
 function statusLine(status: Status, message?: string, hint?: string): ReactNode {
-  const text = message ?? (status === 'loading' ? 'Loading saved artifact…' : '')
+  const text = message ?? (status === 'loading' ? COPY.preview.loading : '')
   return createElement(
     'div',
     { style: CENTER, role: 'status', 'data-hardware-stage': status },
@@ -71,7 +68,7 @@ function statusLine(status: Status, message?: string, hint?: string): ReactNode 
             borderTopColor: C.info, animation: 'dsh-hw-spin 900ms linear infinite',
           },
         })
-      : createElement('span', { style: { ...pillStyle('warn'), fontFamily: MONO } }, 'unavailable'),
+      : createElement('span', { style: { ...pillStyle('warn'), fontFamily: MONO } }, COPY.preview.unavailable),
     createElement('p', { style: CENTER_TEXT }, text),
     hint === undefined ? null : createElement('p', { style: { ...CENTER_TEXT, fontSize: 10, color: C.text3 } }, hint),
   )
@@ -133,7 +130,7 @@ function EcadStage({ kind, path, revision, session, cwd }: {
       .catch((error: unknown) => {
         if (!live || isAbortError(error)) return
         setStatus('error')
-        setMessage(describe(error))
+        setMessage(messageOf(error))
       })
     return () => {
       live = false
@@ -150,15 +147,15 @@ function EcadStage({ kind, path, revision, session, cwd }: {
       attrs: { 'data-hardware-ecad': kind },
       topRight: status === 'ready'
         ? [
-            createElement('span', { key: 'kind', style: { ...pillStyle('muted'), fontSize: 9.5 } }, kind === 'schematic' ? 'sheet' : 'board'),
+            createElement('span', { key: 'kind', style: { ...pillStyle('muted'), fontSize: 9.5 } }, kind === 'schematic' ? COPY.preview.kindSchematic : COPY.preview.kindBoard),
             sourceRevision === undefined
               ? null
-              : createElement('span', { key: 'rev', style: { ...pillStyle('muted'), fontSize: 9.5 } }, `rev ${shortRevision(sourceRevision)}`),
+              : createElement('span', { key: 'rev', style: { ...pillStyle('muted'), fontSize: 9.5 } }, COPY.preview.revision(shortRevision(sourceRevision))),
           ]
         : undefined,
       overlay: status === 'ready'
         ? [createElement('span', { key: 'dot', style: dotStyle(kind === 'schematic' ? C.info : C.ok, 6) }),
-            'saved file · scroll to zoom, drag to pan']
+            COPY.preview.ecadOverlay]
         : undefined,
     },
     createElement(
@@ -166,7 +163,7 @@ function EcadStage({ kind, path, revision, session, cwd }: {
       { style: { position: 'relative', flex: '1 1 0', minHeight: 160 } },
       ...(status === 'ready'
         ? []
-        : [statusLine(status, message, status === 'error' ? 'Saved-file preview only; the file must exist and parse.' : undefined)]),
+        : [statusLine(status, message, status === 'error' ? COPY.preview.ecadHint : undefined)]),
       createElement('div', { key: 'canvas', ref: container, style: { position: 'absolute', inset: 0 } }),
     ),
   )
@@ -190,21 +187,21 @@ function GlbStage({ boardPath, cwd, session, configured }: {
     if (element === null) return
     if (!configured) {
       setStatus('error')
-      setMessage('KiCad is not configured.')
+      setMessage(COPY.preview.kicadNotConfigured)
       return
     }
     const controller = new AbortController()
     let live = true
     let mounted: { dispose(): void } | undefined
     setStatus('loading')
-    setMessage('Exporting the PCB to GLB with kicad-cli…')
+    setMessage(COPY.preview.glbExporting)
     element.replaceChildren()
     const run = async (): Promise<void> => {
       const glb = await prepareBoardGlb(boardPath, cwd, controller.signal, session)
       if (!live) return
       setRevision(glb.revision)
       setCached(glb.cached)
-      setMessage('Loading the 3D model…')
+      setMessage(COPY.preview.glbLoading)
       mounted = await mountGlb(glb.url, element, { signal: controller.signal })
       if (!live) {
         mounted.dispose()
@@ -216,7 +213,7 @@ function GlbStage({ boardPath, cwd, session, configured }: {
     run().catch((error: unknown) => {
       if (!live || isAbortError(error)) return
       setStatus('error')
-      setMessage(describe(error))
+      setMessage(messageOf(error))
     })
     return () => {
       live = false
@@ -233,11 +230,11 @@ function GlbStage({ boardPath, cwd, session, configured }: {
       attrs: { 'data-hardware-glb': true },
       topRight: status === 'ready'
         ? [
-            createElement('span', { key: 'mode', style: pillStyle('muted', { fontSize: 9.5 }) }, cached ? 'cached' : 'generated'),
-            createElement('span', { key: 'rev', style: pillStyle('muted', { fontSize: 9.5 }) }, `rev ${shortRevision(revision)}`),
+            createElement('span', { key: 'mode', style: pillStyle('muted', { fontSize: 9.5 }) }, cached ? COPY.preview.glbCached : COPY.preview.glbGenerated),
+            createElement('span', { key: 'rev', style: pillStyle('muted', { fontSize: 9.5 }) }, COPY.preview.revision(shortRevision(revision))),
           ]
         : undefined,
-      overlay: status === 'ready' ? 'drag to orbit · wheel to zoom' : 'kicad-cli pcb export glb',
+      overlay: status === 'ready' ? COPY.preview.glbOverlay : 'kicad-cli pcb export glb',
     },
     createElement(
       'div',
@@ -268,7 +265,7 @@ function BomStage({ schematicPath, session, cwd, configured }: {
   useEffect(() => {
     if (!configured) {
       setStatus('error')
-      setMessage('KiCad is not configured.')
+      setMessage(COPY.preview.kicadNotConfigured)
       return
     }
     const controller = new AbortController()
@@ -287,7 +284,7 @@ function BomStage({ schematicPath, session, cwd, configured }: {
       .catch((error: unknown) => {
         if (!live || isAbortError(error)) return
         setStatus('error')
-        setMessage(describe(error))
+        setMessage(messageOf(error))
       })
     return () => { live = false; controller.abort() }
   }, [schematicPath, session, cwd, configured])
@@ -300,7 +297,7 @@ function BomStage({ schematicPath, session, cwd, configured }: {
         status,
         message,
         status === 'error' && !configured
-          ? 'BOM rows come from kicad-cli sch export bom. Configure KiCad in Settings → Hardware Engineering.'
+          ? COPY.preview.bomHint
           : undefined,
       )),
     )
@@ -316,10 +313,10 @@ function BomStage({ schematicPath, session, cwd, configured }: {
     createElement(
       'div',
       { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderBottom: `1px solid ${C.border}` } },
-      createElement('span', { style: SECTION_TITLE }, `Bill of materials · ${String(bom.rows.length)} lines`),
+      createElement('span', { style: SECTION_TITLE }, COPY.preview.bomTitle(bom.rows.length)),
       createElement('div', { style: { display: 'flex', gap: 4, alignItems: 'center' } },
-        createElement('span', { style: pillStyle('muted') }, `${String(total)} placements`),
-        createElement('span', { style: pillStyle('muted') }, `rev ${shortRevision(bom.revision)}`),
+        createElement('span', { style: pillStyle('muted') }, COPY.preview.bomPlacements(total)),
+        createElement('span', { style: pillStyle('muted') }, COPY.preview.revision(shortRevision(bom.revision))),
       ),
     ),
     createElement(
@@ -329,7 +326,7 @@ function BomStage({ schematicPath, session, cwd, configured }: {
         'table',
         { style: TABLE },
         createElement('thead', {}, createElement('tr', {},
-          ...['Refs', 'Qty', 'Value', 'Footprint', 'Notes'].map(label =>
+          ...COPY.preview.bomColumns.map(label =>
             createElement('th', { key: label, style: TH }, label)))),
         createElement('tbody', {},
           ...bom.rows.map((row, index) => createElement('tr', {

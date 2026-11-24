@@ -1,4 +1,5 @@
 /** Same-origin calls to the `@huaqiu/hardware-artifacts` Host routes. */
+import { describeHostError } from './copy.js'
 import type {
   DiscoveryInfo, HardwareProjectInfo, InstallationsInfo, NativeApplication,
 } from './model.js'
@@ -12,14 +13,35 @@ interface Envelope<T> {
   readonly [key: string]: unknown
 }
 
+/**
+ * One failed call → one `Error` whose message is already user-facing zh_CN.
+ *
+ * The route envelope carries a stable `code`, so the sentence is chosen here
+ * instead of at every render site (the panel, the stages and the settings
+ * section all show `error.message`). The code stays on the error object for
+ * callers that branch on it. Host detail survives inside the message only when
+ * {@link describeHostError} judges it technical rather than prose.
+ */
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${PREFIX}${path}`, init)
   const body = await response.json().catch(() => undefined) as Envelope<T> | undefined
   if (!response.ok || body?.ok === false) {
+    const code = body?.error?.code
     const detail = body?.error?.message ?? `HTTP ${response.status}`
-    throw new Error(body?.error?.code === undefined ? detail : `${body.error.code}: ${detail}`)
+    const error = new Error(describeHostError(code, detail))
+    throw code === undefined ? error : Object.assign(error, { code })
   }
   return body as T
+}
+
+/**
+ * Readable text of a thrown value.
+ *
+ * `String(new Error('x'))` is `"Error: x"`, which is why every message the UI
+ * renders goes through here instead of `String(error)`.
+ */
+export function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 function query(cwd: string | undefined, project?: string, session?: string): string {

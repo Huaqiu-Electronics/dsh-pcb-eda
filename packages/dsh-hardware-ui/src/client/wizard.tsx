@@ -20,6 +20,8 @@ import {
 } from 'react'
 import type { HardwareInstallationConfig, InstallationsInfo } from './model.js'
 import type { HardwareProps } from './components.js'
+import { COPY } from './copy.js'
+import { messageOf } from './transport.js'
 import { buttonStyle, C, dotStyle, INPUT, MUTED, MONO_TEXT, pillStyle, R } from './theme.js'
 
 const BACKDROP: CSSProperties = {
@@ -50,7 +52,8 @@ const FIELD_CARD: CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 6,
 }
 
-const STEPS = ['Welcome', 'KiCad', 'SolidCraft'] as const
+/** Step titles, in order (also the dot-strip tooltips and the counter label). */
+const STEPS = COPY.wizard.steps
 
 /**
  * Dismissal remembered for the life of this client bundle, not one mount.
@@ -183,7 +186,7 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
       if (kicadRoot !== '') await saveInstallation('kicad', kicadRoot)
       if (solidcraftRoot !== '') await saveInstallation('solidcraft', solidcraftRoot)
     } catch (error) {
-      setMessage(String(error))
+      setMessage(messageOf(error))
       setBusy(false)
       return
     }
@@ -218,20 +221,17 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
           createElement(
             'div',
             { style: { display: 'flex', flexDirection: 'column', gap: 1 } },
-            createElement('h2', { style: TITLE }, 'Set up your hardware toolchain'),
-            createElement('span', { style: STEP_LABEL }, 'one-time · skippable'),
+            createElement('h2', { style: TITLE }, COPY.wizard.welcomeTitle),
+            createElement('span', { style: STEP_LABEL }, COPY.wizard.welcomeKicker),
           ),
         ),
-        createElement('p', { style: LEAD },
-          'Hardware Engineering previews KiCad projects, exports PCB 3D models, packages fabrication files and opens native files. Point it at your local installations once.'),
+        createElement('p', { style: LEAD }, COPY.wizard.welcomeLead),
         createElement('div',
           { style: FIELD_CARD },
-          createElement('span', { style: { fontSize: 11, fontWeight: 600 } }, 'What it uses'),
-          createElement('p', { style: { ...MUTED, color: C.text3 } },
-            'kicad-cli for previews, BOM, GLB and gerber/drill packaging. SolidCraft is shared with the agent as environment context only.'),
+          createElement('span', { style: { fontSize: 11, fontWeight: 600 } }, COPY.wizard.welcomeUsesTitle),
+          createElement('p', { style: { ...MUTED, color: C.text3 } }, COPY.wizard.welcomeUses),
         ),
-        createElement('p', { style: { ...MUTED, color: C.text3 } },
-          'Only local executables are used. Nothing is uploaded, and nothing is installed for you.'),
+        createElement('p', { style: { ...MUTED, color: C.text3 } }, COPY.wizard.welcomeLocal),
       )
     }
     if (step === 1) {
@@ -241,19 +241,17 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
         createElement(
           'div',
           { style: SPREAD },
-          createElement('h2', { style: TITLE }, 'KiCad installation'),
+          createElement('h2', { style: TITLE }, COPY.wizard.kicadTitle),
           createElement('span', { style: facts?.kicad?.configured === true ? pillStyle('ok') : pillStyle('muted') },
-            facts?.kicad?.configured === true ? `v${facts.kicad.version ?? '?'}` : 'optional'),
+            facts?.kicad?.configured === true ? `v${facts.kicad.version ?? '?'}` : COPY.wizard.kicadOptional),
         ),
-        createElement('p', { style: LEAD },
-          'Enter a KiCad installation folder or a kicad-cli path. It is used for .kicad_sch / .kicad_pcb previews, PCB GLB export, fabrication packaging, and “Open in KiCad”.'),
+        createElement('p', { style: LEAD }, COPY.wizard.kicadLead),
         createElement('input', {
           style: INPUT, value: kicadRoot, autoFocus: true, spellCheck: false,
-          placeholder: 'C:\\Program Files\\KiCad\\8.0\\  or  /usr/bin/kicad-cli',
+          placeholder: COPY.wizard.kicadPlaceholder,
           onChange: event => setKicadRoot(event.currentTarget.value),
         }),
-        createElement('p', { style: { ...MUTED, color: C.text3 } },
-          'Leave it empty to skip. You can configure it later in Settings → Hardware Engineering.'),
+        createElement('p', { style: { ...MUTED, color: C.text3 } }, COPY.wizard.kicadSkipHint),
       )
     }
     return createElement(
@@ -262,14 +260,13 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
       createElement(
         'div',
         { style: SPREAD },
-        createElement('h2', { style: TITLE }, 'SolidCraft installation'),
-        createElement('span', { style: pillStyle('muted') }, 'optional'),
+        createElement('h2', { style: TITLE }, COPY.wizard.solidcraftTitle),
+        createElement('span', { style: pillStyle('muted') }, COPY.wizard.kicadOptional),
       ),
-      createElement('p', { style: LEAD },
-        'SolidCraft is shared with the agent as environment context only in this POC — no native launch, no mechanical preview.'),
+      createElement('p', { style: LEAD }, COPY.wizard.solidcraftLead),
       createElement('input', {
         style: INPUT, value: solidcraftRoot, autoFocus: true, spellCheck: false,
-        placeholder: 'C:\\Program Files\\SolidCraft\\bin\\SolidCraft.exe',
+        placeholder: COPY.wizard.solidcraftPlaceholder,
         onChange: event => setSolidcraftRoot(event.currentTarget.value),
       }),
     )
@@ -277,7 +274,7 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
 
   return createElement(
     'div',
-    { style: BACKDROP, role: 'dialog', 'aria-modal': true, 'aria-label': 'Hardware Engineering setup', 'data-hardware-wizard': true },
+    { style: BACKDROP, role: 'dialog', 'aria-modal': true, 'aria-label': COPY.wizard.aria, 'data-hardware-wizard': true },
     createElement(
       'div',
       { style: PANEL },
@@ -292,20 +289,19 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
             style: { ...dotStyle(index === step ? C.accent : index < step ? C.ok : C.text3, 6) },
             title: label,
           })),
-          createElement('span', { style: { ...STEP_LABEL, ...MONO_TEXT } }, `${String(step + 1)}/${String(STEPS.length)} · ${STEPS[step]}`),
+          createElement('span', { style: { ...STEP_LABEL, ...MONO_TEXT } }, COPY.wizard.stepCounter(step + 1, STEPS.length, STEPS[step] ?? '')),
         ),
         createElement('button', {
           type: 'button', style: buttonStyle('quiet', { fontSize: 10.5 }),
           onClick: () => { void complete() },
-        }, 'Skip setup'),
+        }, COPY.wizard.skip),
       ),
       stepBody(),
       ...(message === '' ? [] : [createElement('p', { key: 'msg', style: { ...MUTED, color: C.text2 }, role: 'status' }, message)]),
       createElement(
         'div',
         { style: { ...SPREAD, paddingTop: 6, borderTop: `1px solid ${C.borderSoft}` } },
-        createElement('span', { style: { ...MUTED, color: C.text3, fontSize: 10 } },
-          'You can change this any time in Settings → Hardware Engineering.'),
+        createElement('span', { style: { ...MUTED, color: C.text3, fontSize: 10 } }, COPY.wizard.footerNote),
         createElement(
           'span',
           { style: ROW },
@@ -313,12 +309,12 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
             ? createElement('button', {
                 type: 'button', style: buttonStyle('secondary'),
                 onClick: () => { setStep(step - 1) },
-              }, 'Back')
+              }, COPY.wizard.back)
             : null,
           createElement('button', {
             type: 'button', style: buttonStyle('primary'), disabled: busy,
             onClick: () => { void next() },
-          }, busy ? 'Saving…' : step === STEPS.length - 1 ? 'Finish' : 'Next'),
+          }, busy ? COPY.wizard.saving : step === STEPS.length - 1 ? COPY.wizard.finish : COPY.wizard.next),
         ),
       ),
     ),

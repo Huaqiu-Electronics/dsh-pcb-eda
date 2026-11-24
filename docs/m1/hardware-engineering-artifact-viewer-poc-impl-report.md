@@ -42,6 +42,9 @@ One product UI plugin (`@huaqiu/dsh-hardware-ui`) plus one host capability
   own order webview — in the system default browser.
 - Agent context (`/environment`) reports the configured toolchain and the
   resolved project; child env is returned per call (no `process.env` mutation).
+- All visible text is zh_CN, sourced from one dictionary
+  (`src/client/copy.ts`); host error codes are translated at the transport
+  boundary, so no English host sentence reaches the panel (§9).
 
 ---
 
@@ -59,17 +62,20 @@ One product UI plugin (`@huaqiu/dsh-hardware-ui`) plus one host capability
 | `hardware-artifacts` | `src/routes.ts` | `/fabrication`, `/order`, `/order/pcb`, `/order/smt`, `/order/open` |
 | `hardware-artifacts` | `test/service.test.ts` | real `kicad-cli` BOM header test; canonical test root |
 | `hardware-artifacts` | `test/order.test.ts` | new: forms, CSVs, submit bodies, final URLs, URL guard, browser hand-off |
+| `dsh-hardware-ui` | `src/client/copy.ts` | new: the only zh_CN dictionary — nav, viewer, discovery, preview, order, wizard, settings, host error codes |
 | `dsh-hardware-ui` | `src/client/index.ts` | seat registration; two store handles; controller inject face |
-| `dsh-hardware-ui` | `src/client/model.ts` | `HardwareController`, navigation params, discovery/installation shapes |
+| `dsh-hardware-ui` | `src/client/model.ts` | `HardwareController`, navigation params, discovery/installation shapes; labels read from `copy.ts` |
 | `dsh-hardware-ui` | `src/client/store.ts` | `applyNavigation`, non-clobbering discovery refresh |
 | `dsh-hardware-ui` | `src/client/components.tsx` | navigation row, viewer body, settings section |
 | `dsh-hardware-ui` | `src/client/preview.tsx` | per-destination stages; KiCad-gated BOM/3D/order |
 | `dsh-hardware-ui` | `src/client/order.tsx` | new: fabrication summary, confirmation dialog, result card, reopen in browser |
-| `dsh-hardware-ui` | `src/client/transport.ts` | fabrication/order calls, `openOrderUrl` |
+| `dsh-hardware-ui` | `src/client/transport.ts` | fabrication/order calls, `openOrderUrl`; host `code` → zh sentence, `messageOf` |
 | `dsh-hardware-ui` | `src/client/theme.ts` | new: prototype-aligned tokens and primitives |
 | `dsh-hardware-ui` | `src/client/ecad.ts` | sized canvas + post-layout re-fit + disposal |
 | `dsh-hardware-ui` | `src/client/wizard.tsx` | new: three-step skippable wizard |
+| `dsh-hardware-ui` | `src/client/wizard.tsx` | first-run gate (`wizardPhase`) so the modal never mounts on pre-hydration facts |
 | `dsh-hardware-ui` | `test/client.test.ts` | seat/handle/inject-face/navigation assertions |
+| `dsh-hardware-ui` | `test/copy.test.ts` | new: zh_CN coverage, host-code contract, error/discovery translation |
 
 New fix in this pass, worth calling out:
 
@@ -269,7 +275,60 @@ viewing or this file-level order flow.
 
 ---
 
-## 9. Test matrix
+## 9. Localization (zh_CN)
+
+Every string the product renders is in `packages/dsh-hardware-ui/src/client/copy.ts`;
+no component holds a literal sentence. One `COPY` object, one locale
+(`LOCALE = 'zh_CN'`), functions for interpolation.
+
+- **Why one module.** The same sentence is drawn from up to three seats (nav row,
+  viewer body, settings section). Per-call-site literals had already drifted
+  ("Open in KiCad" vs "KiCad missing" vs "not configured" naming the same state
+  differently). The dictionary makes "is this translated?" mechanical.
+- **Why zh_CN only.** Chinese-first product (`hq-eda-ai` resolves
+  `languageMap[lang] || 'zh'`), eda.cn accounts, and a second language would ship
+  untested. This is also why the dictionary is not registered with DSH's locale
+  service: its typed overload takes `Record<BuiltInLocaleId, LocaleDictOf<N>>`,
+  i.e. both `zh` and `en` are required, and the untyped single-locale arm would
+  leave an en-active host resolving raw keys (`FALLBACK_LOCALE = 'en'`, and a
+  `zh`-only namespace is not in `en`'s chain). Sibling packages hit the same wall
+  and self-contained for the same reason (`dsh-auth/src/client/i18n.ts`,
+  `dsh-tool-plugin-update/src/client/copy.ts`).
+- **Adding `en` later.** `COPY` becomes `{ zh, en }` with
+  `en: Record<CopyKeys, string>` (the `dsh-auth` shape, so a missing key is a
+  compile error) and the locale comes from `<html lang>`. If the second language
+  becomes real, move the dictionary into `ctx.locale.register` and declare
+  `locale:` on the three slot registrations to get the framework's reactive `t`
+  seat. No render site moves either way — they all read through this module.
+- **Host text does not leak through.** Two different vocabularies:
+  - *error envelope* — `transport.request` maps the route's stable `code`
+    (`unauthorized`, `export-failed`, `order-rejected`, …) through
+    `describeHostError`. Host detail is appended only where it is technical
+    output (`kicad-cli` stderr, HTTP failure); for the rest it merely restated
+    the code in English. Unknown codes keep the host sentence, so an unmodelled
+    failure still says something specific.
+  - *discovery issue* — `issueText` re-derives the sentence from `issue.code`
+    plus the count/cwd, instead of echoing `issue.message`.
+  - `PlacedOrder.message` (host English) is no longer rendered; the result card
+    composes its own sentence from `kind` + `status`.
+- **Commands are not prose.** `kicad-cli pcb export glb`, `.kicad_pcb`,
+  file names, paths, revisions and units stay verbatim.
+- **Contract test** (`test/copy.test.ts`): reads
+  `hardware-artifacts/src/{routes,service}.ts`, extracts every code the host can
+  emit, and fails if `COPY.errors` misses one — so a code added on the host side
+  surfaces as a red test rather than an English sentence inside a Chinese panel.
+  The same file asserts every discovery code actually translates and every
+  destination label is present.
+- **Visible text now Chinese:** navigation (`原理图 / PCB / BOM / 3D 模型 / 下单`),
+  viewer strip and empty states, project/sheet/board selectors, wizard (three
+  steps, buttons, hints), settings section (cards, validate/save result lines),
+  preview stages (loading, errors, overlays, BOM header and columns), the whole
+  Order Placing panel (cards, board facts, confirm dialog, quantity, result
+  card), plus tab title and settings section label.
+
+---
+
+## 10. Test matrix
 
 Legend: **U** unit (vitest), **I** integration (live web profile + headless
 Chrome, real KiCad CLI), **S** source inspection, **B** blocked.
@@ -304,8 +363,9 @@ Chrome, real KiCad CLI), **S** source inspection, **B** blocked.
 | Q4 explicit confirmation | PASS U+I | panel requires a checkbox + confirm; host rejects `confirm !== true`; preview and refresh never upload |
 | R1 offline activation 24/24 | PARTIAL | desktop fixture inherited from `docs/m1/…-poc-report.md`; the web profile reproduces the 11 mounted rows (`bundle.test.ts`: no duplicate rows, no HQ Edge injection) |
 | R2 HQ Edge independence | PASS I | the whole walk ran without HQ Edge installed |
-| R3 existing functionality | PASS U | `dsh-tool-pcb-viewer` 58/58, `hardware-engineering` 16/16, `hardware-artifacts` 51/51, `dsh-hardware-ui` 12/12 |
+| R3 existing functionality | PASS U | `dsh-tool-pcb-viewer` 58/58, `hardware-engineering` 16/16, `hardware-artifacts` 62/62, `dsh-hardware-ui` 29/29 |
 | R4 Windows x64 distribution | **B** | no Windows x64 host available |
+| L1 zh_CN copy | PASS U | `copy.test.ts` 8/8: every destination labelled, every host error code translated (extracted from `routes.ts`/`service.ts`), every discovery code translated, unmodelled codes passed through. Live rendering not re-shot in a browser (no driver installed) |
 
 Baseline failures in unrelated packages, unchanged by this work and reproduced
 on the untouched tree: `dsh-kicad` (bundled skill drifted from upstream
@@ -316,7 +376,7 @@ kicad-agent, 4), `dsh-plugin-log` (multi-process isolation/crash recovery, 4),
 
 ---
 
-## 10. Packaging and activation
+## 11. Packaging and activation
 
 - `pnpm launch-dsh:standalone` builds the three packages and rewrites the web
   profile to exactly
@@ -331,7 +391,7 @@ kicad-agent, 4), `dsh-plugin-log` (multi-process isolation/crash recovery, 4),
 
 ---
 
-## 11. Known limitations and deferred work
+## 12. Known limitations and deferred work
 
 - **Windows x64 packaging (R4)** and the **desktop 24/24 activation fixture
   (R1)** were not re-run: this pass deliberately targets the official web

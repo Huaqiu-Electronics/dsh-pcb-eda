@@ -9,6 +9,7 @@
 import { BoardParser, SchematicParser } from '@huaqiu/kicad-sexpr-parser'
 import { renderPcb, renderSchematic } from '@huaqiu/ecad-renderer'
 import { loadArtifactSource, type ArtifactSource } from './transport.js'
+import { COPY } from './copy.js'
 
 export type EcadKind = 'schematic' | 'pcb'
 export interface MountedEcad {
@@ -46,7 +47,7 @@ export async function mountEcad(
   })
   if (options.signal.aborted) throw aborted(options.signal)
   if (source.kind !== undefined && source.kind !== kind) {
-    throw new Error(`host returned a ${source.kind} artifact for a ${kind} preview`)
+    throw new Error(COPY.preview.ecadKindMismatch(kind, source.kind))
   }
 
   // The renderer owns the backing resolution but not the CSS size, and it fits
