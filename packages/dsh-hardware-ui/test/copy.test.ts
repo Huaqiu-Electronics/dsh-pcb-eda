@@ -66,6 +66,25 @@ describe('zh_CN copy', () => {
       expect(sentence, code).toMatch(HAN)
     }
   })
+
+  it('names every empty viewer and says how to fill it', () => {
+    expect(Object.keys(COPY.placeholder.title)).toEqual([...DESTINATIONS])
+    expect(Object.keys(COPY.placeholder.guide)).toEqual([...DESTINATIONS])
+    for (const destination of DESTINATIONS) {
+      expect(COPY.placeholder.title[destination], destination).toMatch(HAN)
+      // Every guide points at the agent, which is where this product's hardware
+      // comes from. "Not available" alone is what this replaced.
+      expect(COPY.placeholder.guide[destination], destination).toContain('智能体')
+    }
+    // BOM is generated, never authored: its copy says it follows the schematic.
+    expect(COPY.placeholder.guide.bom).toContain('原理图')
+    expect(COPY.placeholder.guide.bom).toContain('自动')
+  })
+
+  it('no longer says a viewer is simply unavailable', () => {
+    // The placeholder pill used to read 不可用 in every stage.
+    expect(JSON.stringify(COPY)).not.toContain('不可用')
+  })
 })
 
 describe('host error translation', () => {

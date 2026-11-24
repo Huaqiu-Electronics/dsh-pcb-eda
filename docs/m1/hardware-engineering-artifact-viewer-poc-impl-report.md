@@ -13,12 +13,16 @@ checkout (`pnpm launch-dsh:standalone`). No HQ Edge, no Huaqiu desktop shell.
 
 One product UI plugin (`@huaqiu/dsh-hardware-ui`) plus one host capability
 (`@huaqiu/hardware-artifacts`), both mounted by the existing
-`@huaqiu/hardware-engineering` bundle. No DSH shell source is modified.
+`@huaqiu/hardware-engineering` bundle. The DSH shell is extended in one place
+only — the right panel's chrome — for the reasons in §1.1.
 
-- Five persistent destinations (Schematic, PCB, BOM, 3D CAD, Order Placing)
-  render in `conversation.header.leading`, above the chat panel, and stay
-  visible without a session.
-- Each destination opens the right-panel tab `hardware-engineering`
+- Five persistent destinations (Schematic, PCB, BOM, 3D CAD, Order Placing) are
+  the right panel's own header. There is no second copy above the chat: the
+  panel header IS the product's navigation.
+- Expanding the right panel opens Hardware Engineering directly. The tab type
+  registers as the panel's default page (`default: true`), so the official
+  "Start" page is never seeded into this product's panel.
+- Each destination switches the `hardware-engineering` tab's navigation params
   (`sidebar.right.pane.tab`, `keepMounted`). Navigating again changes the tab's
   navigation params **and** its monotonic revision, so the body refreshes
   without remounting the tab.
@@ -45,12 +49,46 @@ One product UI plugin (`@huaqiu/dsh-hardware-ui`) plus one host capability
 - All visible text is zh_CN, sourced from one dictionary
   (`src/client/copy.ts`); host error codes are translated at the transport
   boundary, so no English host sentence reaches the panel (§9).
+- Every empty viewer is one centred placeholder that names what is missing and
+  then says how to get it: ask the agent to create the schematic, PCB or 3D
+  model, and BOM follows the schematic automatically (§10).
+
+### 1.1 Panel shell contract (the one `deepseek-harness` change)
+
+The right panel is a generic tab surface: a tab strip with chips, an add control,
+a split control and a chrome slot, plus a seeded "Start" page. This product is a
+single-page workspace, so that surface is reduced to what it actually uses:
+
+| Shell behaviour | Before | Now | Where |
+| --- | --- | --- | --- |
+| Default page | the guide ("Start") | the type declaring `default: true` | `contract/seed.ts`, `tab-registry.ts` |
+| Tab strip | chips + add + split + chrome | not drawn in the docked panel | `shell/SidebarRight.module.css` |
+| Panel controls | full screen + split + collapse, at the strip's end | full screen + collapse only, over the page header's end | `shell/SidebarRight.tsx` |
+| Restored layouts | any saved layout, including a Start tab | new persistence namespace (`v2`), so a Start tab cannot come back | `persistence.ts` |
+
+The page header is drawn 38px tall and the two controls are centred in a 38px
+overlay at the same top edge, so the two rows read as one. The overlay rides the
+docked items' slide, so a **collapsed** column hides both controls and leaves only
+the conversation header's one expand button in that corner — the messy doubled
+corner came from the chrome staying mounted behind that button. Both controls
+come from one shared button definition (`PanelToggleButton.tsx`), so the collapse
+button is the same glyph and size as the expand button. The overlay stacks one
+layer above the dock host (which rises from 10 to 40 in fullscreen) so both
+buttons stay clickable in either presentation; a focus-scoped command target is
+what made the fullscreen button a no-op before, and the switch now resolves
+against the on-screen Session explicitly. Floating panels keep their own strip
+and header: the CSS is scoped to `[data-dockkit-host='dock']`.
+
+`defaultSeed` still falls back to the guide when no type declares itself the
+default, so the shell keeps working for a profile without this bundle.
 
 ---
 
 ## 2. Files changed
 
-`dsh-pcb-eda` (only repository touched; `deepseek-harness` working tree clean)
+`dsh-pcb-eda` (the product) plus the `ui-sidebar-right` package in
+`deepseek-harness` for the panel shell (§1.1). Nothing else in the shell is
+touched.
 
 | Package | File | Change |
 | --- | --- | --- |
@@ -62,29 +100,38 @@ One product UI plugin (`@huaqiu/dsh-hardware-ui`) plus one host capability
 | `hardware-artifacts` | `src/routes.ts` | `/fabrication`, `/order`, `/order/pcb`, `/order/smt`, `/order/open` |
 | `hardware-artifacts` | `test/service.test.ts` | real `kicad-cli` BOM header test; canonical test root |
 | `hardware-artifacts` | `test/order.test.ts` | new: forms, CSVs, submit bodies, final URLs, URL guard, browser hand-off |
-| `dsh-hardware-ui` | `src/client/copy.ts` | new: the only zh_CN dictionary — nav, viewer, discovery, preview, order, wizard, settings, host error codes |
-| `dsh-hardware-ui` | `src/client/index.ts` | seat registration; two store handles; controller inject face |
+| `dsh-hardware-ui` | `src/client/copy.ts` | new: the only zh_CN dictionary — viewer, discovery, placeholders, preview, order, wizard, settings, host error codes |
+| `dsh-hardware-ui` | `src/client/index.ts` | two seats (`sidebar.right.pane.tab` with `default: true`, `settings.section`); controller inject face |
 | `dsh-hardware-ui` | `src/client/model.ts` | `HardwareController`, navigation params, discovery/installation shapes; labels read from `copy.ts` |
 | `dsh-hardware-ui` | `src/client/store.ts` | `applyNavigation`, non-clobbering discovery refresh |
-| `dsh-hardware-ui` | `src/client/components.tsx` | navigation row, viewer body, settings section |
-| `dsh-hardware-ui` | `src/client/preview.tsx` | per-destination stages; KiCad-gated BOM/3D/order |
+| `dsh-hardware-ui` | `src/client/components.tsx` | viewer body with the product header as the panel's top edge, centred empty states with guidance, settings section |
+| `dsh-hardware-ui` | `src/client/preview.tsx` | per-destination stages; KiCad-gated BOM/3D/order; one centred placeholder with title + reason + guidance |
 | `dsh-hardware-ui` | `src/client/order.tsx` | new: fabrication summary, confirmation dialog, result card, reopen in browser |
 | `dsh-hardware-ui` | `src/client/transport.ts` | fabrication/order calls, `openOrderUrl`; host `code` → zh sentence, `messageOf` |
 | `dsh-hardware-ui` | `src/client/theme.ts` | new: prototype-aligned tokens and primitives |
 | `dsh-hardware-ui` | `src/client/ecad.ts` | sized canvas + post-layout re-fit + disposal |
 | `dsh-hardware-ui` | `src/client/wizard.tsx` | new: three-step skippable wizard |
 | `dsh-hardware-ui` | `src/client/wizard.tsx` | first-run gate (`wizardPhase`) so the modal never mounts on pre-hydration facts |
-| `dsh-hardware-ui` | `test/client.test.ts` | seat/handle/inject-face/navigation assertions |
-| `dsh-hardware-ui` | `test/copy.test.ts` | new: zh_CN coverage, host-code contract, error/discovery translation |
+| `dsh-hardware-ui` | `test/client.test.ts` | seat/scope assertions, tab-type `default`, placeholder contract |
+| `dsh-hardware-ui` | `test/copy.test.ts` | new: zh_CN coverage, host-code contract, error/discovery translation, placeholder guidance |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/src/client/contract/seed.ts` | `defaultSeed` prefers a type declaring `default: true`; guide stays the fallback |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/src/client/tab-registry.ts` | `SidebarRightTabDefinition.default` |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/src/client/shell/SidebarRight.tsx` | the two panel controls move out of the strip into an overlay over the page header |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/src/client/shell/SidebarRight.module.css` | docked strip not drawn; `.panelChrome` overlay rides the docked slide/hide rules and stacks one layer above the dock host |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/src/client/shell/PanelToggleButton.tsx` / `.module.css` | one shared compact button for the expand/collapse ends and the fullscreen switch, so no corner can drift or double |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/src/client/shell/ExpandButton.tsx` | the collapsed corner's expand button now uses the shared definition |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/src/client/index.ts` | the fullscreen switch resolves against the on-screen Session (`commandTarget(null)`), not the focused element |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/src/client/persistence.ts` | namespace `v2`, so a saved Start layout cannot be restored |
+| `deepseek-harness` | `packages/client/ui-sidebar-right/README.md` / `.zh.md` / `.i18n.yaml` | panel-shell contract documented and the bilingual pair re-recorded |
 
-New fix in this pass, worth calling out:
+New fixes in this pass, worth calling out:
 
 - **Two store handles, not one.** DSH pins a store handle to the first scope it
-  mounts under. `conversation.header.leading` and `settings.section` are `root`;
-  `sidebar.right.pane.tab` is `session`. One shared handle produced
-  `store handle mounted under "sidebar.right.pane.tab" (scope "session") is
-  already mounted under scope "root"`. The two halves now coordinate only
-  through tab params + revision, which is what the slot contract allows.
+  mounts under. `settings.section` is `root`; `sidebar.right.pane.tab` is
+  `session`. One shared handle produced `store handle mounted under
+  "sidebar.right.pane.tab" (scope "session") is already mounted under scope
+  "root"`. The seats now own separate instances; the viewer's own navigation
+  params carry everything a destination switch needs.
 - **Volatile config is a reference, not a value.** `.volatile()` makes the
   config field a `{ get(): T }` reference; passing it to `path.resolve`
   produced `ERR_INVALID_ARG_TYPE` → HTTP 500 on `/installations`. Resolved via
@@ -328,18 +375,58 @@ no component holds a literal sentence. One `COPY` object, one locale
 
 ---
 
-## 10. Test matrix
+## 10. Empty views (centred, and never a dead end)
+
+A destination with nothing to render shows one placeholder, centred on both axes
+(`CENTER` in `preview.tsx` for a stage, the `missing` card in `components.tsx`
+for a whole destination). The BOM's placeholder used to sit at the stage's left
+edge: its wrapper was a row box, so a `height:100%` child shrank to its text. The
+wrapper and the child now both stretch (`flex: 1 1 auto`), and every stage shares
+the same column.
+
+The copy is destination-specific and always ends with the way out:
+
+| Destination | Pill | Guidance |
+| --- | --- | --- |
+| Schematic | 暂无原理图 | ask the agent to create the schematic (`.kicad_sch`), it appears here |
+| PCB | 暂无 PCB | ask the agent to create and lay out the PCB (`.kicad_pcb`) |
+| BOM | 暂无 BOM | BOM is generated from the schematic; create the schematic and it updates automatically |
+| 3D | 暂无 3D 模型 | the model comes from the PCB; create the PCB and the preview appears |
+| Order | 暂无可下单的板 | fabrication and assembly both need a PCB |
+| no project | 暂无… | ask the agent to create the KiCad project (`.kicad_pro`) in this workspace |
+
+Two deliberate exceptions:
+
+- A **selection prompt** (several projects) keeps the reason but drops the
+  guidance: the project select is directly above the card, and a second
+  instruction would point at a control the user can already see.
+- A **missing or failed KiCad installation** is a setting, not a missing
+  artifact, so the stage shows the configuration hint instead of the agent
+  guidance. The bare "不可用" pill is gone from every stage.
+
+`missingState` is exported and unit-tested (title, reason, guidance per
+destination); `copy.test.ts` asserts every destination has both strings, that the
+BOM copy mentions the schematic and automatic update, and that the dictionary no
+longer contains "不可用".
+
+---
+
+## 11. Test matrix
 
 Legend: **U** unit (vitest), **I** integration (live web profile + headless
 Chrome, real KiCad CLI), **S** source inspection, **B** blocked.
 
 | Gate | Status | Evidence |
 | --- | --- | --- |
-| U1 nav without session | PASS U+I | fresh profile: nav visible, no session; registered in `conversation.header.leading` (`client.test.ts`) |
+| U1 panel default page | PASS U+S | the tab type registers `default: true`; `defaultSeed` seeds it into an empty docked pane, so expanding the column opens Hardware Engineering and no Start page exists (`client.test.ts`; shell `seed` contract) |
 | U2 right-panel persistence | PASS I | collapse (panel at x=1441 > viewport) → reopen → fullscreen (1439px) → new session → return: body stayed mounted, `canvas` count stayed 1, no extra `/source` |
 | U3 navigation revision | PASS U+I | repeat click on the same destination produced exactly 1 new `/source` read; `applyNavigation` bumps revision (`client.test.ts`) |
 | U4 contextual action safety | PASS I | "Open in KiCad" rendered in the viewer header; DSH expand control switched 647→1439px with the body mounted, then restored |
 | U5 settings persistence | PASS I | saved root survived a server restart; `/installations` returned `configured:true, version 10.0.7` |
+| U6 one navigation, one header | PASS U+S | only two seats are registered (`sidebar.right.pane.tab`, `settings.section`); `conversation.header.leading` is gone, and the panel header carries the five destinations |
+| U7 panel chrome | PASS S | docked strip is not drawn (`[data-dockkit-strip]` hidden); the overlay holds full screen + collapse (`panelChrome`) and hides with the docked items while collapsed; split/add/chips have no render path |
+| U8 empty-view guidance | PASS U | `missingState` per destination title/reason/guidance; BOM copy names the schematic; dictionary contains no 不可用 (`client.test.ts`, `copy.test.ts`) |
+| U9 corner + fullscreen | PASS I | real-browser CDP: collapsed corner shows 1 control (chrome hidden), expanded shows 2; button clicks flip push→fullscreen→push, a real mouse click in fullscreen restores push, and the hit-test lands on the buttons in both presentations (`ui-sidebar-right` 322/322, `dsh-hardware-ui` 42/42) |
 | A1 canonical project | PASS U+I | fixture resolves one project with root sheet + 3 boards |
 | A2 ambiguous project | PASS U | two `.kicad_pro` → `selection-required` |
 | A3 board ownership | PASS U+I | owned board ranks first; 3-board manifest renders a Board selector |
@@ -363,9 +450,9 @@ Chrome, real KiCad CLI), **S** source inspection, **B** blocked.
 | Q4 explicit confirmation | PASS U+I | panel requires a checkbox + confirm; host rejects `confirm !== true`; preview and refresh never upload |
 | R1 offline activation 24/24 | PARTIAL | desktop fixture inherited from `docs/m1/…-poc-report.md`; the web profile reproduces the 11 mounted rows (`bundle.test.ts`: no duplicate rows, no HQ Edge injection) |
 | R2 HQ Edge independence | PASS I | the whole walk ran without HQ Edge installed |
-| R3 existing functionality | PASS U | `dsh-tool-pcb-viewer` 58/58, `hardware-engineering` 16/16, `hardware-artifacts` 62/62, `dsh-hardware-ui` 29/29 |
+| R3 existing functionality | PASS U | `dsh-tool-pcb-viewer` 58/58, `hardware-engineering` 16/16, `hardware-artifacts` 62/62, `dsh-hardware-ui` 42/42, `ui-sidebar-right` 322/322 |
 | R4 Windows x64 distribution | **B** | no Windows x64 host available |
-| L1 zh_CN copy | PASS U | `copy.test.ts` 8/8: every destination labelled, every host error code translated (extracted from `routes.ts`/`service.ts`), every discovery code translated, unmodelled codes passed through. Live rendering not re-shot in a browser (no driver installed) |
+| L1 zh_CN copy | PASS U+I | `copy.test.ts` 10/10: every destination labelled, every host error code translated (extracted from `routes.ts`/`service.ts`), every discovery code translated, unmodelled codes passed through, every empty view names its artifact and points at the agent. The corner controls were also checked in the live web profile with headless Chrome (U9). |
 
 Baseline failures in unrelated packages, unchanged by this work and reproduced
 on the untouched tree: `dsh-kicad` (bundled skill drifted from upstream
@@ -376,7 +463,7 @@ kicad-agent, 4), `dsh-plugin-log` (multi-process isolation/crash recovery, 4),
 
 ---
 
-## 11. Packaging and activation
+## 12. Packaging and activation
 
 - `pnpm launch-dsh:standalone` builds the three packages and rewrites the web
   profile to exactly
@@ -391,7 +478,7 @@ kicad-agent, 4), `dsh-plugin-log` (multi-process isolation/crash recovery, 4),
 
 ---
 
-## 12. Known limitations and deferred work
+## 13. Known limitations and deferred work
 
 - **Windows x64 packaging (R4)** and the **desktop 24/24 activation fixture
   (R1)** were not re-run: this pass deliberately targets the official web
@@ -414,5 +501,9 @@ kicad-agent, 4), `dsh-plugin-log` (multi-process isolation/crash recovery, 4),
 - SolidCraft is environment-context only: no native launch, no mechanical
   preview. The 3D destination always renders the selected PCB.
 - The prototype's workspace project-artifact list and its above-chat navigation
-  bar are intentionally not implemented (not required by the spec); the
-  conversation header carries the five destinations instead.
+  bar are intentionally not implemented (not required by the spec); the panel
+  header carries the five destinations instead.
+- The panel's split view, tab chips and add control are not reachable in this
+  product: the docked strip is not drawn. The docking machinery still exists
+  (a floating panel keeps its own header), so re-enabling a multi-tab panel is a
+  stylesheet decision, not a rewrite.

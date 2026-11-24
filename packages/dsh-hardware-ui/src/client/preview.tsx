@@ -33,6 +33,9 @@ const TOP_RIGHT: CSSProperties = {
 }
 const CENTER: CSSProperties = {
   display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+  // `flex` as well as `height`: the BOM stage wraps this in a row box, and a
+  // height-only child there shrank to its text instead of filling the stage.
+  flex: '1 1 auto', width: '100%', boxSizing: 'border-box',
   height: '100%', gap: 6, padding: 20, textAlign: 'center',
 }
 const CENTER_TEXT: CSSProperties = { margin: 0, fontSize: 11, color: C.text3, maxWidth: 340, lineHeight: 1.6 }
@@ -56,8 +59,24 @@ function shortRevision(revision: string | undefined): string {
   return revision === undefined ? '' : revision.slice(0, 10)
 }
 
-function statusLine(status: Status, message?: string, hint?: string): ReactNode {
-  const text = message ?? (status === 'loading' ? COPY.preview.loading : '')
+/**
+ * The stage's placeholder: what is missing, why, and what to do about it.
+ *
+ * Every variant is one centred column, so an empty schematic, an empty BOM and a
+ * failed export sit in the same place. A placeholder never stops at "not
+ * available": the last line always says how the artifact can exist — normally by
+ * asking the agent to create it.
+ */
+function statusLine(status: Status, input: {
+  /** What the stage is missing, in the user's words ("暂无原理图"). */
+  readonly title: string
+  readonly message?: string
+  /** The technical next step, when there is one (configure KiCad, saved-file preview only). */
+  readonly hint?: string
+  /** How to obtain the artifact. Omitted when the blocker is a setting, not a missing file. */
+  readonly guidance?: string
+}): ReactNode {
+  const text = input.message ?? (status === 'loading' ? COPY.preview.loading : '')
   return createElement(
     'div',
     { style: CENTER, role: 'status', 'data-hardware-stage': status },
@@ -68,9 +87,16 @@ function statusLine(status: Status, message?: string, hint?: string): ReactNode 
             borderTopColor: C.info, animation: 'dsh-hw-spin 900ms linear infinite',
           },
         })
-      : createElement('span', { style: { ...pillStyle('warn'), fontFamily: MONO } }, COPY.preview.unavailable),
-    createElement('p', { style: CENTER_TEXT }, text),
-    hint === undefined ? null : createElement('p', { style: { ...CENTER_TEXT, fontSize: 10, color: C.text3 } }, hint),
+      : createElement('span', { style: { ...pillStyle('warn'), fontFamily: MONO } }, input.title),
+    text === '' ? null : createElement('p', { style: CENTER_TEXT }, text),
+    input.hint === undefined
+      ? null
+      : createElement('p', { style: { ...CENTER_TEXT, fontSize: 10 } }, input.hint),
+    input.guidance === undefined
+      ? null
+      : createElement('p', {
+          style: { ...CENTER_TEXT, fontSize: 10.5, color: C.text2 }, 'data-hardware-guidance': true,
+        }, input.guidance),
   )
 }
 
@@ -163,7 +189,13 @@ function EcadStage({ kind, path, revision, session, cwd }: {
       { style: { position: 'relative', flex: '1 1 0', minHeight: 160 } },
       ...(status === 'ready'
         ? []
-        : [statusLine(status, message, status === 'error' ? COPY.preview.ecadHint : undefined)]),
+        : [statusLine(status, {
+            title: COPY.placeholder.title[kind],
+            ...(message === undefined ? {} : { message }),
+            ...(status === 'error'
+              ? { hint: COPY.preview.ecadHint, guidance: COPY.placeholder.guide[kind] }
+              : {}),
+          })]),
       createElement('div', { key: 'canvas', ref: container, style: { position: 'absolute', inset: 0 } }),
     ),
   )
@@ -239,7 +271,15 @@ function GlbStage({ boardPath, cwd, session, configured }: {
     createElement(
       'div',
       { style: { position: 'relative', flex: '1 1 0', minHeight: 160 } },
-      ...(status === 'ready' ? [] : [statusLine(status, message)]),
+      ...(status === 'ready'
+        ? []
+        : [statusLine(status, {
+            title: COPY.placeholder.title['3d'],
+            ...(message === undefined ? {} : { message }),
+            // A missing installation is a setting to fix, not an artifact to
+            // create, so the agent guidance would point the wrong way.
+            ...(status === 'error' && configured ? { guidance: COPY.placeholder.guide['3d'] } : {}),
+          })]),
       createElement('div', { key: 'canvas', ref: container, style: { position: 'absolute', inset: 0 } }),
     ),
   )
@@ -293,13 +333,19 @@ function BomStage({ schematicPath, session, cwd, configured }: {
     return createElement(
       Stage,
       { label: 'bom', attrs: { 'data-hardware-bom': true }, overlay: 'kicad-cli sch export bom' },
-      createElement('div', { style: { flex: '1 1 0', display: 'flex' } }, statusLine(
-        status,
-        message,
-        status === 'error' && !configured
-          ? COPY.preview.bomHint
-          : undefined,
-      )),
+      // The wrapper is a row box so the placeholder can claim its full width;
+      // without that the BOM placeholder sat at the stage's left edge while
+      // every other destination centred.
+      createElement(
+        'div',
+        { style: { flex: '1 1 0', minWidth: 0, display: 'flex' } },
+        statusLine(status, {
+          title: COPY.placeholder.title.bom,
+          ...(message === undefined ? {} : { message }),
+          ...(status === 'error' && !configured ? { hint: COPY.preview.bomHint } : {}),
+          ...(status === 'error' && configured ? { guidance: COPY.placeholder.guide.bom } : {}),
+        }),
+      ),
     )
   }
 

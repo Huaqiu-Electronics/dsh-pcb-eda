@@ -30,9 +30,10 @@ vi.mock('three', () => {
 vi.mock('three/addons/loaders/GLTFLoader.js', () => ({ GLTFLoader: class { async loadAsync() { return { scene: { traverse() {} }, scenes: [] } } } }))
 
 import { apply, HARDWARE_TAB_ID, HARDWARE_TAB_KIND, kindForPath } from '../src/client/index.js'
-import { selectedArtifact } from '../src/client/components.js'
+import { missingState, selectedArtifact } from '../src/client/components.js'
 import { DESTINATIONS, DESTINATION_LABELS, applicationFor } from '../src/client/model.js'
 import { createHardwareStore } from '../src/client/store.js'
+import { COPY } from '../src/client/copy.js'
 import { wizardPhase } from '../src/client/wizard.js'
 
 interface Registration {
@@ -74,27 +75,36 @@ describe('client slot registrations', () => {
     const { registrations, tabTypes, context } = fakeContext()
     apply(context)
     expect(registrations.map(entry => entry.name)).toEqual([
-      'conversation.header.leading',
       'sidebar.right.pane.tab',
       'settings.section',
     ])
     expect(registrations.map(entry => entry.name)).not.toContain('conversation.session.header.corner')
-    expect(registrations[1]?.key).toBe(HARDWARE_TAB_ID)
+    // The panel's header is the only navigation: a second one above the
+    // conversation would be a duplicate, so the seat is gone.
+    expect(registrations.map(entry => entry.name)).not.toContain('conversation.header.leading')
+    expect(registrations[0]?.key).toBe(HARDWARE_TAB_ID)
     expect(tabTypes).toEqual([{
       id: HARDWARE_TAB_ID,
       kind: HARDWARE_TAB_KIND,
       keepMounted: true,
+      default: true,
       title: expect.any(Function),
     }])
+  })
+
+  it('declares itself the panel default page so the expand button opens it', () => {
+    const { tabTypes, context } = fakeContext()
+    apply(context)
+    expect(tabTypes).toEqual([expect.objectContaining({ kind: HARDWARE_TAB_KIND, default: true })])
   })
 
   it('never mounts one store handle in two scopes', () => {
     const { registrations, context } = fakeContext()
     apply(context)
-    const [nav, viewer, settings] = registrations
-    // Both root seats share one instance; the session seat must not.
-    expect(nav?.store).toBe(settings?.store)
-    expect(viewer?.store).not.toBe(nav?.store)
+    const [viewer, settings] = registrations
+    // The session seat and the root seat must not share an instance.
+    expect(viewer?.store).toBeDefined()
+    expect(viewer?.store).not.toBe(settings?.store)
   })
 
   it('delivers the controller verbatim instead of a hooks compartment', () => {
@@ -314,5 +324,74 @@ describe('artifact resolution per destination', () => {
   it('resolves nothing when no artifact is selected', () => {
     const empty = { activeDestination: 'schematic' as const, revision: 0 }
     expect(selectedArtifact(empty, 'pcb')).toBeUndefined()
+  })
+})
+
+/**
+ * Empty viewers must not stop at "not available": hardware is authored in the
+ * conversation, so every placeholder ends with the way to get the artifact.
+ */
+describe('empty viewer placeholders', () => {
+  const project = {
+    path: '/w/a.kicad_pro', name: 'a',
+    schematic: { id: 'schematic:/w/a.kicad_sch', kind: 'schematic', path: '/w/a.kicad_sch', title: 'a.kicad_sch' },
+    sheets: [],
+    boards: [{ id: 'pcb:/w/a.kicad_pcb', kind: 'pcb', path: '/w/a.kicad_pcb', title: 'a.kicad_pcb' }],
+    defaultBoard: '/w/a.kicad_pcb',
+    selectionRequired: false,
+  }
+
+  it('says nothing before discovery has answered', () => {
+    expect(missingState({ activeDestination: 'schematic', revision: 0 }, 'schematic')).toBeUndefined()
+  })
+
+  it('points at the agent when the workspace has no project', () => {
+    const view = missingState({ activeDestination: 'schematic', revision: 1, discovery: { cwd: '/w', projects: [] } }, 'schematic')
+    expect(view?.title).toBe(COPY.placeholder.title.schematic)
+    expect(view?.guidance).toBe(COPY.placeholder.noProject)
+  })
+
+  it('gives each destination its own title and guide', () => {
+    const board = { ...project, schematic: undefined, boards: [] }
+    const state = { activeDestination: 'schematic' as const, revision: 1, discovery: { cwd: '/w', projects: [board], selected: board } }
+    for (const destination of DESTINATIONS) {
+      const view = missingState(state, destination)
+      expect(view?.title, destination).toBe(COPY.placeholder.title[destination])
+      expect(view?.guidance, destination).toBe(COPY.placeholder.guide[destination])
+    }
+  })
+
+  it('explains that the BOM follows the schematic', () => {
+    const boardOnly = { ...project, schematic: undefined }
+    const view = missingState(
+      { activeDestination: 'bom', revision: 1, discovery: { cwd: '/w', projects: [boardOnly], selected: boardOnly } },
+      'bom',
+    )
+    expect(view?.title).toBe(COPY.placeholder.title.bom)
+    expect(view?.guidance).toContain('原理图')
+    expect(view?.guidance).toContain('自动')
+  })
+
+  it('leaves the instruction off a workspace choice the user can see', () => {
+    const other = { ...project, path: '/w/b.kicad_pro', name: 'b' }
+    const view = missingState(
+      {
+        activeDestination: 'pcb', revision: 1,
+        discovery: {
+          cwd: '/w', projects: [project, other],
+          issue: { code: 'selection-required', message: '2 projects found; select one explicitly' },
+        },
+      },
+      'pcb',
+    )
+    expect(view?.reason).toBe(COPY.discovery.selectionRequiredCount(2))
+    expect(view?.guidance).toBeUndefined()
+  })
+
+  it('renders the artifact instead of a placeholder once it exists', () => {
+    expect(missingState(
+      { activeDestination: 'pcb', revision: 1, discovery: { cwd: '/w', projects: [project], selected: project } },
+      'pcb',
+    )).toBeUndefined()
   })
 })

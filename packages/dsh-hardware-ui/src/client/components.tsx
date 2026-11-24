@@ -26,7 +26,7 @@ import { COPY, issueText } from './copy.js'
 import { messageOf } from './transport.js'
 import {
   buttonStyle, C, cardStyle, disabled, DOT_COLORS, dotStyle, INPUT, MUTED, MONO, MONO_TEXT,
-  pillStyle, R, SECTION_TITLE,
+  pillStyle, R,
 } from './theme.js'
 
 type UseStore = <S>(selector: (state: HardwareState) => S) => S
@@ -65,10 +65,6 @@ const useEmptyTab = (): TabInfo => EMPTY_TAB
 
 const ROW: CSSProperties = { display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', minWidth: 0 }
 
-const NAV: CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 3, minWidth: 0, fontSize: 12,
-  position: 'relative', flexWrap: 'nowrap',
-}
 const NAV_ITEM: CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5, padding: '3px 8px', borderRadius: R.md,
   border: '1px solid transparent', background: 'transparent', color: C.text2,
@@ -81,28 +77,26 @@ const NAV_ITEM_ACTIVE: CSSProperties = {
   background: C.card,
   border: `1px solid ${C.border}`,
 }
-const BRAND: CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 6, paddingRight: 8, flex: '0 0 auto',
-  borderRight: `1px solid ${C.border}`, marginRight: 3,
-}
-const BRAND_MARK: CSSProperties = {
-  width: 19, height: 19, borderRadius: R.sm, display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: 9.5, fontWeight: 700, color: '#fff', background: C.accent,
-  boxShadow: '0 2px 8px rgba(225,37,27,0.35)',
-}
-const BRAND_NAME: CSSProperties = { fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap', color: C.text }
-const CHIP: CSSProperties = {
-  minWidth: 0, maxWidth: 168, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-  color: C.text3, fontSize: 10, fontFamily: MONO, flex: '0 1 auto',
-}
 const PANEL_ROOT: CSSProperties = {
   display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, minWidth: 0,
   boxSizing: 'border-box', background: C.base, color: C.text,
 }
-const STRIP: CSSProperties = {
+/**
+ * The panel's top edge.
+ *
+ * The tab strip that used to sit here is gone: this page's destination switches
+ * ARE the panel's header. The right padding is the room the host lays its two
+ * panel controls (full screen, collapse) over — both rows are 38px, so the
+ * buttons centre on this row's centre line.
+ */
+const HEADER: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6,
-  padding: '5px 8px', background: C.panel, borderBottom: `1px solid ${C.border}`,
-  flex: '0 0 auto', minWidth: 0,
+  // The panel's two controls (fullscreen + collapse) are laid over this row's
+  // right end: 28 + 8 + 28px wide, 12px from the column edge — the same inset
+  // the conversation header's own button uses. The row reserves that whole
+  // gutter, so nothing sits under them.
+  height: 38, boxSizing: 'border-box', padding: '0 76px 0 10px',
+  background: C.panel, borderBottom: `1px solid ${C.border}`, flex: '0 0 auto', minWidth: 0,
 }
 const STRIP_GROUP: CSSProperties = { ...ROW, gap: 2, flexWrap: 'nowrap', overflowX: 'auto', minWidth: 0 }
 const META: CSSProperties = {
@@ -133,62 +127,6 @@ export function navigationParams(info: TabInfo | undefined): ViewerNavigationPar
   return params as unknown as ViewerNavigationParams
 }
 
-/**
- * One product navigation row: brand, the five persistent destinations, and the
- * selected project. The first-run wizard renders from this root-scope seat
- * because it must be able to run before any session exists.
- */
-export function EngineeringNav(props: HardwareProps): ReactNode {
-  const { useStore, actions, useSessions, discover, openDestination } = props
-  const active = useStore(state => state.activeDestination)
-  const projectPath = useStore(state => state.projectPath)
-  const selected = useStore(state => state.discovery?.selected)
-  // The navigation row is a `root` seat, so it has no session of its own; the
-  // first listed session stands in for "the workspace this product is showing".
-  const sessionId = useSessions?.(state => state.ids[0])
-  const cwd = useSessions?.(state => {
-    const id = state.ids[0]
-    return id === undefined ? undefined : state.byId[id]?.cwd
-  })
-
-  useEffect(() => {
-    let live = true
-    discover(cwd, undefined, sessionId)
-      .then((discovery) => { if (live) actions.setDiscovery(discovery) })
-      .catch((error: unknown) => { if (live) actions.setNotice(COPY.viewer.discoveryFailed(messageOf(error))) })
-    return () => { live = false }
-  }, [cwd, sessionId, discover, actions])
-
-  const projectName = selected?.name ?? (projectPath === undefined ? undefined : basename(projectPath))
-
-  return createElement(
-    'div',
-    { style: NAV, 'data-hardware-nav': true },
-    ...DESTINATIONS.map(destination => createElement(
-      'button',
-      {
-        key: destination, type: 'button',
-        style: destination === active ? NAV_ITEM_ACTIVE : NAV_ITEM,
-        'aria-pressed': destination === active,
-        'data-destination': destination,
-        title: DESTINATION_LABELS[destination],
-        onClick: () => {
-          actions.setActive(destination)
-          openDestination(destination)
-        },
-      },
-      createElement('span', { style: dotStyle(DOT_COLORS[destination], 6) }),
-      DESTINATION_LABELS[destination],
-    )),
-    ...(projectName === undefined
-      ? []
-      : [createElement('span', {
-          key: 'project', style: { ...CHIP, paddingLeft: 4 }, title: projectPath ?? projectName,
-        }, projectName)]),
-    createElement(OnboardingWizard, props),
-  )
-}
-
 /** The artifact a destination previews, with its canonical identity. */
 export function selectedArtifact(state: HardwareState, destination: HardwareDestination): HardwareArtifactInfo | undefined {
   const project = state.discovery?.selected
@@ -202,21 +140,48 @@ export function selectedArtifact(state: HardwareState, destination: HardwareDest
   return board
 }
 
-function missingReason(state: HardwareState, destination: HardwareDestination): string | undefined {
+/** What an empty viewer says: what is missing, why, and how to get it. */
+export interface MissingView {
+  /** The destination-shaped absence, in the user's words. */
+  readonly title: string
+  readonly reason: string
+  /** How the artifact can exist. Absent when the fix is a control already on screen. */
+  readonly guidance?: string
+}
+
+/**
+ * Resolve the placeholder for one destination, or `undefined` while there is
+ * nothing to say (no discovery yet, or an artifact to render).
+ *
+ * The guidance points at the agent: this product's hardware is authored in the
+ * conversation, so "暂无原理图" alone leaves the user with no next step.
+ */
+export function missingState(state: HardwareState, destination: HardwareDestination): MissingView | undefined {
   const discovery = state.discovery
   if (discovery === undefined) return undefined
+  const title = COPY.placeholder.title[destination]
   if (discovery.issue?.code === 'selection-required' && (discovery.projects?.length ?? 0) > 1) {
-    return COPY.discovery.selectionRequiredCount(discovery.projects?.length ?? 0)
+    // The project select sits directly above this card; a second instruction
+    // would point at a choice the user can already see.
+    return { title, reason: COPY.discovery.selectionRequiredCount(discovery.projects?.length ?? 0) }
   }
-  if (discovery.selected === undefined) return COPY.discovery.noProjectSelected
+  if (discovery.selected === undefined) {
+    return { title, reason: COPY.discovery.noProjectSelected, guidance: COPY.placeholder.noProject }
+  }
   if (destination === 'schematic' || destination === 'bom') {
-    if (discovery.selected.schematic === undefined) return COPY.discovery.noSchematic
+    if (discovery.selected.schematic === undefined) {
+      return { title, reason: COPY.discovery.noSchematic, guidance: COPY.placeholder.guide[destination] }
+    }
   }
   if (destination === 'pcb' || destination === '3d') {
-    if ((discovery.selected.boards?.length ?? 0) === 0) return COPY.discovery.noBoard
+    if ((discovery.selected.boards?.length ?? 0) === 0) {
+      return { title, reason: COPY.discovery.noBoard, guidance: COPY.placeholder.guide[destination] }
+    }
   }
   if (destination === 'order') {
-    if ((discovery.selected.boards?.length ?? 0) === 0) return COPY.discovery.noBoardToOrder
+    if ((discovery.selected.boards?.length ?? 0) === 0) {
+      return { title, reason: COPY.discovery.noBoardToOrder, guidance: COPY.placeholder.guide.order }
+    }
   }
   return undefined
 }
@@ -284,7 +249,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
   const noticeText = useStore(state => state.notice)
   const installed = useStore(state => state.installations)
   const artifact = useStore(state => selectedArtifact(state, active))
-  const reason = useStore(state => missingReason(state, active))
+  const missing = useStore(state => missingState(state, active))
   const workspaceRoot = useStore(state => state.workspaceRoot)
   const cwd = useSessions?.(state => {
     if (sessionId === undefined) return undefined
@@ -320,9 +285,9 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
     openDestination(destination, destination === 'schematic' || destination === 'bom' ? schematicPath : pcbPath)
   }
 
-  const strip = createElement(
+  const header = createElement(
     'div',
-    { style: STRIP, 'data-hardware-destinations': true },
+    { style: HEADER, 'data-hardware-header': true, 'data-hardware-destinations': true },
     createElement(
       'div',
       { style: STRIP_GROUP },
@@ -332,6 +297,8 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
           key: destination, type: 'button',
           style: destination === active ? { ...NAV_ITEM_ACTIVE, fontSize: 11 } : { ...NAV_ITEM, fontSize: 11 },
           'aria-pressed': destination === active,
+          'data-destination': destination,
+          title: DESTINATION_LABELS[destination],
           onClick: () => { go(destination) },
         },
         createElement('span', { style: dotStyle(DOT_COLORS[destination], 6) }),
@@ -430,7 +397,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
     'div',
     { style: PANEL_ROOT, 'data-hardware-destination': active },
     createElement('style', null, PANEL_STYLE),
-    strip,
+    header,
     meta,
     selectors.length === 0 && noticeText === undefined && (discovery?.issue === undefined || discovery.issue.code === 'selection-required')
       ? null
@@ -438,7 +405,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
     createElement(
       'div',
       { style: { ...BODY, overflow: active === 'order' || active === 'bom' ? 'auto' : 'hidden' } },
-      ...(reason === undefined
+      ...(missing === undefined
         ? [createElement(HardwarePreview, {
             key: `preview:${info.tab.id}:${String(navRevision)}:${active}:${artifact?.path ?? ''}`,
             destination: active,
@@ -450,13 +417,26 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
             configured: kicadConfigured,
           })]
         : [createElement('div', {
-            key: 'reason',
-            style: cardStyle({ alignItems: 'center', justifyContent: 'center', flex: '1 1 0', gap: 6 }),
+            key: 'missing',
+            style: cardStyle({ alignItems: 'center', justifyContent: 'center', flex: '1 1 0', gap: 6, padding: 20 }),
             'data-hardware-state': 'missing',
           },
-          createElement('span', { style: pillStyle('warn') }, COPY.viewer.nothingToShow),
-          createElement('p', { role: 'status', style: { ...MUTED, textAlign: 'center', maxWidth: 320 } }, reason))]),
+          createElement('span', { style: pillStyle('warn') }, missing.title),
+          createElement('p', {
+            role: 'status',
+            style: { ...MUTED, fontSize: 11.5, textAlign: 'center', maxWidth: 320 },
+          }, missing.reason),
+          ...(missing.guidance === undefined
+            ? []
+            : [createElement('p', {
+                key: 'guidance',
+                'data-hardware-guidance': true,
+                style: { ...MUTED, color: C.text2, fontSize: 10.5, lineHeight: 1.6, textAlign: 'center', maxWidth: 360 },
+              }, missing.guidance)]))]),
     ),
+    // The first-run wizard rides the panel rather than the conversation header:
+    // this page is the product, and it is what the expand button opens.
+    createElement(OnboardingWizard, props),
   )
 }
 

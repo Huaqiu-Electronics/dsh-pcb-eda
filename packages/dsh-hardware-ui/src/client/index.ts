@@ -1,19 +1,23 @@
 /**
  * Browser half of `@huaqiu/dsh-hardware-ui`.
  *
- * Occupies existing DSH seats only: one root navigation occupant, one
- * `keepMounted` right-panel tab body, and one settings section. Native open
- * lives inside the viewer with the resolved artifact in scope, so no
- * conversation-level action is registered.
+ * Occupies existing DSH seats only: one `keepMounted` right-panel tab body and
+ * one settings section. Native open lives inside the viewer with the resolved
+ * artifact in scope, so no conversation-level action is registered — and no
+ * conversation-level navigation either: the panel's own header IS the product's
+ * navigation, so nothing duplicates it above the conversation.
+ *
+ * The tab type declares itself the panel's default page (`default: true`), so
+ * expanding the column opens Hardware Engineering instead of the guide. Inside
+ * the panel there is no tab strip: the page's header is the panel's top edge and
+ * the host lays the two panel controls (full screen, collapse) over its end.
  *
  * Two store handles, not one: DSH pins a handle to a single slot scope, and
- * `conversation.header.leading`/`settings.section` are `root` while
- * `sidebar.right.pane.tab` is `session`. Mounting one handle in both scopes is
- * rejected at load time ("one handle, one scope"). The two halves therefore
- * coordinate the only way the slot contract allows — through the tab
- * parameters and their navigation revision.
+ * `settings.section` is `root` while `sidebar.right.pane.tab` is `session`.
+ * Mounting one handle in both scopes is rejected at load time ("one handle, one
+ * scope").
  */
-import { EngineeringNav, HardwareSettingsSection, HardwareViewerBody } from './components.js'
+import { HardwareSettingsSection, HardwareViewerBody } from './components.js'
 import type {
   ConfigFormLike, HardwareController, HardwareDestination, HardwareInstallationConfig,
   ViewerNavigationParams,
@@ -58,6 +62,11 @@ interface ClientContext {
       kind: string
       keepMounted?: boolean
       title: (address: string) => string
+      /**
+       * Seed this kind into a fresh docked pane, i.e. make it the page the
+       * expand button opens. At most one registered type may declare it.
+       */
+      default?: boolean
     }): () => void
   }
   readonly configForms?: {
@@ -83,7 +92,7 @@ function nativeKindFor(destination: HardwareDestination, path: string): string {
 
 /** Install all product UI contributions on a DSH client context. */
 export function apply(ctx: ClientContext): void {
-  // Root scope: product chrome (navigation + settings) shares one instance.
+  // Root scope: the settings section. The viewer owns the session scope below.
   const rootStore = createHardwareStore()
   // Session scope: each viewer owns its own selection/discovery state.
   const viewerStore = createHardwareStore()
@@ -139,17 +148,14 @@ export function apply(ctx: ClientContext): void {
     id: HARDWARE_TAB_ID,
     kind: HARDWARE_TAB_KIND,
     keepMounted: true,
+    // The panel's default page: an expansion seeds this kind into the empty
+    // docked pane, replacing the product's general-purpose start page.
+    default: true,
     title: () => COPY.product.name,
   }) ?? (() => {}), 'hardware-ui: right-panel tab type')
 
   const slots = ctx.slots
   if (slots === undefined) return
-
-  effect(() => slots.inject('conversation.header.leading', () => slots.register({
-    name: 'conversation.header.leading',
-    store: rootStore,
-    inject: () => controller,
-  }, EngineeringNav)), 'hardware-ui: five-destination navigation')
 
   effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register({
     name: 'sidebar.right.pane.tab',

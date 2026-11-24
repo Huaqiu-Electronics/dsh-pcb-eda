@@ -13,9 +13,15 @@ export function apply(): void {}
 /** The tab kind owned by this product UI. */
 export const HARDWARE_TAB_KIND = 'hardware-engineering'
 
-/** Slots this product UI occupies. Exported for contract tests and readers. */
+/**
+ * Slots this product UI occupies. Exported for contract tests and readers.
+ *
+ * `conversation.session.header.corner` is DSH's own expand button (we occupy
+ * nothing there); it is listed because the product depends on it. The
+ * conversation header carries no product navigation any more: the right panel's
+ * header is the only one.
+ */
 export const HARDWARE_UI_SLOTS = Object.freeze([
-  'conversation.header.leading',
   'conversation.session.header.corner',
   'sidebar.right.pane.tab',
   'settings.section',

@@ -76,12 +76,39 @@ export const COPY = {
     openInKicadTitle: (path: string) => `在 KiCad 中打开 ${path}`,
     selectArtifactFirst: '请先选择一个产物',
     configureKicad: '请在「设置 → 硬件工程」中配置 KiCad',
-    nothingToShow: '暂无可显示内容',
     selectProject: '选择工程…',
     // aria labels / titles (screen-reader text is visible text too)
     projectField: '工程',
     schematicSheetField: '原理图页',
     boardField: '板文件',
+  },
+
+  /**
+   * Empty viewers. A placeholder names what is missing and then says how to get
+   * it: the agent creates hardware, so the copy points there instead of stopping
+   * at "not available". BOM is the one destination nobody creates directly — it
+   * follows the schematic.
+   */
+  placeholder: {
+    title: {
+      schematic: '暂无原理图',
+      pcb: '暂无 PCB',
+      bom: '暂无 BOM',
+      '3d': '暂无 3D 模型',
+      order: '暂无可下单的板',
+    },
+    /** One sentence: what the agent can create for this destination. */
+    guide: {
+      schematic: '可以让智能体在当前工程中创建原理图（.kicad_sch），创建后会直接在这里显示。',
+      pcb: '可以让智能体创建 PCB 并完成布局（.kicad_pcb），保存后会直接在这里显示。',
+      bom: 'BOM 由原理图自动生成：让智能体先创建原理图，BOM 会自动更新。',
+      '3d': '3D 模型由 PCB 生成：让智能体创建 PCB 后，这里会自动出现三维预览。',
+      order: '制板与贴片都需要 PCB：让智能体创建 PCB 后即可在这里报价下单。',
+    },
+    /** Shown instead of a destination guide when no project was discovered. */
+    noProject: '可以让智能体在当前工作区创建 KiCad 工程（.kicad_pro），工程出现后这里会自动刷新。',
+    /** The ask, phrased so the user can paste it into the conversation. */
+    askAgent: '对智能体说：「为当前工程创建原理图」/「创建 PCB」/「导出 3D 模型」即可。',
   },
 
   /**
@@ -106,7 +133,6 @@ export const COPY = {
   /** schematic / pcb / 3d / bom stages. */
   preview: {
     loading: '正在加载已保存的产物…',
-    unavailable: '不可用',
     kindSchematic: '原理图',
     kindBoard: 'PCB',
     revision: (revision: string) => `版本 ${revision}`,
