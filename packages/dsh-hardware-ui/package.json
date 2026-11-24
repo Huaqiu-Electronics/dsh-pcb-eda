@@ -36,8 +36,8 @@
     "react": "^18"
   },
   "devDependencies": {
-    "@huaqiu/ecad-renderer": "0.2.4",
-    "@huaqiu/kicad-sexpr-parser": "0.1.1",
+    "@huaqiu/ecad-renderer": "0.2.5",
+    "@huaqiu/kicad-sexpr-parser": "0.1.2",
     "three": "^0.185.1",
     "@deepseek-ai/cordis": "^4.0.2",
     "@types/react": "~18.3.1",

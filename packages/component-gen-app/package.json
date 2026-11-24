@@ -30,8 +30,8 @@
     "react-dom": "^18"
   },
   "dependencies": {
-    "@huaqiu/ecad-renderer": "^0.2.4",
-    "@huaqiu/kicad-sexpr-parser": "^0.1.1"
+    "@huaqiu/ecad-renderer": "^0.2.5",
+    "@huaqiu/kicad-sexpr-parser": "^0.1.2"
   },
   "devDependencies": {
     "@types/react": "^18.3.31",
