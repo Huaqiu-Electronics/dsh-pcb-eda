@@ -162,12 +162,6 @@ export function EngineeringNav(props: HardwareProps): ReactNode {
   return createElement(
     'div',
     { style: NAV, 'data-hardware-nav': true },
-    createElement(
-      'div',
-      { style: BRAND },
-      createElement('span', { style: BRAND_MARK }, 'H!'),
-      createElement('span', { style: BRAND_NAME }, 'Hardware Engineering'),
-    ),
     ...DESTINATIONS.map(destination => createElement(
       'button',
       {
