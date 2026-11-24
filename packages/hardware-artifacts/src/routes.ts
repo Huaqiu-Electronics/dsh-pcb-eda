@@ -95,7 +95,7 @@ export function createHardwareHandler(service: HardwareArtifactService): (req: I
           return
         }
         if (req.method === 'GET' && p === `${HARDWARE_ROUTE_PREFIX}/order`) {
-          sendJson(res, 200, { ok: true, ...service.orderConfig() })
+          sendJson(res, 200, { ok: true, ...await service.orderConfig() })
           return
         }
         if (req.method === 'POST' && p === `${HARDWARE_ROUTE_PREFIX}/fabrication`) {

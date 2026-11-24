@@ -436,6 +436,14 @@ endpoint, and hands the **final order page** to the OS browser (`Open in browser
 re-opens it later). Payment and address happen on that page — this plugin never
 collects them.
 
+Both order kinds need the Huaqiu login: hqpcb is a Huaqiu business, so the same
+access token authenticates the API and signs the order page. Without a session (or
+an explicit `HUAQIU_ACCESS_TOKEN`) placing is refused before anything is uploaded.
+The final URLs are the ones the page itself uses —
+`…/mycenter/orders/pcb/quote?type=PCB&id=…&guid=…&tid=354&token=…` and
+`…/mycenter/orders/smt/quote?id=…&source=bom&token=…` — not the raw backend reply
+(kept as `responseUrl` for diagnostics).
+
 ### Runtime configuration (env)
 
 | Variable | Default | Used by |

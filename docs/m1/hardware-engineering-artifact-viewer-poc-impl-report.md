@@ -81,9 +81,11 @@ New fix in this pass, worth calling out:
   produced `ERR_INVALID_ARG_TYPE` → HTTP 500 on `/installations`. Resolved via
   `readConfig()` at call time.
 - **The page KiCad opens is not the URL the backend returns.** For PCB it is a
-  composed `/mycenter/orders/pcb/quote` URL (id, guid, `tid=354`, token); for
-  assembly it is the backend URL plus `token` and `source=bom`. The host now
-  builds those, and `responseUrl` keeps the raw string.
+  composed `/mycenter/orders/pcb/quote` URL (`type=PCB`, id, guid, `tid=354`,
+  token); for assembly it is the `…/orders/smt/quote` page composed from the
+  returned id with `source=bom` and the token. Both must carry the *signed-in*
+  Huaqiu token — hqpcb is a Huaqiu business, so there is no second credential.
+  The host builds both, and `responseUrl` keeps the raw string.
 - **Assembly geometry copies the board form.** `pcb_ban_width` must equal
   `pcb_form.blength` (the outline's longer axis as the form defines it), not the
   X extent; the pad count now comes from the board instead of KiCad's 1133
@@ -209,23 +211,35 @@ there is no in-process exporter or webview, so the host does the same work with
 | --- | --- | --- |
 | package | `kicad-cli pcb export gerbers` + `drill` → `<board>.zip` | same zip + `pcb export pos` and schematic BOM → two CSVs |
 | post | `POST <base>/openapi/api/hqpcb/External/fileQuote` (form fields + `file`) | `POST <base>/openapi/pcba/saveDfmTmpOrder` (`reqParseVO`, `pcbFile`, `coordFile`, `bomFile`) |
-| page URL | `<page>/mycenter/orders/pcb/quote?type=PCB&id=…&guid=…&tid=354&token=…` | backend `result.url` + `token` + `source=bom` |
+| page URL | `<page>/mycenter/orders/pcb/quote?type=PCB&id=…&guid=…&tid=354&token=…` | `<page>/mycenter/orders/smt/quote?id=…&source=bom&token=…` |
 | launch | OS default browser (`open` / `rundll32` / `xdg-open`, `shell:false`) | same |
 
 Details that matter:
 
 - The two URLs are built by `pcbOrderUrl` / `smtOrderUrl` and mirror
-  `place_order_for_pcb.h` / `place_order_for_smt.h` field for field. The raw
-  backend string is still returned as `responseUrl`; `orderUrl` is what KiCad's
-  webview would load, and it is what gets opened.
+  `place_order_for_pcb.h` / `place_order_for_smt.h`, down to the query the hqpcb
+  page actually shows:
+  `…/pcb/quote?type=PCB&id=4679157&guid=…&tid=354&token=…` and
+  `…/smt/quote?id=1309829474627354699&source=bom&token=…`. The assembly page is
+  composed from the returned `id` (the endpoint's own URL is that page), so the
+  result does not depend on which origin answered the POST; if a response ever
+  carries no id, `smtOrderUrlFromBackend` falls back to appending `token` and
+  `source=bom` exactly as the reference does. The raw backend string is still
+  returned as `responseUrl`; `orderUrl` is what KiCad's webview would load, and
+  it is what gets opened.
 - `POST /order/open { url }` reopens a page without re-submitting; the result
   card's "Open in browser" uses it. Only `https`, or `http` on loopback, is
   accepted; credentials in the URL and other schemes are refused.
 - Confirmation is two-sided: the panel requires an explicit checkbox and a
   confirm click, and the host refuses `POST /order/{pcb,smt}` unless
   `confirm: true`. Nothing is uploaded from a preview or a refresh.
-- The assembly endpoint's `authorization` header is the configured Huaqiu token;
-  the board endpoint takes none, exactly like the reference client.
+- The token is the signed-in Huaqiu session (`huaqiuAuth.getAccessToken()`,
+  read lazily through `ctx.get` so the plugin still works without auth mounted);
+  an explicit config/env token remains an override for scripted runs. Both kinds
+  require it and fail with `unauthorized` before uploading — a page without the
+  token opens signed out. The assembly endpoint also sends it as
+  `authorization`; the board endpoint takes no header, exactly like the
+  reference client.
 - Board facts come from the saved `.kicad_pcb`: copper layers, outline,
   thickness, minimum track/drill, stackup copper weight, pad count. They are
   snapped onto the tiers the form offers, not invented.
@@ -270,7 +284,7 @@ Chrome, real KiCad CLI), **S** source inspection, **B** blocked.
 | H3 environment context | PASS I | `/environment` payload quoted in §7 |
 | Q1 offline registration | PASS U+I | 12 quote-tool tests; boot reports `no quote service configured`; viewing and file-level ordering unaffected |
 | Q2 configured endpoint | PASS U+I (stub) | real `kicad-cli` export + real multipart POST to a local stub speaking the eda.cn contract: PCB 50 parts / 59 503 B, PCBA 4 parts / 56 828 B with `authorization`; final URLs recorded. The production endpoint is reachable (probed) but no real order was created — that is a commercial action |
-| Q3 order URL ownership | PASS U+I | host builds exactly KiCad's webview URL (`pcbOrderUrl` / `smtOrderUrl`); the UI displays it and never rewrites it. `responseUrl` keeps the backend's raw string |
+| Q3 order URL ownership | PASS U+I | host builds exactly the webview URL (`pcbOrderUrl` / `smtOrderUrl`), including the token the signed-in session provides: observed `…/pcb/quote?type=PCB&id=STUB42&guid=stub-guid&tid=354&token=7047…` and `…/smt/quote?id=1309829474627354699&source=bom&token=7047…`; the UI displays it and never rewrites it. `responseUrl` keeps the backend's raw string |
 | Q4 explicit confirmation | PASS U+I | panel requires a checkbox + confirm; host rejects `confirm !== true`; preview and refresh never upload |
 | R1 offline activation 24/24 | PARTIAL | desktop fixture inherited from `docs/m1/…-poc-report.md`; the web profile reproduces the 11 mounted rows (`bundle.test.ts`: no duplicate rows, no HQ Edge injection) |
 | R2 HQ Edge independence | PASS I | the whole walk ran without HQ Edge installed |

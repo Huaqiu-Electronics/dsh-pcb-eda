@@ -29,9 +29,10 @@ export type {
 } from './service.js'
 export { HardwareArtifactService } from './service.js'
 export {
-  DEFAULT_ORDER_PAGE_BASE, ORDER_PATHS, ORDER_SOURCE_TID, orderBomCsv, orderBomRows,
-  parsePositions, pcbOrderForm, pcbOrderUrl, positionsCsv, readBoardFacts, smtOrderForm,
-  smtOrderUrl, snapHoleTier, snapThickness, snapTraceTier,
+  DEFAULT_ORDER_BASE_URL, DEFAULT_ORDER_PAGE_BASE, ORDER_PATHS, ORDER_SOURCE_TID, orderBomCsv,
+  orderBomRows, orderIdsFromUrl, parsePositions, pcbOrderForm, pcbOrderUrl, positionsCsv,
+  readBoardFacts, smtOrderForm, smtOrderUrl, smtOrderUrlFromBackend, snapHoleTier, snapThickness,
+  snapTraceTier,
 } from './order.js'
 export type { BoardFacts, PositionRow } from './order.js'
 export { createHardwareHandler, HARDWARE_ROUTE_PREFIX } from './routes.js'
@@ -105,6 +106,20 @@ interface SystemPromptFace {
 }
 
 export function apply(ctx: Context, config: HardwareArtifactsPluginConfig = {}): void {
+  /**
+   * The signed-in Huaqiu session, when the auth plugin is mounted.
+   *
+   * Read lazily through `ctx.get` rather than declared in `inject`: hardware
+   * artifacts must stay usable — and unit-testable — in a profile without auth,
+   * and only the order path needs the token.
+   */
+  const huaqiuAuth = (): { auth?: { getAccessToken?: () => Promise<string | null> } } | undefined => {
+    const get = (ctx as Context & { get?: (name: string) => unknown }).get
+    return typeof get === 'function'
+      ? get.call(ctx, 'huaqiuAuth') as { auth?: { getAccessToken?: () => Promise<string | null> } } | undefined
+      : undefined
+  }
+
   const service = new HardwareArtifactService({
     // The accessor keeps the service on the live profile config reference:
     // a settings write is visible to the next validation without a restart.
@@ -114,6 +129,15 @@ export function apply(ctx: Context, config: HardwareArtifactsPluginConfig = {}):
       orderBaseUrl: readConfig(config.orderBaseUrl),
       accessToken: readConfig(config.accessToken),
     }),
+    // hqpcb is a Huaqiu business: the login that authenticates the eda.cn API
+    // is the token the order page expects. An explicit config token still wins.
+    authToken: async () => {
+      try {
+        return (await huaqiuAuth()?.auth?.getAccessToken?.()) ?? null
+      } catch {
+        return null
+      }
+    },
   })
   ctx.effect(() => ctx.provide('hardwareArtifacts', service))
 

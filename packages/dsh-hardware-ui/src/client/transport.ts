@@ -138,6 +138,7 @@ export async function prepareBoardGlb(
 export interface OrderConfigInfo {
   readonly configured: boolean
   readonly baseUrl: string
+  /** A signed-in Huaqiu session or an explicitly configured token. */
   readonly hasToken: boolean
   readonly provider: string
 }

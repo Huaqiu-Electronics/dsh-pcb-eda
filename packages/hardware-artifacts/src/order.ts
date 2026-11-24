@@ -13,12 +13,18 @@
  *   PCB   POST <base>/openapi/api/hqpcb/External/fileQuote
  *   SMT   POST <base>/openapi/pcba/saveDfmTmpOrder
  *
- * Nothing here computes a price. The backend owns the quote, the order id and
- * the URL; this module only packages files and forwards the response.
+ * Nothing here computes a price. The backend owns the quote and the order id;
+ * this module packages files, forwards the response, and composes the final
+ * webview URL the way the reference does. The `token` in that URL is the
+ * signed-in Huaqiu access token — hqpcb is a Huaqiu business, so one login
+ * covers the API and the order page.
  *
  * Reference: `pcbnew/fab/place_order_form_builder.h`,
  * `pcbnew/fab/place_order_for_pcb.h`, `pcbnew/fab/place_order_for_smt.h`,
  * `copilot/assistant/quote/{pcb_quote,smt_quote}.cpp`.
+ * Endpoints: `copilot/interface/settings/{site_env,site_paths}.h`
+ * (`www.eda.cn`, `/openapi/api/hqpcb/External/fileQuote`,
+ * `/openapi/pcba/saveDfmTmpOrder`).
  *
  * @module
  */
@@ -703,9 +709,13 @@ function withParams(url: string, params: readonly (readonly [string, string])[])
  * The final PCB page KiCad loads into its order webview.
  *
  * Mirrors `place_order_for_pcb.h` exactly:
- * `<page>/mycenter/orders/pcb/quote?type=PCB&id=…&guid=…&tid=354&token=…`.
+ * `<page>/mycenter/orders/pcb/quote?type=PCB&id=…&guid=…&tid=354&token=…`, e.g.
+ * `https://www.hqpcb.com/mycenter/orders/pcb/quote?type=PCB&id=4679157&guid=19c1…&tid=354&token=7047…`
+ *
  * Values are query-encoded, which is the only deviation from the C++ string
- * concatenation — a token with `+` or `/` must not corrupt the query.
+ * concatenation — a token with `+` or `/` must not corrupt the query. Parameter
+ * order is the reference order; the page is not sensitive to it, but a stable
+ * order keeps the URL comparable with a KiCad-generated one.
  */
 export function pcbOrderUrl(
   pageBase: string,
@@ -725,10 +735,37 @@ export function pcbOrderUrl(
 /**
  * The final assembly page KiCad loads into its order webview.
  *
- * Mirrors `place_order_for_smt.h`: the backend's URL plus `token` and
- * `source=bom` (the latter switches the page into BOM matching).
+ * The reference appends `token` and `source=bom` to the URL the SMT endpoint
+ * returns (`place_order_for_smt.h`); the endpoint's URL is the hqpcb quote page
+ * itself, so the page is composed here from its `id` — the same page, with the
+ * query exactly as the webview ends up showing it:
+ *
+ * `https://www.hqpcb.com/mycenter/orders/smt/quote?id=1309829474627354699&source=bom&token=7047…`
+ *
+ * Composing rather than patching the backend string keeps the page host
+ * independent of whichever origin answered the POST, and keeps `source=bom`
+ * (which switches the page into BOM matching) even if the response omits it.
  */
-export function smtOrderUrl(orderUrl: string, token: string | undefined): string | undefined {
+export function smtOrderUrl(
+  pageBase: string,
+  ids: { id?: string },
+  token: string | undefined,
+): string | undefined {
+  if (ids.id === undefined) return undefined
+  const base = pageBase.replace(/\/+$/u, '')
+  const params: [string, string][] = [['id', ids.id], ['source', 'bom']]
+  if (token !== undefined && token !== '') params.push(['token', token])
+  return withParams(`${base}/mycenter/orders/smt/quote`, params)
+}
+
+/**
+ * Fallback for an SMT response whose URL carries no `id`: append `token` and
+ * `source=bom` to the backend URL exactly as the reference does.
+ *
+ * This is the literal `add_parameter_to_url(result.url, {token, source})`
+ * behaviour; it is only used when the response cannot supply an order id.
+ */
+export function smtOrderUrlFromBackend(orderUrl: string, token: string | undefined): string | undefined {
   const params: [string, string][] = []
   if (token !== undefined && token !== '') params.push(['token', token])
   params.push(['source', 'bom'])

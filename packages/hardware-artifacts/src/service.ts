@@ -16,7 +16,7 @@ import {
   DEFAULT_ORDER_BASE_URL, DEFAULT_ORDER_PAGE_BASE, multipartBody,
   ORDER_PATHS, orderBomCsv, orderBomRows, orderIdsFromUrl, packageName, parsePositions,
   pcbOrderForm, pcbOrderUrl, positionsCsv, readBoardFacts, readExportDirectory, smtOrderForm,
-  smtOrderUrl, zipPackage,
+  smtOrderUrl, smtOrderUrlFromBackend, zipPackage,
   type BoardFacts,
 } from './order.js'
 
@@ -169,6 +169,7 @@ export interface FabricationResult {
 export interface OrderConfigInfo {
   readonly configured: boolean
   readonly baseUrl: string
+  /** True when a signed-in session or a configured token can sign the page. */
   readonly hasToken: boolean
   readonly provider: 'huaqiu'
 }
@@ -209,6 +210,13 @@ export interface HardwareArtifactsOptions {
   readonly orderPageBase?: string
   /** Huaqiu access token; only ever sent to the order endpoint. */
   readonly accessToken?: string
+  /**
+   * Resolves the signed-in Huaqiu token when no explicit token is configured.
+   *
+   * hqpcb is a Huaqiu business, so the login that feeds the eda.cn API is also
+   * the token the order page expects — there is no second credential.
+   */
+  readonly authToken?: () => Promise<string | null>
   /** Injectable transport for tests; defaults to global fetch. */
   readonly postOrder?: (url: string, init: {
     readonly body: Buffer
@@ -1106,14 +1114,34 @@ export class HardwareArtifactService {
   }
 
   /** What the Order destination may do right now, without contacting anything. */
-  orderConfig(): OrderConfigInfo {
+  async orderConfig(): Promise<OrderConfigInfo> {
     const installed = this.installations()
     const settings = this.orderSettings()
     return {
       configured: installed.kicad.configured,
       baseUrl: settings.baseUrl,
-      hasToken: settings.accessToken !== undefined,
+      hasToken: (await this.orderToken()) !== undefined,
       provider: 'huaqiu',
+    }
+  }
+
+  /**
+   * The token the order page must carry.
+   *
+   * An explicitly configured token wins (it makes a scripted run possible);
+   * otherwise the signed-in Huaqiu session is used, which is the same token the
+   * eda.cn API accepts. Absent both, ordering is refused before anything is
+   * uploaded — the page would render signed out otherwise.
+   */
+  private async orderToken(): Promise<string | undefined> {
+    const settings = this.orderSettings()
+    if (settings.accessToken !== undefined) return settings.accessToken
+    if (this.config.authToken === undefined) return undefined
+    try {
+      const token = await this.config.authToken()
+      return token === null || token.trim() === '' ? undefined : token.trim()
+    } catch {
+      return undefined
     }
   }
 
@@ -1230,7 +1258,8 @@ export class HardwareArtifactService {
    * PCB: every `PCB_FORM` field plus the gerber/drill archive as `file`.
    * SMT: `pcbFile` + `coordFile` + `bomFile` and `reqParseVO`, with the caller's
    * access token in `authorization`. The backend owns the order; this method
-   * only forwards the files and passes the returned URL through untouched.
+   * forwards the files and composes the final page URL from the returned id the
+   * way the reference does.
    */
   async placeOrder(request: PlaceOrderRequest): Promise<PlaceOrderResult> {
     const settings = this.orderSettings()
@@ -1240,6 +1269,16 @@ export class HardwareArtifactService {
       ...(request.roots === undefined ? {} : { roots: request.roots }),
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     })
+    // Checked after the install gate so a missing KiCad is reported as such,
+    // but before any upload: the page would open signed out without a token.
+    const token = await this.orderToken()
+    if (token === undefined) {
+      throw errorWithCode(
+        'placing an order requires a signed-in Huaqiu account (or HUAQIU_ACCESS_TOKEN)',
+        'unauthorized',
+        401,
+      )
+    }
     const facts = bundle.facts
     const endpoint = `${settings.baseUrl}${ORDER_PATHS[request.kind]}`
 
@@ -1252,13 +1291,6 @@ export class HardwareArtifactService {
       parts = Object.entries(form).map(([name, value]) => ({ name, value }))
       files = [{ field: 'file', name: bundle.archive.zipName, type: 'application/zip', data: bundle.archiveData }]
     } else {
-      if (settings.accessToken === undefined) {
-        throw errorWithCode(
-          'SMT order placement requires a Huaqiu access token; configure it in Settings → Hardware Engineering',
-          'unauthorized',
-          401,
-        )
-      }
       if (bundle.assemblyFiles === undefined) {
         throw errorWithCode('SMT order placement requires the project root schematic', 'invalid-request', 400)
       }
@@ -1286,7 +1318,7 @@ export class HardwareArtifactService {
           data: new TextEncoder().encode(bundle.assemblyFiles.bom),
         },
       ]
-      headers = { authorization: settings.accessToken }
+      headers = { authorization: token }
     }
 
     const boundary = `----huaqiu${createHash('sha256').update(`${endpoint}:${String(Date.now())}`).digest('hex').slice(0, 24)}`
@@ -1324,12 +1356,15 @@ export class HardwareArtifactService {
       throw errorWithCode('the order endpoint returned no order URL', 'order-rejected', 502)
     }
 
-    // Reproduce the URL KiCad's own action loads in its webview. For PCB that
-    // is a page composed around the returned id/guid; for assembly it is the
-    // backend URL plus the token and `source=bom`.
+    // Reproduce the URL KiCad's own action loads in its webview, including the
+    // exact query the hqpcb page expects. For PCB that is a page composed
+    // around the returned id/guid; for assembly the same kind of page, composed
+    // from the returned id with `source=bom` (BOM matching). The backend's own
+    // string is kept as `responseUrl` for diagnostics.
+    const ids = orderIdsFromUrl(responseUrl)
     const orderUrl = request.kind === 'pcb'
-      ? pcbOrderUrl(settings.pageBase, orderIdsFromUrl(responseUrl), settings.accessToken)
-      : smtOrderUrl(responseUrl, settings.accessToken)
+      ? pcbOrderUrl(settings.pageBase, ids, token)
+      : smtOrderUrl(settings.pageBase, ids, token) ?? smtOrderUrlFromBackend(responseUrl, token)
     if (orderUrl === undefined) {
       throw errorWithCode('the order endpoint returned an order id that cannot form a page URL', 'order-rejected', 502)
     }

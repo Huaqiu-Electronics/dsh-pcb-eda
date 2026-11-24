@@ -287,7 +287,9 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     action: 'Submit PCB order',
     onAction: () => { setAcknowledged(false); setConfirming('pcb') },
     busy: placing === 'pcb',
-    ...(configured && prepared !== undefined ? {} : { blocked: configured ? 'Waiting for the fabrication package.' : 'Configure KiCad to package the board files.' }),
+    ...(configured && prepared !== undefined
+      ? tokenReady ? {} : { blocked: 'Sign in to Huaqiu to place an order — the order page opens under your account.' }
+      : { blocked: configured ? 'Waiting for the fabrication package.' : 'Configure KiCad to package the board files.' }),
   })
 
   const smtCard = workflowCard({
@@ -300,7 +302,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     details: [
       { label: 'Placements', value: assembly === undefined ? '—' : String(assembly.positions) },
       { label: 'BOM lines', value: assembly === undefined ? '—' : String(assembly.bomLines) },
-      { label: 'Token', value: tokenReady ? 'configured' : 'missing' },
+      { label: 'Token', value: tokenReady ? 'Huaqiu login' : 'signed out' },
     ],
     action: 'Submit assembly order',
     onAction: () => { setAcknowledged(false); setConfirming('smt') },
@@ -309,7 +311,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       ? { blocked: 'Select a root schematic so the BOM and positions can be built.' }
       : tokenReady
         ? {}
-        : { blocked: 'Assembly ordering needs a Huaqiu access token in Settings → Hardware Engineering.' }),
+        : { blocked: 'Sign in to Huaqiu to order assembly — the page opens under your account.' }),
   })
 
   const agentHint = createElement(

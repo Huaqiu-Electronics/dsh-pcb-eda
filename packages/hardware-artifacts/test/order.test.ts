@@ -14,8 +14,11 @@ import { HardwareArtifactService, groupBomRows, parseCsv } from '../src/service.
 import {
   orderBomCsv, orderBomRows, orderIdsFromUrl, parsePositions,
   pcbOrderForm, pcbOrderUrl, positionsCsv, readBoardFacts, smtOrderForm, smtOrderUrl,
-  snapHoleTier, snapThickness, snapTraceTier,
+  smtOrderUrlFromBackend, snapHoleTier, snapThickness, snapTraceTier,
 } from '../src/order.js'
+
+/** A shape taken from a real Huaqiu login token (uuid + machine suffix). */
+const TOKEN = '7047b925-d38b-5cb8-88bd-22a2a9d928fc-6b02f368'
 
 let root: string
 
@@ -168,16 +171,31 @@ describe('order URLs', () => {
       .toEqual({ id: '42', guid: 'ab-cd' })
   })
 
-  it('composes the authenticated page without touching the returned URL', () => {
-    const orderUrl = pcbOrderUrl('https://www.hqpcb.com', { id: '42', guid: 'ab' }, 'secret')
+  it('composes exactly the PCB page a KiCad order opens', () => {
+    const orderUrl = pcbOrderUrl(
+      'https://www.hqpcb.com',
+      { id: '4679157', guid: '19c11d784808ff55b98a2bdb1edb6d91' },
+      TOKEN,
+    )
     expect(orderUrl).toBe(
-      'https://www.hqpcb.com/mycenter/orders/pcb/quote?type=PCB&id=42&guid=ab&tid=354&token=secret',
+      `https://www.hqpcb.com/mycenter/orders/pcb/quote?type=PCB&id=4679157`
+      + `&guid=19c11d784808ff55b98a2bdb1edb6d91&tid=354&token=${TOKEN}`,
     )
     // No id means there is no page to open, not a page with empty parameters.
-    expect(pcbOrderUrl('https://www.hqpcb.com', {}, 'secret')).toBeUndefined()
+    expect(pcbOrderUrl('https://www.hqpcb.com', {}, TOKEN)).toBeUndefined()
+  })
 
-    const smt = smtOrderUrl('https://www.eda.cn/pcba/order/abc', 'secret')
-    expect(smt).toBe('https://www.eda.cn/pcba/order/abc?token=secret&source=bom')
+  it('composes exactly the assembly page, with source=bom', () => {
+    const smt = smtOrderUrl('https://www.hqpcb.com', { id: '1309829474627354699' }, TOKEN)
+    expect(smt).toBe(
+      `https://www.hqpcb.com/mycenter/orders/smt/quote?id=1309829474627354699&source=bom&token=${TOKEN}`,
+    )
+  })
+
+  it('falls back to the backend URL only when the response carries no order id', () => {
+    expect(smtOrderUrl('https://www.hqpcb.com', {}, TOKEN)).toBeUndefined()
+    expect(smtOrderUrlFromBackend('https://www.hqpcb.com/mycenter/orders/smt/quote?id=1', 'tok'))
+      .toBe('https://www.hqpcb.com/mycenter/orders/smt/quote?id=1&token=tok&source=bom')
   })
 })
 
@@ -194,6 +212,8 @@ interface Captured {
 
 function serviceWithFakeCli(options: {
   token?: string
+  /** Stands in for the signed-in Huaqiu session (`huaqiuAuth`). */
+  session?: () => Promise<string | null>
   respond?: (url: string) => unknown
   capture?: Captured[]
   baseUrl?: string
@@ -208,6 +228,7 @@ function serviceWithFakeCli(options: {
     probeVersion: () => '10.0.7',
     cacheRoot: join(root, '.cache'),
     ...(options.token === undefined ? {} : { accessToken: options.token }),
+    ...(options.session === undefined ? {} : { authToken: options.session }),
     ...(options.baseUrl === undefined ? {} : { orderBaseUrl: options.baseUrl }),
     // A test must never start a real browser: the opener and the process
     // launcher are both fakes, and the URL is recorded instead.
@@ -300,13 +321,32 @@ describe('order submission', () => {
     expect(request?.headers).toBeUndefined()
   })
 
-  it('refuses assembly without a token and never contacts the endpoint', async () => {
+  it('refuses to order without a session and never contacts the endpoint', async () => {
     const { board, schematic } = project()
     const capture: Captured[] = []
     const { service } = serviceWithFakeCli({ capture })
-    await expect(service.placeOrder({ kind: 'smt', boardPath: board, schematicPath: schematic, roots: [root] }))
-      .rejects.toMatchObject({ code: 'unauthorized' })
+    // Both kinds need the hqpcb token: it is the Huaqiu login token, and the
+    // order page would otherwise open signed out.
+    for (const kind of ['pcb', 'smt'] as const) {
+      await expect(service.placeOrder({ kind, boardPath: board, schematicPath: schematic, roots: [root] }))
+        .rejects.toMatchObject({ code: 'unauthorized' })
+    }
     expect(capture).toHaveLength(0)
+  })
+
+  it('uses the signed-in session token when no token is configured', async () => {
+    const { board, schematic } = project()
+    const opened: string[] = []
+    const { service } = serviceWithFakeCli({ opened, session: async () => TOKEN })
+    expect(await service.orderConfig()).toMatchObject({ hasToken: true, provider: 'huaqiu' })
+    const placed = await service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic, roots: [root] })
+    expect(placed.orderUrl?.endsWith(`&token=${TOKEN}`)).toBe(true)
+    expect(opened).toEqual([placed.orderUrl])
+  })
+
+  it('treats a signed-out session as no token', async () => {
+    const { service } = serviceWithFakeCli({ session: async () => null })
+    expect(await service.orderConfig()).toMatchObject({ hasToken: false })
   })
 
   it('posts the three assembly files, the merged form and the token', async () => {
@@ -317,12 +357,15 @@ describe('order submission', () => {
       capture,
       opened,
       token: 'tok',
-      respond: () => ({ result: { url: 'https://www.eda.cn/pcba/order/abc' } }),
+      respond: () => ({ result: { url: 'https://www.hqpcb.com/mycenter/orders/smt/quote?id=1309829474627354699' } }),
     })
     const placed = await service.placeOrder({ kind: 'smt', boardPath: board, schematicPath: schematic, roots: [root], quantity: 10 })
-    expect(placed.responseUrl).toBe('https://www.eda.cn/pcba/order/abc')
-    // The exact URL KiCad's PlaceOrderForSMT builds: backend URL + token + source.
-    expect(placed.orderUrl).toBe('https://www.eda.cn/pcba/order/abc?token=tok&source=bom')
+    expect(placed.responseUrl).toBe('https://www.hqpcb.com/mycenter/orders/smt/quote?id=1309829474627354699')
+    // The assembly page the webview ends on: id, source=bom, token — the same
+    // query the site shows, composed from the id the endpoint returned.
+    expect(placed.orderUrl).toBe(
+      'https://www.hqpcb.com/mycenter/orders/smt/quote?id=1309829474627354699&source=bom&token=tok',
+    )
     expect(placed.launched).toBe(true)
     expect(opened).toEqual([placed.orderUrl])
     const request = capture[0]
@@ -376,13 +419,13 @@ describe('order submission', () => {
     const service = new HardwareArtifactService({ cacheRoot: join(root, '.cache'), postOrder: async () => ({ status: 200, text: '{}' }) })
     await expect(service.placeOrder({ kind: 'pcb', boardPath: board, roots: [root] }))
       .rejects.toMatchObject({ code: 'not-configured' })
-    expect(service.orderConfig()).toMatchObject({ configured: false, provider: 'huaqiu' })
+    expect(await service.orderConfig()).toMatchObject({ configured: false, provider: 'huaqiu' })
   })
 
   it('keeps the configured base URL for the submission target', async () => {
     const { board, schematic } = project()
     const capture: Captured[] = []
-    const { service } = serviceWithFakeCli({ capture, baseUrl: 'http://127.0.0.1:9999/' })
+    const { service } = serviceWithFakeCli({ capture, baseUrl: 'http://127.0.0.1:9999/', token: 'tok' })
     await service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic, roots: [root] })
     expect(capture[0]?.url).toBe('http://127.0.0.1:9999/openapi/api/hqpcb/External/fileQuote')
   })
