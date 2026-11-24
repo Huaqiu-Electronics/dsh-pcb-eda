@@ -587,11 +587,6 @@ export function HardwareSettingsSection(props: HardwareProps): ReactNode {
       ...(solidcraft?.executable === undefined ? {} : { detail: solidcraft.executable }),
       onChange: setSolidcraftRoot,
     }),
-    createElement('div', { style: cardStyle() },
-      createElement('span', { style: SECTION_TITLE }, 'Order service'),
-      createElement('p', { style: MUTED },
-        'Fabrication orders post to the Huaqiu openapi. The base URL comes from the profile or HUAQIU_ORDER_BASE_URL; assembly ordering additionally needs a Huaqiu access token.'),
-    ),
     ...(message === '' ? [] : [createElement('p', { role: 'status', style: { ...MUTED, color: C.text2 } }, message)]),
   )
 }
