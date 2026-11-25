@@ -131,6 +131,24 @@ describe('HuaqiuOnboardingWizard', () => {
     expect(card()?.getAttribute('role')).toBe('dialog')
   })
 
+  it('renders the real HQ mark with the theme brand reds', async () => {
+    const stub = stubAuth({ initial: null })
+    registerAuth(stub.auth)
+    renderWizard()
+    await flush()
+
+    const mark = document.querySelector('[data-hq-onboarding-brand-mark]')
+    expect(mark?.getAttribute('viewBox')).toBe('0 0 974.25 974.25')
+    expect(mark?.querySelectorAll('path, polygon')).toHaveLength(3)
+    expect(mark?.querySelector('path')?.getAttribute('fill')).toBe('#c7000b')
+
+    act(() => {
+      document.body.setAttribute('data-ds-dark-theme', '')
+      syncUiEnv()
+    })
+    expect(mark?.querySelector('path')?.getAttribute('fill')).toBe('#ff6b74')
+  })
+
   it('stays hidden when the host session is already authenticated', async () => {
     const stub = stubAuth({ initial: { token: 'tok', id: 'u1', nickname: 'Engineer' } })
     registerAuth(stub.auth)

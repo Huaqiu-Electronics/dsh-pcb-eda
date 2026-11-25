@@ -44,7 +44,13 @@ import { useT } from '../i18n.js'
 import { HostLoginDismissedError } from '../transport.js'
 import { useIsDark } from '../ui-env.js'
 
-const BRAND_RED = '#e03131'
+/**
+ * Brand values mirror `@huaqiu/dsh-ui-theme-huaqiu` (`HUAQIU_TOKENS` and
+ * `client/HuaqiuBrand.tsx`). This client bundle cannot import another
+ * plugin's client entry, so the mark and colors stay self-contained here.
+ */
+const BRAND_RED = '#c7000b'      // --dsw-alias-brand-primary (light)
+const BRAND_RED_DARK = '#ff6b74' // --dsw-alias-brand-primary (dark)
 
 /** Every painted value for one color scheme (the client bundle ships no CSS). */
 interface WizardPalette {
@@ -71,8 +77,8 @@ export const LIGHT_WIZARD_PALETTE: WizardPalette = {
   border: 'var(--dsw-alias-border-l1, #e4e7ec)',
   text: 'var(--dsw-alias-label-primary, #1f2733)',
   muted: 'var(--dsw-alias-label-secondary, #5b6472)',
-  accentSoft: 'rgba(224, 49, 49, 0.08)',
-  accentBorder: 'rgba(224, 49, 49, 0.22)',
+  accentSoft: 'rgba(199, 0, 11, 0.12)',
+  accentBorder: 'rgba(199, 0, 11, 0.22)',
   iconColor: BRAND_RED,
   shadow: '0 24px 60px rgba(15, 20, 28, 0.24)',
   closeHover: 'var(--dsw-alias-interactive-bg-hover, #f1f4f8)',
@@ -87,9 +93,9 @@ export const DARK_WIZARD_PALETTE: WizardPalette = {
   border: '#343434',
   text: '#f3f3f3',
   muted: '#9e9e9e',
-  accentSoft: '#2a2020',
-  accentBorder: '#492929',
-  iconColor: '#ff6b6b',
+  accentSoft: 'rgba(255, 107, 116, 0.22)',
+  accentBorder: 'rgba(255, 107, 116, 0.42)',
+  iconColor: BRAND_RED_DARK,
   shadow: '0 24px 60px rgba(0, 0, 0, 0.75)',
   closeHover: '#2e2e2e',
 }
@@ -98,16 +104,27 @@ export function wizardPalette(dark: boolean): WizardPalette {
   return dark ? DARK_WIZARD_PALETTE : LIGHT_WIZARD_PALETTE
 }
 
-/** The boxed「H!」mark from the onboarding prototype. */
-function WizardBrandMark({ color }: { color: string }): JSX.Element {
+/**
+ * The real HQ mark, geometry copied verbatim from
+ * `dsh-ui-theme-huaqiu/src/client/HuaqiuBrand.tsx` (as in dsh-huaqiu-about).
+ * Only the fill is parameterized so the dark scheme can use the theme's
+ * lighter brand red instead of the fixed light-scheme red.
+ */
+function HuaqiuBrandMark({ size, color }: { size: number; color: string }): JSX.Element {
   return (
-    <svg width="26" height="26" viewBox="0 0 36 36" aria-hidden="true" focusable="false">
-      <rect x="2.5" y="2.5" width="31" height="31" rx="8" stroke={color} strokeWidth="3.2" fill="none" />
-      <rect x="9.5" y="10" width="3.4" height="16" rx="1.5" fill={color} />
-      <rect x="11" y="16.3" width="9" height="3.4" rx="1" fill={color} />
-      <rect x="17.5" y="10" width="3.4" height="16" rx="1.5" fill={color} />
-      <rect x="23.5" y="10" width="3.2" height="10.5" rx="1.5" fill={color} />
-      <circle cx="25.1" cy="24.2" r="1.8" fill={color} />
+    <svg
+      aria-hidden="true"
+      data-hq-onboarding-brand-mark=""
+      focusable="false"
+      height={size}
+      style={{ display: 'block', flex: 'none' }}
+      viewBox="0 0 974.25 974.25"
+      width={size}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M865.67,758.67a107,107,0,1,0,107,107A107,107,0,0,0,865.67,758.67Z" fill={color} fillRule="evenodd" />
+      <path d="M744.11,0h-514C103.56,0,0,103.56,0,230.14v514C0,870.69,103.56,974.25,230.14,974.25h514c3.34,0,6.66-.06,10-.21a155.66,155.66,0,0,1-40-143.56H230.14a86.63,86.63,0,0,1-86.37-86.37v-514a86.63,86.63,0,0,1,86.37-86.37h514a86.61,86.61,0,0,1,86.37,86.37V714.06a156.93,156.93,0,0,1,35.19-4A155.1,155.1,0,0,1,974,754c.15-3.28.21-6.6.21-9.92v-514C974.25,103.56,870.69,0,744.11,0Z" fill={color} fillRule="evenodd" />
+      <polygon points="735.67 735.65 735.67 238.59 591.9 238.59 591.9 415.24 382.39 415.24 382.39 238.59 238.62 238.59 238.62 735.65 382.39 735.65 382.39 559.01 591.9 559.01 591.9 735.65 735.67 735.65" fill={color} fillRule="evenodd" />
     </svg>
   )
 }
@@ -322,7 +339,7 @@ export function HuaqiuOnboardingWizard(_props: HuaqiuOnboardingWizardProps): JSX
         data-hq-onboarding-card=""
         style={cardStyle}
       >
-        <div style={{ height: 3, background: `linear-gradient(90deg, ${BRAND_RED}, #ff5b5b, #9b1c1c)` }} />
+        <div style={{ height: 3, background: `linear-gradient(90deg, ${BRAND_RED}, #e53935, #8e111a)` }} />
         <div style={{ padding: '20px 24px 16px', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', minWidth: 0 }}>
             <div style={{
@@ -335,7 +352,7 @@ export function HuaqiuOnboardingWizard(_props: HuaqiuOnboardingWizardProps): JSX
               alignItems: 'center',
               justifyContent: 'center',
               flex: '0 0 auto',
-            }}><WizardBrandMark color={palette.iconColor} /></div>
+            }}><HuaqiuBrandMark size={24} color={palette.iconColor} /></div>
             <div style={{ minWidth: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <span style={{
