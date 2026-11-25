@@ -199,6 +199,7 @@ export function createHardwareHandler(
               generatedAt: prepared.generatedAt,
               facts: prepared.facts,
               archive: prepared.archive,
+              validation: prepared.validation,
               ...(prepared.assembly === undefined ? {} : { assembly: prepared.assembly }),
             })
           } catch (error) {

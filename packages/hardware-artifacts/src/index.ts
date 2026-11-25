@@ -10,6 +10,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import Schema from '@deepseek-ai/schemastery'
 import { createHardwareHandler, HARDWARE_ROUTE_PREFIX } from './routes.js'
 import { HardwareArtifactService } from './service.js'
+import { createHardwareTools } from './tools.js'
 
 export type {
   ArtifactKind,
@@ -35,6 +36,12 @@ export {
   snapTraceTier,
 } from './order.js'
 export type { BoardFacts, PositionRow } from './order.js'
+export {
+  expectedCopperLayers, validateFabricationPackage, validationSummary,
+} from './package.js'
+export type { PackageIssue, PackageIssueCode, PackageValidation } from './package.js'
+export { createHardwareTools, hardwareToolNames } from './tools.js'
+export type { HardwareToolEnv } from './tools.js'
 export { createHardwareHandler, HARDWARE_ROUTE_PREFIX } from './routes.js'
 export type { HardwareHandlerOptions, WorkspaceResolver } from './routes.js'
 
@@ -178,6 +185,31 @@ export function apply(ctx: Context, config: HardwareArtifactsPluginConfig = {}):
       path: HARDWARE_ROUTE_PREFIX,
       handler: createHardwareHandler(service, { resolveWorkspace: sessionWorkspace }),
     }), 'hardware-artifacts: local read/launch routes')
+  }
+
+  /**
+   * Agent tools.
+   *
+   * Acquired without `inject` for the same reason as the other optional
+   * services: the panel and its routes must keep working in a host without a
+   * tool registry, and a missing registry costs the agent surface, not the
+   * plugin. The tools take a path and run `kicad-cli` themselves, so this is
+   * the fabrication path that needs neither HQ Edge nor a running PCB editor.
+   */
+  const tools = hostService<{ register(tool: unknown): (() => void) | void }>('tools')
+  if (tools !== undefined && typeof tools.register === 'function') {
+    for (const tool of createHardwareTools({
+      service,
+      // A session-less call has no workspace to authorize against; the tool
+      // falls back to the process directory rather than inventing one here.
+      workspaceOf: sessionId => (sessionId === undefined ? undefined : sessionWorkspace(sessionId)),
+    })) {
+      const label = (tool as { readonly name?: string }).name ?? 'tool'
+      ctx.effect(() => {
+        const dispose = tools.register(tool)
+        return typeof dispose === 'function' ? dispose : (): void => {}
+      }, `hardware-artifacts: ${label}`)
+    }
   }
 
   const prompt = (ctx as Context & { systemPrompt?: SystemPromptFace }).systemPrompt

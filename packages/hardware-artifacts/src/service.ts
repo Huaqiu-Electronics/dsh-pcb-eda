@@ -8,7 +8,7 @@
  */
 import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -19,6 +19,7 @@ import {
   smtOrderUrl, smtOrderUrlFromBackend, zipPackage,
   type BoardFacts,
 } from './order.js'
+import { validateFabricationPackage, validationSummary, type PackageValidation } from './package.js'
 
 export type ArtifactKind = 'schematic' | 'pcb' | 'pcb-3d' | 'bom' | 'mechanical-3d'
 /** Native handoff is KiCad-only in this POC; SolidCraft stays agent context. */
@@ -163,6 +164,11 @@ export interface FabricationResult {
   readonly generatedAt: string
   readonly facts: BoardFacts
   readonly archive: OrderPackageSummary
+  /**
+   * Whether the archive is actually fabricable. Present on every result: a
+   * package can be prepared and refused, and the caller needs the reason.
+   */
+  readonly validation: PackageValidation
   /** Assembly inputs, present when a schematic was supplied. */
   readonly assembly?: {
     readonly positions: number
@@ -206,6 +212,8 @@ export interface PlaceOrderResult {
   readonly endpoint: string
   readonly facts: BoardFacts
   readonly archive: OrderPackageSummary
+  /** The package judgement the order was placed with. */
+  readonly validation: PackageValidation
   readonly assembly?: FabricationResult['assembly']
 }
 
@@ -1301,6 +1309,13 @@ export class HardwareArtifactService {
       const plotted = readExportDirectory(plots, plotNames)
       const archiveData = zipPackage(plotted)
       const facts = readBoardFacts(readFileSync(path, 'utf8'))
+      // Validated here, not at the call sites: the UI, the HTTP route and the
+      // agent tool all consume this one result, so the archive they show and
+      // the package they would upload have to carry the same judgement.
+      const validation = validateFabricationPackage(
+        plotted.map(file => ({ name: file.name, bytes: file.data.byteLength })),
+        facts,
+      )
 
       let assembly: FabricationResult['assembly']
       let assemblyFiles: { positions: string; bom: string } | undefined
@@ -1335,6 +1350,7 @@ export class HardwareArtifactService {
           zipBytes: archiveData.byteLength,
           files: plotted.map(file => ({ name: file.name, bytes: file.data.byteLength })),
         },
+        validation,
         archiveData,
         ...(assembly === undefined ? {} : { assembly }),
         ...(assemblyFiles === undefined ? {} : { assemblyFiles }),
@@ -1347,8 +1363,48 @@ export class HardwareArtifactService {
   }
 
   /**
-   * Submit one order to the Huaqiu openapi, exactly as the KiCad action does.
+   * Write one prepared package into a directory.
    *
+   * The package is normally kept in memory: the order panel shows it, the
+   * submit uploads it, and neither needs a file. A caller that has to hand the
+   * archive to someone else does — and re-running the plotter for that would
+   * produce a different revision than the one already validated. This writes
+   * exactly the bytes that were validated.
+   *
+   * Files are overwritten by design: the directory holds derived output, and a
+   * rebuild of the same board replaces the previous export rather than
+   * accumulating copies beside it. Nothing outside `directory` is touched.
+   *
+   * @param prepared - the value `fabricate` returned, archive bytes included.
+   * @param directory - target directory, created when missing.
+   */
+  writePackage(
+    prepared: FabricationResult & {
+      readonly archiveData: Uint8Array
+      readonly assemblyFiles?: { readonly positions: string; readonly bom: string }
+    },
+    directory: string,
+  ): { directory: string; files: readonly { name: string; path: string; bytes: number }[] } {
+    const target = canonical(directory)
+    mkdirSync(target, { recursive: true })
+    const files: { name: string; path: string; bytes: number }[] = []
+    const write = (name: string, data: Uint8Array | string): void => {
+      const path = join(target, name)
+      const payload = typeof data === 'string' ? new TextEncoder().encode(data) : data
+      writeFileSync(path, payload)
+      files.push({ name, path, bytes: payload.byteLength })
+    }
+    write(prepared.archive.zipName, prepared.archiveData)
+    if (prepared.assemblyFiles !== undefined) {
+      const stem = packageName(prepared.boardPath)
+      write(`${stem}-positions.csv`, prepared.assemblyFiles.positions)
+      write(`${stem}-bom.csv`, prepared.assemblyFiles.bom)
+    }
+    return { directory: target, files }
+  }
+
+  /**
+   * Submit one order to the Huaqiu openapi, exactly as the KiCad action does.
    * PCB: every `PCB_FORM` field plus the gerber/drill archive as `file`.
    * SMT: `pcbFile` + `coordFile` + `bomFile` and `reqParseVO`, with the caller's
    * access token in `authorization`. The backend owns the order; this method
@@ -1372,6 +1428,16 @@ export class HardwareArtifactService {
         'placing an order requires a signed-in Huaqiu account (or HUAQIU_ACCESS_TOKEN)',
         'unauthorized',
         401,
+      )
+    }
+    // A package that failed validation is refused here rather than at the
+    // backend: an order is a real purchase, and uploading a gerber set missing
+    // a layer produces a real, wrong board. Warnings do not block.
+    if (!bundle.validation.ok) {
+      throw errorWithCode(
+        `the fabrication package cannot be ordered: ${validationSummary(bundle.validation) ?? 'validation failed'}`,
+        'package-invalid',
+        422,
       )
     }
     const facts = bundle.facts
@@ -1489,6 +1555,7 @@ export class HardwareArtifactService {
       endpoint,
       facts,
       archive: bundle.archive,
+      validation: bundle.validation,
       ...(bundle.assembly === undefined ? {} : { assembly: bundle.assembly }),
     }
   }

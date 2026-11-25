@@ -23,6 +23,7 @@
     "dsh": "^0.2.2-rc.1"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-tools": "^0.2.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
     "fflate": "^0.8.2"
   },

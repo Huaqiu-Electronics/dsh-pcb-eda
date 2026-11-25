@@ -1,11 +1,12 @@
-# Hardware Engineering — M1–M3 implementation report (document rendering)
+# Hardware Engineering — implementation report (M1–M4)
 
 **Task:** `docs/tasks/hardware-engineering-full-impl-code-spec.md`
 **Scope delivered:** §3 Phase A (DSH document MDI integration), §4 Phase B
 (schematic), §5 Phase C (PCB), §6 Phase D (STEP/STP), §7 Phase E as it applies
-to reading those documents.
-**Not delivered:** Phase G/J orchestration work (M4, M5, M6). Status and blockers
-in §7 below — they are listed rather than half-built.
+to reading those documents, and §10 Phase H / M4 (agent-driven fabrication
+preparation — §7 below).
+**Not delivered:** M5 (ordering page in the MDI) and M6 (bundle/installer).
+Status and blockers in §7 below — they are listed rather than half-built.
 **Repositories touched:** `dsh-pcb-eda` only. `deepseek-harness` was inspected and
 **not modified**.
 
@@ -237,48 +238,90 @@ load. §15's UI-level cases remain open until that walk is run.
 
 ---
 
-## 7. Phases not implemented (M4, M5, M6) — status and blockers
+## 7. Phase status: M4 delivered, M5/M6 open
 
-These are reported rather than partially built, because each one is a decision
-this repo cannot make alone.
+### M4 — agent-driven fabrication preparation (delivered)
 
-### M4 — agent-driven fabrication preparation
+The earlier blocker was wrong on both counts, and the second was an evidence
+error worth recording: `kicad-cli` **is** installed on this machine
+(`/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli`, `10.0.7`). What was
+missing was not a backend but the wiring: `@huaqiu/hardware-artifacts` already
+contained the file-based order flow (`order.ts`, `service.fabricate`,
+`service.placeOrder`) with no agent surface at all.
 
-**Blocker: the existing order contract cannot express a file-based package.**
-`place_pcb_order` / `place_smt_order` (`packages/dsh-tool-quote/src/tools.ts:295-348`)
-do not take paths at all: they ask the EDA host to prepare artefacts from the
-board currently open in KiCad and to open its own order dialog. That path
-requires the HQ Edge runtime and an open editor — both of which §2.1 and §12.3
-forbid. A kicad-cli export pipeline therefore needs a **new** order-capable
-backend call that accepts a prepared package; the quote backend contract
-(`hq.fab.v1.QuoteService`) has no such method to reuse, and inventing one is out
-of scope for an implementation task.
+Delivered in `packages/hardware-artifacts`:
 
-Also unresolved by evidence: this machine has no `kicad-cli` (KiCad is installed
-as an app bundle without a CLI on `PATH`), so export behaviour, exit codes and
-file names could not be observed. Writing an export tool against assumed argv
-would violate §9.4's "use the installed KiCad CLI version and supported export
-options rather than hardcoding assumptions".
+| Tool | Responsibility (§10.2) | Implementation |
+|---|---|---|
+| `hardware_projects` | workspace discovery, board ownership, CLI capability | `service.discover` + `installations`, compacted for the model |
+| `hardware_bom` | BOM generation/inspection | `service.exportBom` (`kicad-cli sch export bom`) |
+| `hardware_fabricate` | gerber + drill (+ positions/BOM), validation | `service.fabricate` + `package.ts` |
 
-### M5 — Huaqiu ordering page in the MDI
+`src/package.ts` is the part that did not exist anywhere before. The plotter
+exits 0 for a package it did not finish, and three failures survive that exit
+code: a stackup layer with no plotted gerber, no `Edge.Cuts` plot (the order
+form then carries 0 × 0), and a zero-byte plot. `validateFabricationPackage` is a
+pure function over `{ name, bytes }` + `BoardFacts`, so it also judges an archive
+it did not produce. `fabricate` now returns `validation` on every result, and
+`placeOrder` refuses a package with errors (`package-invalid`, 422) *before*
+uploading — an order is a real purchase, and a gerber set missing a layer is a
+real, wrong board. Warnings (no drill file, stray files) never block.
 
-**The MDI already has the capability; wiring it is blocked behind M4.**
-`@deepseek-ai/dsh-client-ui-sidebar-browser` registers a `browser` tab kind whose
-params accept a URL (`packages/client/ui-sidebar-browser/src/client/index.ts:32-37`,
-`definition.tsx:16-27`), and `ctx.sidebarRight.openTab('browser', { params: { url } })`
-opens it as a normal MDI tab. So §9.9 needs **no new web-document renderer**.
+`service.writePackage` was added for the agent path: the archive used to exist
+only in memory because every consumer uploaded it directly. It writes exactly
+the bytes that were validated (re-running the plotter would produce a different
+revision), and only when the caller names a directory.
 
-What is missing is a URL worth opening: the only current producer is the legacy
-`place_*_order` hand-off, which returns a URL *after* the KiCad dialog flow. Wiring
-the automatic tab-open to that tool would connect the new architecture to the
-runtime §12.3 removes. The correct order is M4 → then the tab-open, as one small
-client contribution.
+**Verified against the real exporter, not only a fake CLI:**
 
-### M6 — bundle and installer
+```
+mini-motor-controller.kicad_pcb   2 layers  ok  F_Cu B_Cu        Edge_Cuts ✓ drill ✓  1.2 s
+CM5_MINIMA_3.kicad_pcb            6 layers  ok  F_Cu In1–In4 B_Cu Edge_Cuts ✓ drill ✓  1.5 s
+```
 
-Not attempted: it is the release step (desktop branch build, Windows x64 install,
-upgrade and offline verification) and depends on M4/M5 being complete. The local
-`link:` overrides are unchanged by this work.
+Both ran through `hardware_fabricate` into `/tmp/m4-out`
+(`mini-motor-controller.zip`, 23,859 B, 31 entries). This is what caught a real
+defect in the first version of the validator: KiCad's default plotter writes
+**Protel** suffixes (`.gtl`, `.gbl`, `.g1`…, `.gm1`), not `.gbr`, so a
+`.gbr`-only parser declared every inner layer of the 6-layer board missing. The
+parser now reads the layer from the `<board>-<layer>` stem and accepts both
+suffix sets; `test/package.test.ts` covers the Protel set and a board name that
+contains hyphens.
+
+94 tests pass in the package (32 new), typecheck and build clean, and the live
+profile boots with the tools registered and no activation warning.
+
+Exit condition §13 M4: *"the agent can identify a target project/board and
+produce a validated fabrication package without a dedicated UI order
+entrypoint"* — met: `hardware_projects` → `hardware_fabricate` needs no panel.
+
+### M5 — Huaqiu ordering page in the MDI (open, now unblocked)
+
+The MDI already has the capability: `@deepseek-ai/dsh-client-ui-sidebar-browser`
+registers a `browser` tab kind whose params accept a URL
+(`packages/client/ui-sidebar-browser/src/client/index.ts:32-37`,
+`definition.tsx:16-27`), so `ctx.sidebarRight.openTab('browser', { params: { url } })`
+opens it as a normal tab. No new web-document renderer is needed.
+
+The URL producer now exists too and no longer involves HQ Edge:
+`HardwareArtifactService.placeOrder` posts multipart straight to the eda.cn
+endpoint and composes the page URL the KiCad action loads. Two things remain:
+
+1. an agent tool calling it with `launch: false`;
+2. the client opening the returned URL in the `browser` tab.
+
+**The design question that keeps (1) out of this change:** an order uploads
+real files and creates a real purchase, and the existing HTTP route guards that
+with `confirm: true` from a human click. An agent-callable tool needs an
+equivalent gate (DSH's `tools/pre-execute` approval, or a two-step
+prepare/confirm pair); shipping it without one would let a model spend the
+user's money on its own reading of a conversation. That decision belongs to the
+product, not to this task.
+
+### M6 — bundle and installer (not attempted)
+
+The release step: desktop branch build, Windows x64 install, upgrade and offline
+verification. Depends on M5. The local `link:` overrides are unchanged.
 
 ---
 
@@ -299,6 +342,15 @@ upgrade and offline verification) and depends on M4/M5 being complete. The local
    browser for a day.
 7. **`client.js` grew to 5.39 MB** (from 5.26 MB) because the reader's JS glue is
    bundled; the 7.6 MB wasm is not in the bundle.
+8. **Exporting is not completely read-only.** Observed on the real run:
+   `kicad-cli pcb export gerbers` writes a `<project>.kicad_prl` (KiCad's
+   project-local view settings) beside the board. It is a preference file, not
+   board data, but a workspace that watches for file changes will see it — the
+   two files this verification produced were removed before committing.
+9. **Validation judges the package, not the design.** It catches a missing
+   layer, a missing outline and an empty plot — the failures that survive a
+   successful exporter exit. It does not run DRC, and it does not tell you a
+   trace is 0.1 mm because the design says so.
 
 ---
 
@@ -312,6 +364,16 @@ packages/dsh-hardware-ui/src/shared/occt-asset.ts          new
 packages/dsh-hardware-ui/src/client/index.ts     install the document renderers
 packages/dsh-hardware-ui/src/client/document/*             new (10 files)
 packages/dsh-hardware-ui/test/document-*.test.*             new (6 files)
+
+packages/hardware-artifacts/package.json         + @deepseek-ai/dsh-tools (M4)
+packages/hardware-artifacts/src/package.ts                new  (validation)
+packages/hardware-artifacts/src/tools.ts                  new  (3 agent tools)
+packages/hardware-artifacts/src/service.ts       validation in fabricate/placeOrder, writePackage
+packages/hardware-artifacts/src/routes.ts        expose validation
+packages/hardware-artifacts/src/index.ts         register the tools
+packages/hardware-artifacts/test/package.test.ts           new (15 tests)
+packages/hardware-artifacts/test/tools.test.ts             new (13 tests)
+packages/hardware-artifacts/test/plugin.test.ts            new (3 tests)
 pnpm-lock.yaml                                   dependency edge
 ```
 
