@@ -170,8 +170,8 @@ const CSS = `
   .cga-extract__upload { flex: 0 0 auto; width: 100%; }
   .cga-extract__side .cga-field { flex-wrap: wrap; }
   .cga-eip__body { flex-direction: column; align-items: stretch; }
-  .cga-eip__stage { align-self: center; max-width: 100%; box-sizing: border-box; overflow-x: auto; padding: 0; }
-  .cga-eip__canvas { zoom: 0.85; }
+  .cga-eip__stage { align-self: center; max-width: 100%; box-sizing: border-box; padding: 0; }
+  .cga-eip__canvas { zoom: 0.9; }
   .cga-eip__sidepanel { width: 100%; }
   .cga-eip__actions { flex-wrap: wrap; }
   .cga-toast { max-width: calc(100vw - 24px); box-sizing: border-box; }
