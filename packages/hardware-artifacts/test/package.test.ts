@@ -134,6 +134,66 @@ describe('KiCad plot naming', () => {
   })
 })
 
+describe('renamed layers', () => {
+  // A board file may rename its copper layers, and KiCad then plots that
+  // display name into the filename: `(0 "F.Cu" power "top_copper")` plots
+  // `board-top_copper.gtl`. The Protel suffix still names the layer, so such a
+  // package must not be reported as having no copper.
+  const RENAMED = [
+    'actionneur-top_copper.gtl',
+    'actionneur-bottom_copper.gbl',
+    'actionneur-F_Mask.gts',
+    'actionneur-B_Mask.gbs',
+    'actionneur-F_Silkscreen.gto',
+    'actionneur-B_Silkscreen.gbo',
+    'actionneur-Edge_Cuts.gm1',
+    'actionneur-job.gbrjob',
+    'actionneur.drl',
+  ]
+
+  it('reads renamed outer copper from the Protel suffix', () => {
+    const validation = validateFabricationPackage(pkg(...RENAMED), { ...FACTS, layers: 2 })
+    expect(validation.ok).toBe(true)
+    expect(validation.errors).toEqual([])
+    expect(validation.copperLayers).toEqual(['F_Cu', 'B_Cu'])
+    expect(validation.hasOutline).toBe(true)
+    expect(validation.hasDrill).toBe(true)
+    // The renamed plots are plots: nothing to report as a stray file.
+    expect(validation.warnings).toEqual([])
+  })
+
+  it('reads a renamed inner copper layer from its numbered suffix', () => {
+    const validation = validateFabricationPackage(
+      pkg('main-F_Cu.gbr', 'main-inner_ground.g1', 'main-In2_Cu.gbr', 'main-B_Cu.gbr',
+        'main-Edge_Cuts.gbr', 'main.drl'),
+      FACTS,
+    )
+    expect(validation.ok).toBe(true)
+    expect(validation.copperLayers).toEqual(['F_Cu', 'In1_Cu', 'In2_Cu', 'B_Cu'])
+  })
+
+  it('falls back to the board\'s declared names for an extended-name plot', () => {
+    // Extended (`.gbr`) names carry no layer identity in the suffix, so a
+    // renamed layer can only be read through the board's own layer table.
+    const validation = validateFabricationPackage(
+      pkg('main-top_copper.gbr', 'main-bottom_copper.gbr', 'main-Edge_Cuts.gbr', 'main.drl'),
+      { ...FACTS, layers: 2, copperAliases: { top_copper: 'F_Cu', bottom_copper: 'B_Cu' } },
+    )
+    expect(validation.ok).toBe(true)
+    expect(validation.copperLayers).toEqual(['F_Cu', 'B_Cu'])
+    expect(validation.warnings).toEqual([])
+  })
+
+  it('still refuses a package whose copper really is absent', () => {
+    const validation = validateFabricationPackage(
+      pkg('main-top_copper.gbr', 'main-Edge_Cuts.gbr', 'main.drl'),
+      { ...FACTS, layers: 2 },
+    )
+    expect(validation.ok).toBe(false)
+    expect(validation.errors.map(issue => issue.code)).toEqual(['no-copper'])
+  })
+})
+
 describe('drill and stray files', () => {
   it('warns rather than refuses when there is no drill file', () => {
     const validation = validateFabricationPackage(

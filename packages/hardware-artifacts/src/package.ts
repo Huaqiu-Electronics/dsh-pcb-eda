@@ -12,6 +12,14 @@
  *   - a zero-byte plot, which the plotter writes when a layer had nothing to
  *     draw and the profile still lists the file.
  *
+ * Layer identity is read from the plot's Protel suffix first (`.gtl`, `.gbl`,
+ * `.g1`…), because the text KiCad writes between the board name and the suffix
+ * is the board's *display* name for that layer and is user-editable: a board
+ * that renamed `F.Cu` to `top_copper` plots `board-top_copper.gtl`. Reading the
+ * name alone would report that package as having no copper at all. For a plot
+ * written with extended (`.gbr`) names, where the suffix carries no layer
+ * identity, the board's own display names are matched through `facts`.
+ *
  * The checks are pure functions over `{ name, bytes }` and the board facts the
  * file itself declares, so a caller can validate an archive it did not produce
  * (a colleague's zip, a cached revision) and get the same answer.
@@ -78,17 +86,64 @@ const GERBER_SUFFIXES = /^(?:gbr|g\d{1,2}|gm\d{1,2}|gko|gml|g[tsbop][a-z])$/iu
 /** The layer names KiCad puts between the board name and the suffix. */
 const LAYER_TOKENS = /^(?:[FB]_[A-Za-z0-9_]+|In\d+_Cu|Edge_Cuts|Margin|User_[A-Za-z0-9_]+|[A-Za-z0-9]+_User)$/u
 
-/** `board-F_Cu.gbr` → `F_Cu`; `undefined` for a file that is not a plot. */
-function gerberLayer(name: string): string | undefined {
+/**
+ * Protel plot suffixes that name their own layer.
+ *
+ * KiCad's default plotter writes the Protel set. The suffix is a fixed function
+ * of the layer, while the text before it is the board's *display* name for that
+ * layer and is therefore whatever the designer typed. A board that renamed
+ * `F.Cu` to `top_copper` plots `board-top_copper.gtl`, and one that renamed
+ * `In1.Cu` plots `board-inner_ground.g1` — both perfectly fabricable, and both
+ * unreadable from the name alone.
+ */
+const PROTEL_LAYERS: Readonly<Record<string, string>> = Object.freeze({
+  gtl: 'F_Cu',
+  gbl: 'B_Cu',
+  gts: 'F_Mask',
+  gbs: 'B_Mask',
+  gto: 'F_SilkS',
+  gbo: 'B_SilkS',
+  gtp: 'F_Paste',
+  gbp: 'B_Paste',
+  gta: 'F_Adhes',
+  gba: 'B_Adhes',
+  gm1: 'Edge_Cuts',
+})
+
+/** `gtl` → `F_Cu`; `g3` → `In3_Cu`; `undefined` for a suffix that names no layer. */
+function protelLayer(suffix: string): string | undefined {
+  const fixed = PROTEL_LAYERS[suffix]
+  if (fixed !== undefined) return fixed
+  const inner = /^g(\d{1,2})$/u.exec(suffix)
+  if (inner === null) return undefined
+  // Inner copper is numbered from 1 in both spellings: `.g1` is `In1_Cu`.
+  const index = Number(inner[1])
+  return index >= 1 ? `In${String(index)}_Cu` : undefined
+}
+
+/**
+ * `board-F_Cu.gbr` → `F_Cu`; `undefined` for a file that is not a plot.
+ *
+ * `aliases` maps a board's display names back onto the canonical ones
+ * (`{ top_copper: 'F_Cu' }`). It is the only way to read a plot whose layer was
+ * renamed *and* written with extended (`.gbr`) names, where the suffix carries
+ * no layer identity.
+ */
+function gerberLayer(name: string, aliases?: Readonly<Record<string, string>>): string | undefined {
   const dot = name.lastIndexOf('.')
   if (dot <= 0) return undefined
-  if (!GERBER_SUFFIXES.test(name.slice(dot + 1))) return undefined
+  const suffix = name.slice(dot + 1).toLowerCase()
+  if (!GERBER_SUFFIXES.test(suffix)) return undefined
+  const protel = protelLayer(suffix)
+  if (protel !== undefined) return protel
   const stem = name.slice(0, dot)
   // KiCad names every plot `<board>-<layer>`, and a board name may itself
   // contain hyphens, so the layer is what follows the last one.
   const dash = stem.lastIndexOf('-')
   const layer = dash === -1 ? stem : stem.slice(dash + 1)
-  return LAYER_TOKENS.test(layer) ? layer : undefined
+  if (LAYER_TOKENS.test(layer)) return layer
+  const alias = aliases?.[layer]
+  return alias !== undefined && LAYER_TOKENS.test(alias) ? alias : undefined
 }
 
 function suffixOf(name: string): string {
@@ -134,7 +189,7 @@ export function validateFabricationPackage(
         file: file.name,
       })
     }
-    const layer = gerberLayer(file.name)
+    const layer = gerberLayer(file.name, facts.copperAliases)
     if (layer !== undefined) {
       layers.add(layer)
       if (layer === 'Edge_Cuts') hasOutline = true

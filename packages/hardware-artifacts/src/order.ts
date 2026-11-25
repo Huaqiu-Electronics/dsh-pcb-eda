@@ -61,6 +61,15 @@ export interface BoardFacts {
   readonly innerOz?: number
   /** Placed pads, used for the assembly form's `patch_pad_number`. */
   readonly padCount?: number
+  /**
+   * Display names the board gives its copper layers, canonical name as value
+   * (`{ top_copper: 'F_Cu' }`).
+   *
+   * A board may rename `F.Cu`/`In*.Cu`/`B.Cu`, and KiCad then writes that name
+   * into the plot's filename. The package validator needs the mapping to
+   * recognise the board's own copper. Only renamed layers appear.
+   */
+  readonly copperAliases?: Readonly<Record<string, string>>
 }
 
 /** One file inside the fabrication zip. */
@@ -223,6 +232,18 @@ export function readBoardFacts(text: string): BoardFacts {
     isNode(entry) && typeof entry[1] === 'string' && entry[1].endsWith('.Cu'))
   const layers = copperLayers.length
 
+  // `(0 "F.Cu" power "top_copper")` — the fourth field is the display name the
+  // designer chose. Keep it: KiCad plots that name into the gerber filename, so
+  // without the mapping a renamed copper layer is not recognisable as copper.
+  const copperAliases: Record<string, string> = {}
+  for (const entry of copperLayers) {
+    const canonical = entry[1]
+    const display = entry[3]
+    if (typeof canonical !== 'string' || typeof display !== 'string') continue
+    if (display === canonical || display.trim() === '') continue
+    copperAliases[display] = canonical.replace(/\./gu, '_')
+  }
+
   const general = child(root, 'general')
   const thicknessMm = numberAt(child(general ?? [], 'thickness'), 1) ?? 1.6
 
@@ -292,6 +313,7 @@ export function readBoardFacts(text: string): BoardFacts {
     ...(outerThickness === undefined ? {} : { outerOz: snapOz(outerThickness, [1, 2, 3, 4]) }),
     ...(innerThickness === undefined ? {} : { innerOz: snapOz(innerThickness, [0.5, 1, 2, 3, 4]) }),
     ...(allPads === 0 ? {} : { padCount: smdPads > 0 ? smdPads : allPads }),
+    ...(Object.keys(copperAliases).length === 0 ? {} : { copperAliases }),
   }
 }
 
