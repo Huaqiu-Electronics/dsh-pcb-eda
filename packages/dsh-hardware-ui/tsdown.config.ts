@@ -26,6 +26,10 @@ export default defineConfig([
       alwaysBundle: [
         /^@huaqiu\/(ecad-renderer|ecad-viewer-app)(\/|$)/,
         /^@huaqiu\/kicad-sexpr-parser(\/|$)/,
+        // The STEP reader's emscripten glue. Its `.wasm` is fetched from the
+        // host route at runtime, but the JS half must ride inside the bundle:
+        // the ModuleLoader can only require the platform's own modules.
+        'occt-import-js',
         'immutable',
         'jszip',
         'three',

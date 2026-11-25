@@ -25,6 +25,9 @@ import type {
 import { createHardwareStore } from './store.js'
 import { COPY } from './copy.js'
 import { loadInstallations, loadProjects, openArtifact } from './transport.js'
+import { installDocumentPreviews } from './document/index.js'
+import type { DocumentClientContext, WorkspaceFilesRemote } from './document/contract.js'
+import type { ProbeSheetFile } from './document/EcadBody.js'
 
 /** Real Cordis service names this browser plugin waits for. */
 export const inject = ['slots', 'sidebarRight', 'sidebarRightTabs', 'configForms'] as const
@@ -72,7 +75,35 @@ interface ClientContext {
   readonly configForms?: {
     get<T>(entryId: string): ConfigFormLike<T>
   }
+  /** Workspace byte reads, used to resolve the child sheets a schematic declares. */
+  readonly remote?: { readonly workspaceFiles?: WorkspaceFilesRemote }
+  /** DSH's document-renderer registry; absent on a Host without document previews. */
+  readonly documentPreviews?: DocumentClientContext['documentPreviews']
   effect?(fn: () => (() => void) | void, label?: string): void
+  inject?(dependencies: readonly string[], callback: (scope: ClientContext) => void): void
+}
+
+/**
+ * Build the child-sheet probe for the document renderers.
+ *
+ * Existence is answered by the Host, not by this plugin: a one-byte read through
+ * the session's own workspace endpoint either succeeds or reports a structured
+ * failure. Nothing here decides what the workspace contains — that is precisely
+ * the authority the document preview must not duplicate.
+ * @param ctx - client context carrying the workspace remote.
+ * @returns the probe factory, or a factory returning undefined when the remote is absent.
+ */
+function sheetProbeFactory(ctx: ClientContext): (sessionId: string) => ProbeSheetFile | undefined {
+  const files = ctx.remote?.workspaceFiles
+  if (files === undefined) return () => undefined
+  return sessionId => async (path, signal) => {
+    try {
+      const result = await files.readBytes(sessionId, path, { range: { offset: 0, length: 1 } }, signal)
+      return result.ok
+    } catch {
+      return false
+    }
+  }
 }
 
 /** Artifact kind discriminator carried in navigation params. */
@@ -172,4 +203,17 @@ export function apply(ctx: ClientContext): void {
     store: rootStore,
     inject: () => controller,
   }, HardwareSettingsSection)), 'hardware-ui: CAD installation settings')
+
+  // Document renderers ride DSH's own document pipeline: they contribute four
+  // registry entries and four bodies, and nothing else. Installed through a
+  // nested injection so a Host without the document-preview service loses only
+  // the ECAD previews, not the product panel.
+  const documentOptions = { probeSheet: sheetProbeFactory(ctx) }
+  if (ctx.inject !== undefined) {
+    ctx.inject(['documentPreviews'], (scope) => {
+      installDocumentPreviews(scope as unknown as DocumentClientContext, documentOptions)
+    })
+  } else {
+    installDocumentPreviews(ctx as unknown as DocumentClientContext, documentOptions)
+  }
 }
