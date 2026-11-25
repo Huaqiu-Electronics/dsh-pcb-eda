@@ -146,6 +146,22 @@
         "提升 KiCad 启动期桥接稳定性"
       ]
     },
+    "@huaqiu/dsh-pcb-initial-placement": {
+      "version": "0.7.17",
+      "hosts": [
+        "kicad"
+      ],
+      "requiresHqEdge": false,
+      "minHqEdge": null,
+      "maxHqEdge": null,
+      "minDsh": null,
+      "displayName": "PCB 初始布局",
+      "description": "为只有网表、尚未布局的板子生成可接手的 Phase-1 初始布局",
+      "sizeBytes": 66118,
+      "changes": [
+        "从 KiCad 集成插件中拆分，可独立安装"
+      ]
+    },
     "@huaqiu/dsh-tool-freerouting": {
       "version": "0.7.0",
       "hosts": [

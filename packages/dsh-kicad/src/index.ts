@@ -7,7 +7,10 @@
  *   1. ten KiCad tools, registered with `ctx.tools.register(defineTool(...))`
  *   2. every bundled skill under `skills/`, registered with
  *      `ctx.skills.register(...)` — currently `kicad-ipc` (the reasoning around
- *      the tools) and `hardware-design-brief` (requirements → design inputs)
+ *      the tools), `hardware-design-brief` (requirements → design inputs) and
+ *      `pcb-copper-pour`. `pcb-initial-placement` used to live here; it is now
+ *      its own plugin (`@huaqiu/dsh-pcb-initial-placement`) so HQ Edge and the
+ *      desktop bundle can decide independently whether to install it.
  *
  * Installing the Huaqiu DSH PCB/EDA bundle therefore makes KiCad agent
  * capabilities AND the skills that teach the agent to use them available out of

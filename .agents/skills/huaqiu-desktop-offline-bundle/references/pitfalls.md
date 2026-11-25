@@ -104,7 +104,7 @@ Fix: treat row/profile/sandbox/branding checks as authoritative, list the local-
 
 ## 11. Probing the packaged profile
 
-`dsh --profile desktop --dump-config` is refused ("managed exclusively by the Electron application"). Create a throwaway profile with its own `DSH_HOME` and dump that instead; the eleven bundle rows and the absence of `hqEdge` are the useful signals.
+`dsh --profile desktop --dump-config` is refused ("managed exclusively by the Electron application"). Create a throwaway profile with its own `DSH_HOME` and dump that instead; the twelve bundle rows and the absence of `hqEdge` are the useful signals.
 
 ## 12. Repo hygiene
 

@@ -35,6 +35,7 @@
     "@deepseek-ai/cordis": "^4.0.1"
   },
   "dependencies": {
+    "@huaqiu/dsh-analytics": "workspace:*",
     "@huaqiu/dsh-artifacts": "workspace:*",
     "@huaqiu/dsh-auth": "workspace:*",
     "@huaqiu/dsh-huaqiu-about": "workspace:*",

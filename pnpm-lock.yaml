@@ -291,6 +291,15 @@ importers:
         specifier: workspace:*
         version: link:../dsh-plugin-log
 
+  packages/dsh-pcb-initial-placement:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: ^4.0.1
+        version: 4.0.5
+      '@huaqiu/dsh-plugin-log':
+        specifier: workspace:*
+        version: link:../dsh-plugin-log
+
   packages/dsh-plugin-log:
     devDependencies:
       '@types/node':
@@ -565,6 +574,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: ^4.0.1
         version: 4.0.5
+      '@huaqiu/dsh-analytics':
+        specifier: workspace:*
+        version: link:../dsh-analytics
       '@huaqiu/dsh-artifacts':
         specifier: workspace:*
         version: link:../dsh-artifacts

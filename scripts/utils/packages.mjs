@@ -71,6 +71,7 @@ export const CATALOG_PLUGIN_NAMES = Object.freeze([
   '@huaqiu/dsh-hqsch',
   '@huaqiu/dsh-huaqiu-about',
   '@huaqiu/dsh-kicad',
+  '@huaqiu/dsh-pcb-initial-placement',
   '@huaqiu/dsh-tool-kicad-schematic-gen',
   '@huaqiu/dsh-tool-part-search',
   '@huaqiu/dsh-tool-pcb-viewer',

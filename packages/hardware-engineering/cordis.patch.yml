@@ -33,7 +33,10 @@
 #                                 Deferred.
 #   @huaqiu/dsh-hqsch             teaches TypeScript-against-HQ-EDA, which is
 #                                 not the workflow this product bundle targets.
-#   @huaqiu/dsh-analytics         telemetry; not required to prove the product.
+#   @huaqiu/dsh-pcb-initial-placement
+#                                 standalone skill plugin: HQ Edge ships it
+#                                 from the release catalog, while this desktop
+#                                 bundle deliberately leaves it out (opt-in).
 #
 # ── Do not also list the child bundles in the profile ──────────────────────
 # Listing e.g. `@huaqiu/dsh-kicad` in `dsh.profile.bundles` *as well as* this
@@ -80,6 +83,13 @@
     - id: huaqiu-tool-symbol-footprint
       name: '@huaqiu/dsh-tool-symbol-footprint'
       inject: ['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer']
+
+    # Telemetry for the product surfaces (tool/skill usage events). Included
+    # here rather than left opt-in so an out-of-the-box desktop install reports
+    # the same usage picture HQ Edge gets from its own bundle.
+    - id: huaqiu-analytics
+      name: '@huaqiu/dsh-analytics'
+      inject: ['webServer', 'tools']
 
     # ── Presentation ────────────────────────────────────────────────────────
     - id: ui-theme-huaqiu

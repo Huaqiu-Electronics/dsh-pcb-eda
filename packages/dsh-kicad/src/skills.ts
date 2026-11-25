@@ -81,17 +81,6 @@ export const KICAD_SKILLS: Readonly<Record<string, KicadBundledSkill>> = {
     summary: 'Create or refill PCB copper zones through KiCad IPC with explicit nets, layers and scope.',
     ownsScripts: false,
   },
-  'pcb-initial-placement': {
-    id: 'pcb-initial-placement',
-    summary:
-      'Produce a Phase-1 initial placement for a KiCad PCB that has a netlist ' +
-      'but no layout yet: functional clustering, anchor placement, zone ' +
-      'partitioning, overlap-free packing and a handover report; prefer applying ' +
-      'the result to the open board through the KiCad IPC API, falling back to an ' +
-      'offline board file only when IPC is unavailable. Suited to 20–200 ' +
-      'components on a single, mostly single-sided board.',
-    ownsScripts: false,
-  },
 }
 
 /** The bundled skill ids, in registration order. */

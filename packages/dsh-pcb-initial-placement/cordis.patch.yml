@@ -1,0 +1,20 @@
+# DSH bundle patch: inserts the Huaqiu PCB initial-placement skill plugin.
+#
+# This package exists so `pcb-initial-placement` can be installed ON ITS OWN
+# instead of arriving as baggage of `@huaqiu/dsh-kicad`'s skill bundle:
+#
+#   - HQ Edge discovers it from `plugins-release-manifest.json` and bundles it
+#     into the headless runtime (kicad host only — the skill drives KiCad IPC);
+#   - the standalone desktop product bundle (@huaqiu/hardware-engineering)
+#     deliberately does NOT list it: desktop installs stay opt-in.
+#
+# The row registers exactly one skill (`ctx.skills.register()`) and no tools:
+# the skill's executable halves are its own Python scripts under `scripts/`,
+# which the agent runs itself (see SKILL.md).
+#
+# The entry `inject` MUST match the node-half module contract (`src/index.ts`
+# `export const inject`): `skills`.
+- insert:
+    - id: huaqiu-dsh-pcb-initial-placement
+      name: '@huaqiu/dsh-pcb-initial-placement'
+      inject: ['skills']

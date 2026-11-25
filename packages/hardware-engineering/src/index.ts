@@ -79,6 +79,15 @@ export const HARDWARE_ENGINEERING_PLUGINS: readonly HardwareEngineeringPlugin[] 
     role: 'capability',
   }),
 
+  // Telemetry: routes + tools only, no service of its own.
+  Object.freeze({
+    id: 'huaqiu-analytics',
+    name: '@huaqiu/dsh-analytics',
+    inject: ['webServer', 'tools'],
+    provides: [],
+    role: 'capability',
+  }),
+
   Object.freeze({ id: 'ui-theme-huaqiu', name: '@huaqiu/dsh-ui-theme-huaqiu', inject: [], provides: [], role: 'presentation' }),
   Object.freeze({ id: 'dsh-huaqiu-about', name: '@huaqiu/dsh-huaqiu-about', inject: [], provides: [], role: 'presentation' }),
   Object.freeze({ id: 'dsh-hardware-ui', name: '@huaqiu/dsh-hardware-ui', inject: [], provides: [], role: 'presentation' }),

@@ -2,7 +2,7 @@
 
 The Huaqiu Hardware Engineering **product bundle** for DeepSeek Harness.
 
-It is not a plugin. It is the package a DSH profile selects so that the eleven
+It is not a plugin. It is the package a DSH profile selects so that the twelve
 Huaqiu plugins ship with the installation and activate on first launch, offline,
 without HQ Edge.
 
@@ -62,7 +62,7 @@ The edges that matter:
 | `@huaqiu/dsh-eda-host` | Its 11 tools read an HQ Edge HTTP bridge that does not exist in the target runtime. |
 | `@huaqiu/dsh-tool-plugin-update` | Update discovery/install is HQ Edge-owned business logic with no DSH-native equivalent. |
 | `@huaqiu/dsh-hqsch` | Teaches TypeScript against HQ EDA; outside this product's workflow. |
-| `@huaqiu/dsh-analytics` | Telemetry; not required to prove the product. |
+| `@huaqiu/dsh-pcb-initial-placement` | Standalone skill plugin: HQ Edge bundles it from the release catalog, while this desktop bundle leaves it opt-in. |
 
 ## Verification
 

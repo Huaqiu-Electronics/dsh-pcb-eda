@@ -195,7 +195,7 @@ describe('upstream lockstep with kicad-agent', () => {
   // lives upstream: `kicad-agent` was made to adopt the English scripts, the
   // `kicad-ipc` rename and the dsh wrapper sections, so an upstream update is
   // a plain `cp -r` instead of a manual zh->en re-merge. Skills added locally
-  // that upstream does not have (e.g. `pcb-initial-placement`) are exempt from
+  // that upstream does not have (e.g. `pcb-copper-pour`) are exempt from
   // the byte-identical guard — there is nothing upstream to diverge from.
   //
   // Optional by necessity: CI clones dsh-pcb-eda alone (`.github/workflows/ci.yml`),

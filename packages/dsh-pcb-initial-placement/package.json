@@ -1,0 +1,55 @@
+{
+  "name": "@huaqiu/dsh-pcb-initial-placement",
+  "version": "0.7.17",
+  "type": "module",
+  "description": "Huaqiu PCB initial-placement skill for DeepSeek Harness, shipped as a standalone DSH skill plugin.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "huaqiu",
+    "kicad",
+    "pcb",
+    "skill"
+  ],
+  "license": "MIT",
+  "main": "./lib/index.mjs",
+  "types": "./lib/index.d.mts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.mts",
+      "default": "./lib/index.mjs"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "dsh": "^0.2.2-rc.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1"
+  },
+  "dependencies": {
+    "@huaqiu/dsh-plugin-log": "workspace:*"
+  },
+  "files": [
+    "lib",
+    "src",
+    "skills",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsdown",
+    "test": "vitest run",
+    "prepack": "pnpm build"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,8 +1,9 @@
 # DSH bundle patch: inserts the Huaqiu KiCad plugin into a profile's layer stack.
 #
 # This one row delivers BOTH halves of `dsh-kicad` (task: dsh-kicad-skill-plugin):
-# the KiCad tools and every skill bundled under `skills/` (currently `kicad-ipc`
-# and `hardware-design-brief`). The plugin registers the skills itself at load
+# the KiCad tools and every skill bundled under `skills/` (currently `kicad-ipc`,
+# `hardware-design-brief` and `pcb-copper-pour`). `pcb-initial-placement` has
+# moved out to `@huaqiu/dsh-pcb-initial-placement` and is not part of this row. The plugin registers the skills itself at load
 # time via `ctx.skills.register()`, so there is no separate skill installation
 # step and no second skill registration mechanism.
 #

@@ -1,6 +1,6 @@
 ---
 name: huaqiu-desktop-offline-bundle
-description: Bundle the @huaqiu hardware-engineering product bundle into a DSH Desktop build from local .tgz artifacts instead of npm. Use when the product packages cannot be published (unreleased or private code, air-gapped build host, pre-release validation) or when a Desktop installer must not fetch @huaqiu/* from a registry. Covers packing the dsh-pcb-eda workspace closure, pinning local file overrides and the desktop package set, rebuilding the runtime closure, and verifying the eleven bundle rows.
+description: Bundle the @huaqiu hardware-engineering product bundle into a DSH Desktop build from local .tgz artifacts instead of npm. Use when the product packages cannot be published (unreleased or private code, air-gapped build host, pre-release validation) or when a Desktop installer must not fetch @huaqiu/* from a registry. Covers packing the dsh-pcb-eda workspace closure, pinning local file overrides and the desktop package set, rebuilding the runtime closure, and verifying the twelve bundle rows.
 ---
 
 # Offline Huaqiu bundle for DSH Desktop
@@ -37,7 +37,12 @@ $PNPM    = 'C:\node\node.exe C:\code\deepseek-harness\node_modules\pnpm\bin\pnpm
 
 `-Install` runs `pnpm install --frozen-lockfile` in the product workspace when its dependency links are missing; without it the script aborts up front with that instruction. `pnpm pack` rewrites `workspace:*` by reading the **installed** graph, so a fresh clone fails on the bundle package after every other tarball was already written.
 
-The closure is computed from `@huaqiu/hardware-engineering` through `dependencies`/`peerDependencies`/`optionalDependencies`, intersected with the workspace, so a version bump needs no edit here. Expect **16** workspace packages for the current bundle. `pnpm pack` runs each package's `prepack`, so tarballs carry fresh `lib/`.
+The closure is computed from `@huaqiu/hardware-engineering` through `dependencies`/`peerDependencies`/`optionalDependencies`, intersected with the workspace, so a version bump needs no edit here. Expect **17** workspace packages for the current bundle.
+
+Two composition facts worth knowing before you read the ledger:
+
+- `@huaqiu/dsh-analytics` **is** part of the bundle (it ships the tool/skill usage telemetry, e.g. `pcb-initial-placement` invocations), so it appears in the tarball set and in the profile's rows.
+- `@huaqiu/dsh-pcb-initial-placement` **must not** appear in this closure. It is a standalone skill plugin that HQ Edge bundles from `release-manifest/plugins-release-manifest.json`; the desktop bundle deliberately omits it. A ledger that contains it means someone added it to `hardware-engineering`'s dependencies by mistake. `pnpm pack` runs each package's `prepack`, so tarballs carry fresh `lib/`.
 
 Output: `<Harness>\product\huaqiu\*.tgz` plus `ledger.json` (`name`, `version`, `file`, `bytes`, `sha256`). The ledger is the contract for the rest of this procedure — read filenames from it, never reconstruct them by hand (`@huaqiu/dsh-auth` packs as `huaqiu-dsh-auth-<version>.tgz`).
 
@@ -111,7 +116,7 @@ Verify the root tree now resolves the bundle from disk:
 
 ## Step 4 — refresh the packed CLI tarball
 
-The runtime closure is built from `apps/desktop/.desktop-build/targets/win-x64/packed/dsh/*.tgz`, produced by `pack-local-packages.ts` — **not** by `prepare:packages`. Editing `apps/cli/package.json` without repacking leaves a tarball whose manifest still lacks the bundle, and the closure drops from 16 `@huaqiu` packages to 15 (or 0) with no error.
+The runtime closure is built from `apps/desktop/.desktop-build/targets/win-x64/packed/dsh/*.tgz`, produced by `pack-local-packages.ts` — **not** by `prepare:packages`. Editing `apps/cli/package.json` without repacking leaves a tarball whose manifest still lacks the bundle, and the closure drops from 17 `@huaqiu` packages to 16 (or 0) with no error.
 
 ```powershell
 & $PNPM --dir $HARNESS exec tsx apps/desktop/scripts/pack-local-packages.ts `
@@ -143,7 +148,7 @@ $env:DSH_DESKTOP_TARGET_PLATFORM='win32'; $env:DSH_DESKTOP_TARGET_ARCH='x64'
 # package set carries the product
 $ledger = Get-Content "$HARNESS\product\huaqiu\ledger.json" -Raw | ConvertFrom-Json
 $set = Get-Content "$HARNESS\apps\desktop\.desktop-build\targets\win-x64\package-set\desktop-packages.json" -Raw | ConvertFrom-Json
-($set.packages | Where-Object name -like '@huaqiu/*').Count            # expect 16
+($set.packages | Where-Object name -like '@huaqiu/*').Count            # expect 17
 # every selected record must match the ledger byte-for-byte source
 foreach ($record in $ledger.packages) {
   $hit = $set.packages | Where-Object name -eq $record.name
@@ -151,14 +156,14 @@ foreach ($record in $ledger.packages) {
 }
 
 # installed runtime carries the product
-Get-ChildItem "$HARNESS\apps\desktop\.desktop-build\targets\win-x64\dsh\node_modules\@huaqiu" -Directory | Measure-Object   # expect 16
+Get-ChildItem "$HARNESS\apps\desktop\.desktop-build\targets\win-x64\dsh\node_modules\@huaqiu" -Directory | Measure-Object   # expect 17
 
-# profile activates the eleven rows
+# profile activates the twelve rows
 $home = Join-Path $env:TEMP 'hq-offline-probe'
 $env:DSH_HOME = $home
 node "$HARNESS\apps\desktop\.desktop-build\targets\win-x64\dsh\node_modules\@deepseek-ai\dsh\lib\bin.js" `
   --profile probe --dump-config > "$env:TEMP\hq-offline-dump.yml"
-Select-String -Path "$env:TEMP\hq-offline-dump.yml" -Pattern "@huaqiu/" | Measure-Object   # expect 11
+Select-String -Path "$env:TEMP\hq-offline-dump.yml" -Pattern "@huaqiu/" | Measure-Object   # expect 12
 Select-String -Path "$env:TEMP\hq-offline-dump.yml" -Pattern "hqEdge"                       # expect 0
 ```
 
