@@ -110,6 +110,26 @@ describe('auth webServer routes (browser→node transport)', () => {
     expect(await svc.auth.isAuthenticated()).toBe(false)
   })
 
+  it('reports the launch-wizard preference and persists it across launches', async () => {
+    const url = `${AUTH_ROUTE_PREFIX}/onboarding`
+    expect(JSON.parse((await get(url)).text)).toEqual({ suppressed: false })
+
+    const res = await post(url, { suppressed: true })
+    expect(res.status).toBe(200)
+    expect(JSON.parse((await get(url)).text)).toEqual({ suppressed: true })
+
+    // A new service = the next launch (a different port, same PC). The
+    // preference must survive that, which is why it is not browser storage.
+    const nextLaunch = new InMemoryHuaqiuAuthService({})
+    expect(nextLaunch.isOnboardingSuppressed()).toBe(true)
+  })
+
+  it('requires suppressed: true (no accidental reset path)', async () => {
+    expect((await post(`${AUTH_ROUTE_PREFIX}/onboarding`, {})).status).toBe(400)
+    expect((await post(`${AUTH_ROUTE_PREFIX}/onboarding`, { suppressed: false })).status).toBe(400)
+    expect(JSON.parse((await get(`${AUTH_ROUTE_PREFIX}/onboarding`)).text)).toEqual({ suppressed: false })
+  })
+
   it('404s unknown paths', async () => {
     expect((await get(`${AUTH_ROUTE_PREFIX}/nope`)).status).toBe(404)
     expect((await post(`${AUTH_ROUTE_PREFIX}/nope`, {})).status).toBe(404)

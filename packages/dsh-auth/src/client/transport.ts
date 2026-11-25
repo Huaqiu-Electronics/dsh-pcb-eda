@@ -22,6 +22,14 @@ export interface AuthTransport {
    */
   fetchRuntimeConfig(): Promise<AuthRuntimeConfig>
   /**
+   * Whether the launch onboarding wizard was permanently dismissed on THIS PC
+   * (`GET /onboarding`). False on any failure — a broken preference must not
+   * hide a first-run explanation.
+   */
+  fetchOnboardingSuppressed(): Promise<boolean>
+  /** Persist「never show the launch wizard again」on this PC (`POST /onboarding`). */
+  suppressOnboarding(): Promise<void>
+  /**
    * Fetch the node half's authoritative session. The node resolves host-mode
    * credentials first (host session → pushed browser session → persisted
    * file), so in host mode this is how the browser half learns the host-owned
@@ -138,6 +146,27 @@ export function createWebServerAuthTransport(
     async pushLogout() {
       const res = await doFetch(`${base}/logout`, { method: 'POST' })
       if (!res.ok) throw new Error(`auth logout push failed: HTTP ${res.status}`)
+    },
+    async fetchOnboardingSuppressed() {
+      try {
+        const res = await doFetch(`${base}/onboarding`, {
+          method: 'GET',
+          headers: { accept: 'application/json' },
+        })
+        if (!res.ok) return false
+        const body = await res.json() as { suppressed?: unknown }
+        return body.suppressed === true
+      } catch {
+        return false
+      }
+    },
+    async suppressOnboarding() {
+      const res = await doFetch(`${base}/onboarding`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ suppressed: true }),
+      })
+      if (!res.ok) throw new Error(`onboarding preference failed: HTTP ${res.status}`)
     },
     async fetchRuntimeConfig() {
       try {

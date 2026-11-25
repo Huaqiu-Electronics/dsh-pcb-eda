@@ -117,6 +117,16 @@ export interface HuaqiuAuthService {
    * when none was configured — the browser half then keeps its PROD default.
    */
   readonly profileUrl: string | null
+  /**
+   * True when the operator has permanently dismissed the launch onboarding
+   * wizard ON THIS PC (`~/.dsh/auth/onboarding.json`). Read by the browser half
+   * over `/onboarding`; written only when the operator ticks「don't show this
+   * anymore」. This cannot live in the browser: every launch binds a new
+   * loopback port, so localStorage is a different origin each time.
+   */
+  isOnboardingSuppressed(): boolean
+  /** Persist「never show the launch wizard again」for this PC (best-effort). */
+  suppressOnboarding(): void
 }
 
 const PERSIST_FILE = 'session.json'
@@ -232,6 +242,41 @@ function deletePersisted(): void {
   }
 }
 
+/**
+ * Operator preferences that outlive a launch. Kept apart from `session.json`
+ * (which `deletePersisted()` wipes on logout) so signing out never resurrects
+ * the launch wizard.
+ */
+const ONBOARDING_FILE = 'onboarding.json'
+
+interface OnboardingPrefs {
+  wizardSuppressed?: boolean
+}
+
+function readOnboardingPrefs(): OnboardingPrefs {
+  try {
+    const file = join(PERSIST_DIR(), ONBOARDING_FILE)
+    if (!existsSync(file)) return {}
+    const raw = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>
+    return { wizardSuppressed: raw.wizardSuppressed === true }
+  } catch {
+    return {}
+  }
+}
+
+function writeOnboardingPrefs(prefs: OnboardingPrefs): void {
+  try {
+    const dir = PERSIST_DIR()
+    mkdirSync(dir, { recursive: true })
+    const file = join(dir, ONBOARDING_FILE)
+    const tmp = `${file}.${process.pid}.tmp`
+    writeFileSync(tmp, JSON.stringify(prefs), 'utf8')
+    renameSync(tmp, file)
+  } catch {
+    /* best-effort: a read-only profile must not break login */
+  }
+}
+
 export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
   private current: HuaqiuUserInfo | null = null
   private listeners = new Set<(info: HuaqiuUserInfo | null) => void>()
@@ -308,6 +353,15 @@ export class InMemoryHuaqiuAuthService implements HuaqiuAuthService {
   readonly subscriptionOrigin: string | null
   /**「Go to profile」URL resolved by HQ Edge (`HQ_AI_ENV`); null → standalone. */
   readonly profileUrl: string | null
+
+  /** Read through on every call: another DSH instance on this PC may have set it. */
+  isOnboardingSuppressed(): boolean {
+    return readOnboardingPrefs().wizardSuppressed === true
+  }
+
+  suppressOnboarding(): void {
+    writeOnboardingPrefs({ ...readOnboardingPrefs(), wizardSuppressed: true })
+  }
 
   readonly auth: HuaqiuAuthApi = {
     isAuthenticated: async () => {

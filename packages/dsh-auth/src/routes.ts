@@ -231,6 +231,30 @@ export function createAuthHandler(service: HuaqiuAuthService): AuthHandler {
         return
       }
 
+      // Launch-wizard preference. Deliberately NOT part of `/config`: that
+      // document is cached at boot by `refreshHost()`, while this must be
+      // fresh every launch (and readable before the wizard renders). Storage
+      // lives on the node half (`~/.dsh/auth/onboarding.json`) because each
+      // launch binds a new loopback port, so browser storage is a fresh origin.
+      if (pathname === `${AUTH_ROUTE_PREFIX}/onboarding`) {
+        if (req.method === 'GET') {
+          sendJson(res, 200, { suppressed: service.isOnboardingSuppressed() })
+          return
+        }
+        if (req.method === 'POST') {
+          const body = JSON.parse(await readBody(req) || '{}') as Record<string, unknown>
+          // Only `true` is meaningful today; keep the body shape so a future
+          // reset (suppressed: false) needs no new route.
+          if (body.suppressed !== true) {
+            sendJson(res, 400, { error: 'suppressed: true is required' })
+            return
+          }
+          service.suppressOnboarding()
+          sendJson(res, 200, { ok: true })
+          return
+        }
+      }
+
       if (req.method === 'GET' && pathname === `${AUTH_ROUTE_PREFIX}/config`) {
         // `subscriptionOrigin` is the SAME resolved HQ_AI_ENV value as the
         // usage endpoint; the browser half uses it to build the host-dialog

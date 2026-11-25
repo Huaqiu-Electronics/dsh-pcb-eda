@@ -13,6 +13,8 @@ type Listener = (info: { token?: string; id?: string; nickname?: string } | null
 
 interface StubOptions {
   hostMode?: boolean
+  /** The node half's stored「never show again」preference for this PC. */
+  suppressed?: boolean
   /** Payload the initial `getUserInfo()` resolves; null = signed out. */
   initial?: { token?: string; id?: string; nickname?: string } | null
   /** Leave the initial credential read pending (models a slow host). */
@@ -22,6 +24,7 @@ interface StubOptions {
 function stubAuth(options: StubOptions = {}) {
   let listener: Listener | null = null
   const login = vi.fn(async () => {})
+  const suppressOnboarding = vi.fn(async () => {})
   const auth = {
     isHostMode: () => options.hostMode ?? true,
     isAuthenticated: () => false,
@@ -33,6 +36,8 @@ function stubAuth(options: StubOptions = {}) {
       return () => { listener = null }
     },
     login,
+    isOnboardingSuppressed: vi.fn(async () => options.suppressed ?? false),
+    suppressOnboarding,
     logout: vi.fn(async () => {}),
     getAccessToken: vi.fn(async () => null),
     getUserProfile: vi.fn(async () => null),
@@ -44,6 +49,7 @@ function stubAuth(options: StubOptions = {}) {
   return {
     auth: auth as never,
     login,
+    suppressOnboarding,
     emit: (info: { token?: string; id?: string; nickname?: string } | null): void => {
       act(() => { listener?.(info) })
     },
@@ -63,6 +69,8 @@ function renderWizard(): HTMLElement {
 
 /** Let the initial `getUserInfo()` microtask land, then re-render. */
 async function flush(): Promise<void> {
+  // Two rounds: the auth snapshot and the per-PC preference settle separately.
+  await act(async () => { await Promise.resolve() })
   await act(async () => { await Promise.resolve() })
 }
 
@@ -131,6 +139,14 @@ describe('HuaqiuOnboardingWizard', () => {
     expect(card()).toBeNull()
   })
 
+  it('stays hidden when this PC previously opted out', async () => {
+    const stub = stubAuth({ initial: null, suppressed: true })
+    registerAuth(stub.auth)
+    renderWizard()
+    await flush()
+    expect(card()).toBeNull()
+  })
+
   it('never renders in standalone DSH desktop (no host)', async () => {
     const stub = stubAuth({ hostMode: false, initial: null })
     registerAuth(stub.auth)
@@ -183,8 +199,9 @@ describe('HuaqiuOnboardingWizard', () => {
 
     act(() => { button('data-hq-onboarding-skip').click() })
     expect(card()).toBeNull()
-    // Every launch binds a new loopback port, so a persisted preference could
-    // never be read again. The choice must stay in component state only.
+    // Skipping without ticking the box is not an opt-out: nothing may be
+    // written, in the browser or on the node half.
+    expect(stub.suppressOnboarding).not.toHaveBeenCalled()
     expect(Storage.prototype.setItem).not.toHaveBeenCalled()
     expect(Storage.prototype.removeItem).not.toHaveBeenCalled()
   })
@@ -204,7 +221,22 @@ describe('HuaqiuOnboardingWizard', () => {
     expect(card()).not.toBeNull()
   })
 
-  it('the "don\'t show again" choice suppresses the re-open, in memory only', async () => {
+  it('ticking the box then signing in also opts out (no resurrection on sign-out)', async () => {
+    const stub = stubAuth({ initial: null })
+    registerAuth(stub.auth)
+    renderWizard()
+    await flush()
+
+    act(() => { checkbox().click() })
+    await act(async () => { button('data-hq-onboarding-login').click() })
+    stub.emit({ token: 'tok', id: 'u1' })
+    expect(card()).toBeNull()
+    stub.emit(null)
+    expect(card()).toBeNull()
+    expect(stub.suppressOnboarding).toHaveBeenCalledTimes(1)
+  })
+
+  it('the「don\'t show this anymore」choice is persisted for this PC', async () => {
     const stub = stubAuth({ initial: null })
     registerAuth(stub.auth)
     renderWizard()
@@ -218,6 +250,9 @@ describe('HuaqiuOnboardingWizard', () => {
     stub.emit({ token: 'tok', id: 'u1' })
     stub.emit(null)
     expect(card()).toBeNull()
+    // The opt-out went to the node half (one value per PC), never to browser
+    // storage — a new loopback port would have made it unreadable anyway.
+    expect(stub.suppressOnboarding).toHaveBeenCalledTimes(1)
     expect(Storage.prototype.setItem).not.toHaveBeenCalled()
   })
 })

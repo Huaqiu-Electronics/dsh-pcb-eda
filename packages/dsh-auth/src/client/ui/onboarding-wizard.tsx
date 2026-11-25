@@ -16,15 +16,18 @@
  * so the entry is registered only when `auth.isHostMode()` is true; the
  * component also re-checks that flag and renders nothing otherwise.
  *
- * NO PERSISTENCE — AND WHY
+ * WHERE THE「NEVER AGAIN」CHOICE LIVES
  *
- * Every `dsh` launch binds a NEW loopback port, so the browser origin (`http://
- * 127.0.0.1:<port>`) changes on every start. Anything persisted in
- * `localStorage` / `sessionStorage` is therefore invisible to the next launch
- * and would only pretend to be remembered. The "don't show again" choice is
- * consequently held in COMPONENT STATE for the life of this page: it suppresses
- * re-opening after a mid-session logout, and it is gone when the app exits.
- * Do not "fix" this by adding storage.
+ * Every `dsh` launch binds a NEW loopback port, so the browser origin
+ * (`http://127.0.0.1:<port>`) changes on every start: `localStorage` /
+ * `sessionStorage` cannot carry a preference into the next launch. So the
+ * checkbox persists on the NODE half, in `~/.dsh/auth/onboarding.json` — one
+ * value per PC, reachable from any port (`GET/POST /onboarding`).
+ *
+ * Skipping WITHOUT ticking the box hides the wizard for this page only (and
+ * it re-opens if the operator signs in and later signs out). Ticking the box
+ * writes the preference and the wizard never appears on this PC again. Do not
+ * add browser storage: it would silently never be read.
  *
  * LOGIN AND REGISTRATION ARE THE SAME HOST DIALOG
  *
@@ -175,6 +178,7 @@ export interface HuaqiuOnboardingWizardProps {
  * Visible only when ALL of the following hold:
  *   - the plugin runs under an HQ Edge host (`auth.isHostMode()`),
  *   - the host session has been resolved (`auth-state` resolved snapshot),
+ *   - the per-PC「never show again」preference has loaded and is false,
  *   - the operator is not signed in,
  *   - the operator has not dismissed this wizard for the current page.
  */
@@ -182,57 +186,86 @@ export function HuaqiuOnboardingWizard(_props: HuaqiuOnboardingWizardProps): JSX
   const t = useT()
   const dark = useIsDark()
   const authState = useSyncExternalStore(subscribeAuth, getAuthState, getAuthState)
-  // Session-only preferences — see the file header: storage cannot survive a
-  // new port, so this must never be written anywhere.
+  // Session state + the per-PC preference (node half, see the file header).
   const [dismissed, setDismissed] = useState(false)
-  const [suppressForSession, setSuppressForSession] = useState(false)
   const [dontShowAgain, setDontShowAgain] = useState(false)
+  /** `~/.dsh/auth/onboarding.json` says the operator opted out on this PC. */
+  const [persistedSuppressed, setPersistedSuppressed] = useState(false)
+  /** The preference round-trip settled; until then nothing may render. */
+  const [prefLoaded, setPrefLoaded] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const primaryRef = useRef<HTMLButtonElement | null>(null)
   const wasAuthenticated = useRef(false)
 
-  const hostMode = getAuth()?.isHostMode() ?? false
-  const visible = hostMode && authState.resolved && !authState.authenticated && !dismissed
+  /** Write the per-PC opt-out (optimistic: hide now even if the write fails). */
+  const optOut = useCallback((): void => {
+    setPersistedSuppressed(true)
+    void getAuth()?.suppressOnboarding().catch(() => undefined)
+  }, [])
 
-  // Re-open after a mid-session sign-out, unless the operator ticked
-  //「don't show again」. That is the ONLY thing the checkbox controls: the
-  // next launch starts from a fresh port and therefore a fresh choice.
+  const hostMode = getAuth()?.isHostMode() ?? false
+  const visible = hostMode && authState.resolved && prefLoaded
+    && !persistedSuppressed && !authState.authenticated && !dismissed
+
+  // Load the stored choice once per page. Gating `visible` on `prefLoaded`
+  // matters: without it a suppressed operator would see the wizard flash on
+  // every launch, which is exactly what the preference promises not to happen.
+  useEffect(() => {
+    const auth = getAuth()
+    if (!auth) { setPrefLoaded(true); return }
+    let cancelled = false
+    void auth.isOnboardingSuppressed()
+      .then((suppressed) => {
+        if (cancelled) return
+        setPersistedSuppressed(suppressed)
+        setPrefLoaded(true)
+      })
+      .catch(() => { if (!cancelled) setPrefLoaded(true) })
+    return () => { cancelled = true }
+  }, [])
+
+  // Re-open after a mid-session sign-out, unless the operator opted out
+  // (either permanently, or by ticking the box during this page's lifetime).
   useEffect(() => {
     if (authState.authenticated) {
       wasAuthenticated.current = true
       setDismissed(true)
+      // Ticking the box and then signing in is also an opt-out: the wizard's
+      // job is done, and a later sign-out must not resurrect it.
+      if (dontShowAgain && !persistedSuppressed) optOut()
       return
     }
     if (wasAuthenticated.current) {
       wasAuthenticated.current = false
-      if (!suppressForSession) {
+      if (!persistedSuppressed) {
         setError(null)
         setDismissed(false)
       }
     }
-  }, [authState.authenticated, suppressForSession])
+  }, [authState.authenticated, persistedSuppressed, dontShowAgain, optOut])
 
   useEffect(() => {
     if (visible) primaryRef.current?.focus()
   }, [visible])
+
+  const dismiss = useCallback((): void => {
+    setDismissed(true)
+    if (dontShowAgain) optOut()
+  }, [dontShowAgain, optOut])
 
   useEffect(() => {
     if (!visible) return
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.stopPropagation()
-        setDismissed(true)
+        dismiss()
       }
     }
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('keydown', onKeyDown) }
-  }, [visible])
+  }, [visible, dismiss])
 
-  const dismiss = useCallback((): void => {
-    if (dontShowAgain) setSuppressForSession(true)
-    setDismissed(true)
-  }, [dontShowAgain])
 
   const login = useCallback(async (): Promise<void> => {
     if (busy) return
@@ -316,7 +349,6 @@ export function HuaqiuOnboardingWizard(_props: HuaqiuOnboardingWizardProps): JSX
                   padding: '2px 7px',
                   borderRadius: 999,
                 }}>{t('onboarding.badge')}</span>
-                <span style={{ fontSize: 11, color: palette.muted }}>{t('onboarding.hostLabel')}</span>
               </div>
               <div
                 id="hq-onboarding-title"

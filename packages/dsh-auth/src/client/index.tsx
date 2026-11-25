@@ -192,8 +192,10 @@ export function apply(ctx: ClientContext): () => void {
       // explains what the Huaqiu account unlocks; standalone DSH desktop keeps
       // its existing account entrypoint and never sees this. Registration is
       // gated on host mode, and the component re-checks it, so the modal cannot
-      // appear in a standalone build. Dismissal is component state only: a new
-      // loopback port per launch makes persisted preferences unreachable.
+      // appear in a standalone build. The「never show again」choice is stored by
+      // the node half (`~/.dsh/auth/onboarding.json`): a new loopback port per
+      // launch makes browser storage unreachable, so the browser half asks for
+      // it over `/onboarding` and the wizard stays hidden before first paint.
       if (client.auth.isHostMode()) {
         disposers.push(slots.inject('shell.overlay', () => slots.register({
           name: 'shell.overlay',

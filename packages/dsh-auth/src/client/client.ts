@@ -57,6 +57,14 @@ export interface AuthClient {
     isAuthenticated(): boolean
     /** HQ Edge host mode: EDA owns the credential; login triggers the EDA dialog. */
     isHostMode(): boolean
+    /**
+     * Launch-wizard dismissal persisted by the NODE half on this PC
+     * (`~/.dsh/auth/onboarding.json`). Browser storage cannot hold it: every
+     * launch binds a new loopback port, so the origin changes each time.
+     */
+    isOnboardingSuppressed(): Promise<boolean>
+    /** Persist「never show the launch wizard again」for this PC. */
+    suppressOnboarding(): Promise<void>
     getAccessToken(): Promise<string | null>
     getUserInfo(): Promise<AuthTokenPayload | null>
     /**
@@ -251,6 +259,8 @@ export function createAuthClient(deps: AuthClientDeps): AuthClient {
       if (hostMode && !hostSessionLoaded) await resolveHost()
       return hostMode ? hostSession : (hostSession ?? storage.get())
     },
+    isOnboardingSuppressed: (): Promise<boolean> => transport.fetchOnboardingSuppressed(),
+    suppressOnboarding: (): Promise<void> => transport.suppressOnboarding(),
     getUserProfile: async (): Promise<{ nickname?: string; headimage?: string } | null> => {
       if (hostMode && !hostSessionLoaded) await resolveHost()
       if (!(await auth.getAccessToken())) return null

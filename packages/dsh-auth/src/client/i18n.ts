@@ -72,7 +72,6 @@ const zh = {
   // Embedded-host launch onboarding wizard (shell.overlay). Shown only when
   // hq-edge launched this dsh and no Huaqiu account is signed in.
   'onboarding.badge': '快速开始',
-  'onboarding.hostLabel': '华秋 DSH 版',
   'onboarding.title': '解锁开箱即用的 AI 能力',
   'onboarding.desc': '登录华秋账号即可直接使用内置电子设计 AI，无需手工配置 API Key 或模型。',
   'onboarding.featureModelsTitle': '零配置内置模型',
@@ -84,7 +83,7 @@ const zh = {
   'onboarding.login': '使用华秋账号登录',
   'onboarding.loginBusy': '正在打开登录窗口…',
   'onboarding.skip': '暂时跳过',
-  'onboarding.dontShow': '本次启动不再提示',
+  'onboarding.dontShow': '不再显示此提示',
   'onboarding.createAccount': '注册新账号',
   'onboarding.error': '无法打开华秋登录窗口，请重试。',
 } as const
@@ -144,7 +143,6 @@ const en: Record<AuthCopyKey, string> = {
 
   // Embedded-host launch onboarding wizard (shell.overlay).
   'onboarding.badge': 'Quick Setup',
-  'onboarding.hostLabel': 'Huaqiu DSH Edition',
   'onboarding.title': 'Unlock Out-of-the-Box AI Capabilities',
   'onboarding.desc': 'Sign in with your Huaqiu account to activate built-in Electronic Design AI right away — no manual API keys or model configuration required.',
   'onboarding.featureModelsTitle': 'Zero-Config Built-in AI Models',
@@ -156,7 +154,7 @@ const en: Record<AuthCopyKey, string> = {
   'onboarding.login': 'Login with Huaqiu Account',
   'onboarding.loginBusy': 'Opening Huaqiu sign-in…',
   'onboarding.skip': 'Skip for now',
-  'onboarding.dontShow': "Don't show this again this launch",
+  'onboarding.dontShow': "Don't show this anymore",
   'onboarding.createAccount': 'Create account',
   'onboarding.error': 'Could not open the Huaqiu sign-in dialog. Please try again.',
 }

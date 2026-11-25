@@ -58,6 +58,8 @@ function makeClient(deps: {
     triggerLogin: vi.fn(async () => { pushes.push(['login']) }),
     fetchUserInfo: vi.fn(async () => null),
     fetchAiUsage: vi.fn(async (): Promise<AiUsage | null> => null),
+    fetchOnboardingSuppressed: vi.fn(async () => false),
+    suppressOnboarding: vi.fn(async () => undefined),
   }
   const storage = createAuthStorage(localStorage)
   const listeners: Array<(e: MessageEvent) => void> = []
