@@ -73,6 +73,19 @@ export interface AuthRuntimeConfig {
   profileUrl: string | null
 }
 
+/**
+ * The EDA host's login dialog closed without yielding a credential.
+ *
+ * Distinct from a transport failure so UI surfaces can treat "the operator
+ * dismissed the dialog" as a normal, non-error outcome.
+ */
+export class HostLoginDismissedError extends Error {
+  constructor() {
+    super('host login dialog dismissed')
+    this.name = 'HostLoginDismissedError'
+  }
+}
+
 /** Accept only an absolute http(s) URL; anything else → null. A path is kept. */
 function normalizeHttpUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
@@ -179,6 +192,11 @@ export function createWebServerAuthTransport(
         method: 'POST',
         headers: { accept: 'application/json' },
       })
+      // 401 = the operator closed the host dialog without signing in (the node
+      // route maps HostLoginIncompleteError to 401). That is a normal outcome,
+      // not a transport failure: callers must be able to tell the two apart so
+      // a dismissal does not surface as an error banner.
+      if (res.status === 401) throw new HostLoginDismissedError()
       if (!res.ok) throw new Error(`auth login trigger failed: HTTP ${res.status}`)
     },
     async fetchUserInfo() {

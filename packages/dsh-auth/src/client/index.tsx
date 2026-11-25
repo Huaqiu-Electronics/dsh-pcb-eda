@@ -14,6 +14,9 @@
  *     `status: "needs_auth"` the tool card becomes the login HIT: an embedded
  *     auth.eda.cn iframe + login-state line, so login is a step of the
  *     conversation instead of a dead error the agent has to relay.
+ *   - `shell.overlay` — the launch onboarding wizard, registered ONLY in host
+ *     mode (hq-edge started this dsh inside an EDA host). Standalone desktop
+ *     already has an obvious account entrypoint and must not see it.
  */
 import { createAuthStorage } from './storage.js'
 import { createWebServerAuthTransport } from './transport.js'
@@ -22,6 +25,7 @@ import { disposeAuth, registerAuth, registerAuthSync, registerHqEdgeGetter } fro
 import { HuaqiuToolView } from './ui/needs-auth-toolview.jsx'
 import { HuaqiuAuthSidebarAction } from './ui/sidebar-action.jsx'
 import { HuaqiuTurnErrorSubscribeAction } from './ui/turn-error-cta.jsx'
+import { HuaqiuOnboardingWizard } from './ui/onboarding-wizard.jsx'
 import { disposeUiEnv } from './ui-env.js'
 
 /**
@@ -182,6 +186,20 @@ export function apply(ctx: ClientContext): () => void {
         name: 'conversation.chat.turn-error.action',
         id: 'huaqiu-turn-error-cta',
       }, HuaqiuTurnErrorSubscribeAction) as () => void))
+
+      // Launch onboarding, EMBEDDED HOST ONLY. When hq-edge starts dsh inside
+      // an EDA host, a signed-out operator gets one wizard at launch that
+      // explains what the Huaqiu account unlocks; standalone DSH desktop keeps
+      // its existing account entrypoint and never sees this. Registration is
+      // gated on host mode, and the component re-checks it, so the modal cannot
+      // appear in a standalone build. Dismissal is component state only: a new
+      // loopback port per launch makes persisted preferences unreachable.
+      if (client.auth.isHostMode()) {
+        disposers.push(slots.inject('shell.overlay', () => slots.register({
+          name: 'shell.overlay',
+          id: 'huaqiu-onboarding-wizard',
+        }, HuaqiuOnboardingWizard) as () => void))
+      }
     }
   })
 

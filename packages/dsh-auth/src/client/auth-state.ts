@@ -12,6 +12,13 @@ import type { AuthClient } from './client.js'
 
 export interface AuthState {
   authenticated: boolean
+  /**
+   * Whether the initial credential read has settled. The launch wizard must
+   * wait for this: before it flips true, `authenticated: false` only means
+   * "not known yet", and popping the onboarding modal for a signed-in host
+   * user would flash a false "please sign in" on every launch.
+   */
+  resolved: boolean
   nickname?: string
   /** Avatar URL for the sidebar trigger; absent → the HQ icon is shown. */
   avatar?: string
@@ -31,9 +38,10 @@ export interface AuthState {
 
 /** Snapshot for one credential payload (`null` = logged out). */
 function stateOf(info: AuthTokenPayloadLike | null): AuthState {
-  if (!info) return { authenticated: false }
+  if (!info) return { authenticated: false, resolved: true }
   return {
     authenticated: true,
+    resolved: true,
     ...(info.nickname ? { nickname: info.nickname } : {}),
     ...(info.avatar ? { avatar: info.avatar } : {}),
     ...(info.token ? { token: info.token } : {}),
@@ -44,7 +52,7 @@ function stateOf(info: AuthTokenPayloadLike | null): AuthState {
 type AuthTokenPayloadLike = { nickname?: string; avatar?: string; token?: string; phone?: string } | null
 
 let auth: AuthClient['auth'] | null = null
-let state: AuthState = { authenticated: false }
+let state: AuthState = { authenticated: false, resolved: false }
 const listeners = new Set<() => void>()
 let unsubscribe: (() => void) | null = null
 let syncNow: (() => void) | null = null
@@ -62,7 +70,7 @@ export function registerAuth(a: AuthClient['auth']): void {
   })
   void a.getUserInfo()
     .then((info) => setState(stateOf(info)))
-    .catch(() => setState({ authenticated: false }))
+    .catch(() => setState({ authenticated: false, resolved: true }))
 }
 
 /** The live auth capability (for login()/logout() from components). */
@@ -133,5 +141,5 @@ export function disposeAuth(): void {
   syncNow = null
   hqEdgeGetter = null
   listeners.clear()
-  state = { authenticated: false }
+  state = { authenticated: false, resolved: false }
 }

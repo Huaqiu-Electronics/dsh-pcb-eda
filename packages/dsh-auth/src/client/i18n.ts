@@ -68,6 +68,25 @@ const zh = {
   'card.nicknameSep': '：{nickname}',
 
   'dialog.close': '关闭',
+
+  // Embedded-host launch onboarding wizard (shell.overlay). Shown only when
+  // hq-edge launched this dsh and no Huaqiu account is signed in.
+  'onboarding.badge': '快速开始',
+  'onboarding.hostLabel': '华秋 DSH 版',
+  'onboarding.title': '解锁开箱即用的 AI 能力',
+  'onboarding.desc': '登录华秋账号即可直接使用内置电子设计 AI，无需手工配置 API Key 或模型。',
+  'onboarding.featureModelsTitle': '零配置内置模型',
+  'onboarding.featureModelsDesc': '开箱即用 auto-model 与华秋调优的 EDA 智能体。',
+  'onboarding.featurePartsTitle': '器件、BOM 与供应链情报',
+  'onboarding.featurePartsDesc': '在工作区内直接查询华秋器件库、数据手册与 DFM 检查。',
+  'onboarding.featureFlowTitle': '从想法到可制造 PCB',
+  'onboarding.featureFlowDesc': '从概念、原理图到布局、DFM 检查与一站式 PCB 制造。',
+  'onboarding.login': '使用华秋账号登录',
+  'onboarding.loginBusy': '正在打开登录窗口…',
+  'onboarding.skip': '暂时跳过',
+  'onboarding.dontShow': '本次启动不再提示',
+  'onboarding.createAccount': '注册新账号',
+  'onboarding.error': '无法打开华秋登录窗口，请重试。',
 } as const
 
 /** Every key of the zh dictionary — the contract both languages satisfy. */
@@ -122,6 +141,24 @@ const en: Record<AuthCopyKey, string> = {
   'card.nicknameSep': ': {nickname}',
 
   'dialog.close': 'Close',
+
+  // Embedded-host launch onboarding wizard (shell.overlay).
+  'onboarding.badge': 'Quick Setup',
+  'onboarding.hostLabel': 'Huaqiu DSH Edition',
+  'onboarding.title': 'Unlock Out-of-the-Box AI Capabilities',
+  'onboarding.desc': 'Sign in with your Huaqiu account to activate built-in Electronic Design AI right away — no manual API keys or model configuration required.',
+  'onboarding.featureModelsTitle': 'Zero-Config Built-in AI Models',
+  'onboarding.featureModelsDesc': 'Instant access to auto-model and Huaqiu-tuned EDA agents out of the box.',
+  'onboarding.featurePartsTitle': 'Component, BOM & Supply Chain Intelligence',
+  'onboarding.featurePartsDesc': 'Query Huaqiu part libraries, datasheets and DFM checks inside your workspace.',
+  'onboarding.featureFlowTitle': 'End-to-End: Idea to Producible PCB',
+  'onboarding.featureFlowDesc': 'Go from concept and schematic capture to layout, DFM checks and turnkey PCB manufacturing.',
+  'onboarding.login': 'Login with Huaqiu Account',
+  'onboarding.loginBusy': 'Opening Huaqiu sign-in…',
+  'onboarding.skip': 'Skip for now',
+  'onboarding.dontShow': "Don't show this again this launch",
+  'onboarding.createAccount': 'Create account',
+  'onboarding.error': 'Could not open the Huaqiu sign-in dialog. Please try again.',
 }
 
 const COPY: Record<AuthLocale, Record<AuthCopyKey, string>> = { zh, en }

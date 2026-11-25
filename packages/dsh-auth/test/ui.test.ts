@@ -62,7 +62,7 @@ describe('auth-state store (sidebar + card live state)', () => {
     const unsubscribe = subscribeAuth(callback)
 
     auth._set({ nickname: 'Alice' })
-    expect(getAuthState()).toEqual({ authenticated: true, nickname: 'Alice' })
+    expect(getAuthState()).toEqual({ authenticated: true, resolved: true, nickname: 'Alice' })
     expect(callback).toHaveBeenCalled()
 
     unsubscribe()
@@ -73,6 +73,6 @@ describe('auth-state store (sidebar + card live state)', () => {
   it('reports nickname from an already-authenticated client', async () => {
     const auth = stubAuth({ nickname: 'Bob' })
     registerAuth(auth)
-    await vi.waitFor(() => expect(getAuthState()).toEqual({ authenticated: true, nickname: 'Bob' }))
+    await vi.waitFor(() => expect(getAuthState()).toEqual({ authenticated: true, resolved: true, nickname: 'Bob' }))
   })
 })
