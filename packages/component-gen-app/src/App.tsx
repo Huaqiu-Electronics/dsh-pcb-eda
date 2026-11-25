@@ -89,9 +89,11 @@ export function ComponentGenApp(props: ComponentGenAppProps): ReactElement {
         </div>
       </div>
 
-      {page === 'symbol'
-        ? <SymbolGenPage ports={ports} t={t} reopen={pageReopen} />
-        : <FootprintGenPage ports={ports} t={t} reopen={pageReopen} />}
+      <div className="cga-app__body">
+        {page === 'symbol'
+          ? <SymbolGenPage ports={ports} t={t} reopen={pageReopen} />
+          : <FootprintGenPage ports={ports} t={t} reopen={pageReopen} />}
+      </div>
 
       {historyOpen
         ? <HistoryDialog ports={ports} page={page} t={t} onReopen={openHistory} onClose={() => setHistoryOpen(false)} />

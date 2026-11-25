@@ -12,7 +12,8 @@ import type { ComponentGenConfig, ComponentGenPorts, ReopenRequest } from '../po
 import type { Translate } from '../copy/index.js'
 import type { DimensionValues } from '../utils/dims.js'
 import { UploadInput } from '../components/UploadInput.js'
-import { GeometryEditor } from '../components/GeometryEditor.js'
+import { EditFootprint } from '../components/editFootprint/EditFootprint.js'
+import { PKG_TYPE_OPTIONS } from '../components/editFootprint/types.js'
 import { ResultStage } from '../components/ResultStage.js'
 import { useAuthGate } from '../hooks/useAuthGate.js'
 import { useJobRunner } from '../hooks/useJobRunner.js'
@@ -75,6 +76,15 @@ export function FootprintGenPage({ ports, t, reopen = null }: FootprintGenPagePr
       }))
   }, [imageDataUrl, hint, runner, ports])
 
+  const extractAs = useCallback((pkg: string): void => {
+    if (!imageDataUrl) return
+    setHint(pkg)
+    void runner.run({
+      kind: 'extract-footprint',
+      input: { imageDataUrl, packageType: pkg },
+    }).catch(() => { /* surfaced by runner phase */ })
+  }, [imageDataUrl, runner])
+
   const confirmDimensions = useCallback((values: DimensionValues, edited: Record<string, boolean>): void => {
     void runner.run({
       kind: 'generate-footprint',
@@ -99,6 +109,22 @@ export function FootprintGenPage({ ports, t, reopen = null }: FootprintGenPagePr
 
   return (
     <div className="cga-app">
+      {runner.phase === 'completed'
+        ? (
+          <ResultStage
+            ports={ports}
+            kind="footprint"
+            result={runner.result}
+            t={t}
+            srcKey={resultKey}
+            leading={(
+              <button type="button" className="cga-btn cga-btn--outline" onClick={runner.back}>
+                {t('editor.backToEdit')}
+              </button>
+            )}
+          />
+        )
+        : (
       <div className="cga-panel">
         <div className="cga-panel__body">
           {auth.phase === 'unknown' ? <div className="cga-progress"><span className="cga-spinner" />{t('app.loading')}</div> : null}
@@ -113,8 +139,9 @@ export function FootprintGenPage({ ports, t, reopen = null }: FootprintGenPagePr
 
           {runner.phase !== 'needs_confirmation'
             ? (
-              <>
+              <div className="cga-extract">
                 <UploadInput
+                  className="cga-extract__upload"
                   maxBytes={maxBytes}
                   t={t}
                   disabled={!authed || busy}
@@ -122,49 +149,60 @@ export function FootprintGenPage({ ports, t, reopen = null }: FootprintGenPagePr
                   file={file}
                   onFile={(f, url) => { setFile(f); setImageDataUrl(url) }}
                 />
-                <div className="cga-field">
-                  <label className="cga-field__label">{t('footprint.hintPlaceholder')}</label>
-                  <input
-                    className="cga-field__input"
-                    type="text"
-                    value={hint}
-                    disabled={!authed || busy}
-                    onChange={(ev) => setHint(ev.target.value)}
-                  />
+                <div className="cga-extract__side">
+                  <p className="cga-extract__tip">{t('footprint.hintTip')}</p>
+                  <div className="cga-field">
+                    <label className="cga-field__label">{t('footprint.hintPlaceholder')}</label>
+                    <select
+                      className="cga-field__select"
+                      value={hint}
+                      disabled={!authed || busy}
+                      onChange={(ev) => setHint(ev.target.value)}
+                    >
+                      <option value="">{t('footprint.pkgAuto')}</option>
+                      {PKG_TYPE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="cga-actions">
+                    <button
+                      type="button"
+                      className="cga-btn cga-btn--primary cga-btn--block"
+                      disabled={!authed || !imageDataUrl || busy}
+                      onClick={extract}
+                    >
+                      {t('footprint.extract')}
+                    </button>
+                    {busy
+                      ? <button type="button" className="cga-btn cga-btn--outline cga-btn--block" onClick={() => void runner.cancel()}>{t('editor.cancelLabel')}</button>
+                      : null}
+                  </div>
                 </div>
-                <div className="cga-actions">
-                  <button
-                    type="button"
-                    className="cga-btn cga-btn--primary"
-                    disabled={!authed || !imageDataUrl || busy}
-                    onClick={extract}
-                  >
-                    {busy ? t('footprint.extractProgress') : t('footprint.extract')}
-                  </button>
-                  {busy
-                    ? <button type="button" className="cga-btn" onClick={() => void runner.cancel()}>{t('editor.cancelLabel')}</button>
-                    : null}
-                </div>
-              </>
+              </div>
             )
             : null}
 
           {runner.phase === 'running' && runner.jobId
-            ? <div className="cga-progress"><span className="cga-spinner" />{runner.progress || t('footprint.extractProgress')}</div>
+            ? (
+              <div className="cga-toast" role="status" aria-live="polite">
+                <span className="cga-spinner" />
+                {runner.progress || t('footprint.extractProgress')}
+              </div>
+            )
             : null}
 
           {runner.phase === 'needs_confirmation' && runner.dimensions
             ? (
               <>
-                <div className="cga-banner cga-banner--info">{t('footprint.needsConfirmation')}</div>
-                <GeometryEditor
+                <EditFootprint
                   dimensions={runner.dimensions}
                   pkgType={runner.pkgType}
-                  fileName={runner.fileName}
-                  disabled={false}
+                  canEdit={!busy}
                   t={t}
                   onConfirm={confirmDimensions}
                   onCancel={cancelConfirm}
+                  onExtract={extractAs}
                 />
               </>
             )
@@ -180,10 +218,7 @@ export function FootprintGenPage({ ports, t, reopen = null }: FootprintGenPagePr
             : null}
         </div>
       </div>
-
-      {runner.phase === 'completed'
-        ? <ResultStage ports={ports} kind="footprint" result={runner.result} t={t} srcKey={resultKey} />
-        : null}
+        )}
     </div>
   )
 }

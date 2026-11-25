@@ -64,6 +64,8 @@ const ZH = {
     'card.editor.validationIssue': '⚠ {n} 个问题',
     'card.editor.issueOutOfRange': '超出允许范围',
     'card.editor.issueMinGtMax': '最小值大于最大值',
+    'card.editor.svgHint': '这是从您上传的图片中提取到的封装参数，请确认参数正确后继续',
+    'card.editor.notSupported': '对不起，暂时不支持此种类型',
     'card.auth.title': '华秋 EDA（eda.cn）登录',
     'card.auth.desc': '工具「{tool}」需要登录华秋 EDA 账号才能继续。请在下方的登录框完成登录（或点击左侧「华秋EDA登录」按钮）；登录完成后，回复助手「已登录，请重试」，助手会自动重新调用该工具。',
     'card.auth.loggedIn': '✓ 已登录{nickname}—— 现在可以回复助手「已登录，请重试」，助手会重新调用工具。',
@@ -160,6 +162,8 @@ const EN: Record<CopyKey, string> = {
     'card.editor.validationIssue': '⚠ {n} issue(s)',
     'card.editor.issueOutOfRange': 'outside allowed range',
     'card.editor.issueMinGtMax': 'min is greater than max',
+    'card.editor.svgHint': 'These are the package dimensions extracted from your image. Review and confirm them to continue.',
+    'card.editor.notSupported': 'Sorry, this package type is not yet supported.',
     'card.auth.title': 'Huaqiu EDA (eda.cn) login',
     // The reply phrase was hardcoded to the Chinese "已登录，请重试" even in
     // this English string, telling an English-speaking user to type Chinese.

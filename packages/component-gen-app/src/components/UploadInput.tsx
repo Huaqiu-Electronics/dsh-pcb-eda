@@ -23,6 +23,8 @@ export interface UploadInputProps {
   imageDataUrl?: string | null
   /** original file, for the server to store into history. */
   file?: File | null
+  /** optional extra className to attach to the zone. */
+  className?: string
   onFile: (file: File | null, dataUrl: string | null) => void
 }
 
@@ -62,7 +64,7 @@ export function fileToDataUrl(file: File, maxBytes: number): Promise<string> {
 }
 
 export function UploadInput(props: UploadInputProps): ReactElement {
-  const { maxBytes, t, disabled = false, imageDataUrl = null, file = null, onFile } = props
+  const { maxBytes, t, disabled = false, imageDataUrl = null, file = null, className = '', onFile } = props
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [dragging, setDragging] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -98,7 +100,7 @@ export function UploadInput(props: UploadInputProps): ReactElement {
 
   return (
     <div
-      className={`cga-upload${dragging ? ' cga-upload--dragging' : ''}`}
+      className={`cga-upload${className ? ` ${className}` : ''}${dragging ? ' cga-upload--dragging' : ''}`}
       onClick={() => { if (!disabled) inputRef.current?.click() }}
       onDragEnter={(ev) => {
         ev.preventDefault()
@@ -157,7 +159,7 @@ export function UploadInput(props: UploadInputProps): ReactElement {
         ? (
           <>
             <img className="cga-upload__thumb" src={imageDataUrl} alt="" />
-            <div className="cga-upload__text">{file?.name ?? ''}</div>
+            <div className="cga-upload__text cga-upload__filename" title={file?.name ?? ''}>{file?.name ?? ''}</div>
           </>
         )
         : null}

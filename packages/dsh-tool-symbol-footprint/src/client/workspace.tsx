@@ -243,8 +243,8 @@ function WorkspaceOverlay({ ports }: { ports: ComponentGenPorts }): JSX.Element 
     zIndex: 1,
     display: 'flex',
     flexDirection: 'column',
-    width: 'min(880px, 100%)',
-    height: 'min(860px, 100%)',
+    width: 'min(760px, 100%)',
+    height: 'min(510px, 100%)',
     overflow: 'hidden',
     borderRadius: '24px',
     background: 'var(--dsw-alias-bg-layer-2)',
@@ -277,7 +277,7 @@ function WorkspaceOverlay({ ports }: { ports: ComponentGenPorts }): JSX.Element 
         }}
       />
       <div style={panelStyle}>
-        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', padding: '16px' }}>
+        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           <ComponentGenApp ports={ports} page={page} lang={lang} onClose={close} />
         </div>
       </div>

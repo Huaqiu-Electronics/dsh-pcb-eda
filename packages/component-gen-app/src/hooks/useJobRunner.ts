@@ -23,6 +23,8 @@ export interface UseJobRunnerResult {
   run: (req: StartJobRequest) => Promise<void>
   cancel: () => Promise<void>
   clear: () => void
+  /** Leave the completed preview: back to the editor when dimensions exist. */
+  back: () => void
   /** Render an already-generated history entry in the 'completed' stage. */
   loadHistory: (entry: HistoryEntry) => void
 }
@@ -78,9 +80,12 @@ export function useJobRunner(ports: ComponentGenPorts): UseJobRunnerResult {
     cleanup()
     setPhase('running')
     setProgress('')
-    setDimensions(null)
-    setPkgType(null)
-    setFileName(null)
+    // 确认后生成（generate-footprint）携带的是人工确认/编辑过的数值，
+    // 必须保留，否则从结果页点「返回」会落回上传页而不是编辑页。
+    const kept = req.kind === 'generate-footprint' ? req.input : null
+    setDimensions(kept?.dimensions ? { ...kept.dimensions } : null)
+    setPkgType(kept?.packageType ?? null)
+    setFileName(kept?.fileName ?? null)
     setResult({})
     setError('')
     const job = await ports.startJob(req)
@@ -106,11 +111,17 @@ export function useJobRunner(ports: ComponentGenPorts): UseJobRunnerResult {
     setJobId(null)
   }, [cleanup])
 
+  const back = useCallback((): void => {
+    setProgress('')
+    setError('')
+    setPhase(dimensions ? 'needs_confirmation' : 'idle')
+  }, [dimensions])
+
   const loadHistory = useCallback((entry: HistoryEntry): void => {
     cleanup()
     setPhase('completed')
     setProgress('')
-    setDimensions(null)
+    setDimensions((entry.input?.dimensions as Record<string, unknown> | undefined) ?? null)
     setPkgType(entry.input?.packageType ?? null)
     setFileName(null)
     setResult({
@@ -129,5 +140,5 @@ export function useJobRunner(ports: ComponentGenPorts): UseJobRunnerResult {
     setJobId(`history:${entry.id}`)
   }, [cleanup])
 
-  return { phase, progress, dimensions, pkgType, fileName, result, error, jobId, run, cancel, clear, loadHistory }
+  return { phase, progress, dimensions, pkgType, fileName, result, error, jobId, run, cancel, clear, back, loadHistory }
 }

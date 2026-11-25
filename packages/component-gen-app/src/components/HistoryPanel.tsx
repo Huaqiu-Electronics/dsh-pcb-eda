@@ -113,7 +113,6 @@ export function HistoryPanel({ ports, t, activeKind = null, onReopen }: HistoryP
           </button>
         )
         : null}
-      {done && visible.length > 0 ? <div className="cga-upload__text">{t('history.noMore')}</div> : null}
     </div>
   )
 }
