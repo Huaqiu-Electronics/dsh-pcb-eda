@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/hardware-artifacts",
-  "version": "0.7.17",
+  "version": "0.7.18",
   "type": "module",
   "description": "Hardware Engineering host capability: deterministic artifact discovery, installation resolution, native application launch and compact agent context.",
   "license": "MIT",

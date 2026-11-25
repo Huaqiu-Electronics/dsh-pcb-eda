@@ -35,11 +35,11 @@ importers:
   packages/component-gen-app:
     dependencies:
       '@huaqiu/ecad-renderer':
-        specifier: ^0.2.5
-        version: 0.2.5
+        specifier: ^0.2.6
+        version: 0.2.6
       '@huaqiu/kicad-sexpr-parser':
-        specifier: ^0.1.2
-        version: 0.1.2
+        specifier: ^0.1.3
+        version: 0.1.3
     devDependencies:
       '@types/react':
         specifier: ^18.3.31
@@ -210,11 +210,11 @@ importers:
         specifier: ^4.0.2
         version: 4.0.5
       '@huaqiu/ecad-renderer':
-        specifier: 0.2.5
-        version: 0.2.5
+        specifier: 0.2.6
+        version: 0.2.6
       '@huaqiu/kicad-sexpr-parser':
-        specifier: 0.1.2
-        version: 0.1.2
+        specifier: 0.1.3
+        version: 0.1.3
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -478,11 +478,11 @@ importers:
         specifier: workspace:*
         version: link:../dsh-tool-uncollapse
       '@huaqiu/ecad-renderer':
-        specifier: ^0.2.5
-        version: 0.2.5
+        specifier: ^0.2.6
+        version: 0.2.6
       '@huaqiu/kicad-sexpr-parser':
-        specifier: ^0.1.2
-        version: 0.1.2
+        specifier: ^0.1.3
+        version: 0.1.3
       '@types/react':
         specifier: ^18.3.31
         version: 18.3.31
@@ -1134,14 +1134,17 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@huaqiu/ecad-renderer@0.2.5':
-    resolution: {integrity: sha512-i9+xOKbCuBvBhPQEmTL47Diue9Cp1bhQctd5dlMMdZ3NSCdRQqK5ex2cQRHaXRtYjB1Sl/2KXZuWJy7zuwtesQ==}
+  '@huaqiu/ecad-renderer@0.2.6':
+    resolution: {integrity: sha512-cdbSZe0/IJJQQZmSAepSVcAUwxTSY4qItaoiUjQ7EV+AdYFVbg8e+dhUbymbd2en0Mt+KcLwlTmX/IxzUldNXw==}
 
   '@huaqiu/kicad-sexpr-parser@0.1.1':
     resolution: {integrity: sha512-siLEjnBLGKufwV0u4IRyZhJkktI1i9D4KUy1v9qbUN8HhtgydFgu5DiFRnxrl+qHLd1DC5BcmEuD4Oztp0vofw==}
 
   '@huaqiu/kicad-sexpr-parser@0.1.2':
     resolution: {integrity: sha512-mkozZP75RH7rznNfJ3b2GDY2ln4ToJWZC5k5w+GLwVVXrbrCzFSCkPQau8sz6MVXGKggGKnZbOOLBTMk3+j4VA==}
+
+  '@huaqiu/kicad-sexpr-parser@0.1.3':
+    resolution: {integrity: sha512-X2nJmJFKWRb6+pBMxqLrcpGI5cN4iud/Jv1FpPtKbbt2/UEkcGXD+VOPUnKhgaKONvX4fakIU/BKTIn4XGmfow==}
 
   '@huaqiu/part-search@0.2.6':
     resolution: {integrity: sha512-U0eqm8MsuaWK+4J8qjgwj3jNWt5JoXX2o9r6Drl721mx4iVl+Loc5xfDjKb8L7PeLxwXVFUfLkH+WhZnt6gV9Q==}
@@ -3377,15 +3380,17 @@ snapshots:
   '@esbuild/win32-x64@0.28.2':
     optional: true
 
-  '@huaqiu/ecad-renderer@0.2.5':
+  '@huaqiu/ecad-renderer@0.2.6':
     dependencies:
-      '@huaqiu/kicad-sexpr-parser': 0.1.1
+      '@huaqiu/kicad-sexpr-parser': 0.1.2
       immutable: 5.1.9
       jszip: 3.10.2
 
   '@huaqiu/kicad-sexpr-parser@0.1.1': {}
 
   '@huaqiu/kicad-sexpr-parser@0.1.2': {}
+
+  '@huaqiu/kicad-sexpr-parser@0.1.3': {}
 
   '@huaqiu/part-search@0.2.6': {}
 
