@@ -10,9 +10,10 @@ import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties
 import { isAbortError } from './ecad.js'
 import { COPY } from './copy.js'
 import {
-  loadOrderConfig, messageOf, openOrderUrl, placeOrder, prepareFabrication,
+  loadOrderConfig, messageOf, placeOrder, prepareFabrication,
   type FabricationProjection, type OrderConfigInfo, type PlacedOrder,
 } from './transport.js'
+import { openOrderPage } from './order-page.js'
 import {
   buttonStyle, C, cardStyle, disabled, dotStyle, MUTED, MONO, MONO_TEXT, pillStyle, R, SECTION_TITLE, SELECT,
 } from './theme.js'
@@ -21,12 +22,9 @@ export interface OrderPanelProps {
   readonly boardPath: string
   readonly boardTitle: string
   readonly schematicPath?: string
-  /**
-   * Workspace root of the session showing this panel. It is the authorization
-   * base the host re-checks; the project file is not, and never was.
-   */
+  /** Workspace root of the session showing this panel; the base for relative paths. */
   readonly workspaceRoot?: string
-  /** DSH session the panel belongs to; the host authorizes against its workspace. */
+  /** DSH session the panel belongs to, used to scope host-side discovery. */
   readonly session?: string
   readonly configured: boolean
 }
@@ -193,6 +191,8 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       setPlaced(result)
       setConfirming(undefined)
       setAcknowledged(false)
+      // The order exists from here on; show it where the user is working.
+      openOrderPage(result.orderUrl)
     } catch (error) {
       setMessage(messageOf(error))
     } finally {
@@ -216,7 +216,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     setReopening(true)
     setMessage(undefined)
     try {
-      await openOrderUrl(placed.orderUrl)
+      openOrderPage(placed.orderUrl)
       setPlaced({ ...placed, launched: true, status: 'launched' })
     } catch (error) {
       setMessage(messageOf(error))

@@ -26,6 +26,9 @@ import { createHardwareStore } from './store.js'
 import { COPY } from './copy.js'
 import { loadInstallations, loadProjects, openArtifact } from './transport.js'
 import { installDocumentPreviews } from './document/index.js'
+import { setOrderPageOpener } from './order-page.js'
+import { ORDER_TAB_ID, ORDER_TAB_KIND, OrderTabBody, orderTabRegistration } from './order-tab.js'
+import { OrderWatcher } from './order-watcher.js'
 import type { DocumentClientContext, WorkspaceFilesRemote } from './document/contract.js'
 import type { ProbeSheetFile } from './document/EcadBody.js'
 
@@ -64,6 +67,8 @@ interface ClientContext {
       id: string
       kind: string
       keepMounted?: boolean
+      /** One tab per order; without it every order would share one page. */
+      multiple?: boolean
       title: (address: string) => string
       /**
        * Seed this kind into a fresh docked pane, i.e. make it the page the
@@ -196,6 +201,13 @@ export function apply(ctx: ClientContext): void {
   }
 
   effect(() => ctx.sidebarRightTabs?.register({
+    id: ORDER_TAB_ID,
+    kind: ORDER_TAB_KIND,
+    multiple: true,
+    title: () => COPY.order.tabTitle,
+  }) ?? (() => {}), 'hardware-ui: order tab type')
+
+  effect(() => ctx.sidebarRightTabs?.register({
     id: HARDWARE_TAB_ID,
     kind: HARDWARE_TAB_KIND,
     keepMounted: true,
@@ -215,6 +227,11 @@ export function apply(ctx: ClientContext): void {
     inject: () => controller,
   }, HardwareViewerBody)), 'hardware-ui: viewer body')
 
+  effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register(
+    orderTabRegistration() as never,
+    OrderTabBody,
+  )), 'hardware-ui: order page body')
+
   effect(() => slots.inject('settings.section', () => slots.register({
     name: 'settings.section',
     id: HARDWARE_SETTINGS_ID,
@@ -223,6 +240,26 @@ export function apply(ctx: ClientContext): void {
     store: rootStore,
     inject: () => controller,
   }, HardwareSettingsSection)), 'hardware-ui: CAD installation settings')
+
+  // An order page belongs in the panel beside its board, not in the OS browser.
+  // `browser` is DSH's own tab kind; when this Host has no sidebar or no such
+  // kind, the opener reports failure and `openOrderPage` falls back, so a placed
+  // order is never lost to a missing tab.
+  setOrderPageOpener(url => {
+    const tabs = ctx.sidebarRight
+    if (tabs === undefined) return false
+    tabs.openTab(ORDER_TAB_KIND, { params: { url }, revealIfOpened: true })
+    return true
+  })
+
+  // Agent-driven orders end in a tool result, which no client code sees. The
+  // watcher reads the transcript and opens the page through the same opener.
+  effect(() => slots.inject('conversation.session.header.actions', () => slots.register({
+    name: 'conversation.session.header.actions',
+    id: 'hardware-ui-order-watcher',
+    order: 999,
+    inject: () => ({}),
+  }, OrderWatcher)), 'hardware-ui: order page in a Browser tab')
 
   // Document renderers ride DSH's own document pipeline: they contribute four
   // registry entries and four bodies, and nothing else. Installed through a

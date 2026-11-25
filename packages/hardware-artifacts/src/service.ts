@@ -10,7 +10,7 @@ import { execFile, execFileSync, spawn, type ChildProcess } from 'node:child_pro
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
   DEFAULT_ORDER_BASE_URL, DEFAULT_ORDER_PAGE_BASE, multipartBody,
@@ -98,12 +98,7 @@ export interface OpenArtifactResult {
 export interface SourceRequest {
   readonly artifactPath: string
   readonly expectedRevision?: string
-  /**
-   * Roots the caller names. They are *added* to the roots the host resolved
-   * for {@link sessionId}; naming one never revokes another.
-   */
-  readonly roots?: readonly string[]
-  /** DSH session the read belongs to; its workspace is the authorization base. */
+  /** DSH session the read belongs to, used only to scope the discovery cache. */
   readonly sessionId?: string
 }
 
@@ -118,7 +113,6 @@ export interface SourceResult {
 
 export interface GlbRequest {
   readonly artifactPath: string
-  readonly roots?: readonly string[]
   readonly sessionId?: string
   readonly signal?: AbortSignal
 }
@@ -190,11 +184,16 @@ export interface PlaceOrderRequest {
   readonly kind: 'pcb' | 'smt'
   readonly boardPath: string
   readonly schematicPath?: string
-  readonly roots?: readonly string[]
   readonly sessionId?: string
   readonly quantity?: number
   readonly signal?: AbortSignal
-  /** Open the resulting page in the default browser; defaults to true. */
+  /**
+   * Hand the resulting page to the OS default browser.
+   *
+   * Off by default: a DSH client opens the page in its own Browser tab, and
+   * opening both would leave the user with two copies of the same page. Only a
+   * caller with no client (a script, a foreign MCP host) wants this on.
+   */
   readonly launch?: boolean
 }
 
@@ -300,11 +299,6 @@ function canonical(path: string): string {
   return resolve(path)
 }
 
-function isInside(child: string, parent: string): boolean {
-  const rel = relative(parent, child)
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
-}
-
 function isExcluded(name: string): boolean {
   return EXCLUDED_DIRS.has(name.toLowerCase())
 }
@@ -323,31 +317,6 @@ function realOrUndefined(path: string): string | undefined {
  */
 function scopeKey(sessionId?: string): string {
   return sessionId === undefined || sessionId === '' ? '' : sessionId
-}
-
-/**
- * A caller-named root, read as "the workspace this artifact belongs to".
- *
- * Callers may name a project file by mistake (the project `.kicad_pro` is the
- * path the panel holds), and a file path authorizes nothing: no artifact is
- * inside another file's path. Resolving to the containing directory keeps the
- * caller's intent without widening beyond it.
- */
-function rootOf(root: string): string {
-  const real = realOrUndefined(root) ?? canonical(root)
-  try {
-    return statSync(real).isDirectory() ? real : dirname(real)
-  } catch {
-    return real
-  }
-}
-
-/** Roots a discovery proved reachable: the workspace and every adopted project. */
-function discoveredRoots(discovery: DiscoveryResult | undefined): string[] {
-  if (discovery === undefined) return []
-  const roots = new Set<string>([discovery.cwd])
-  for (const project of discovery.projects) roots.add(dirname(project.path))
-  return [...roots]
 }
 
 function errorWithCode(message: string, code: string, status: number): Error {
@@ -941,35 +910,22 @@ export class HardwareArtifactService {
   }
 
   /**
-   * Workspace roots a read may target: what this scope discovered, plus what
-   * the caller named.
+   * Resolve one artifact path: canonical, real, of an expected type.
    *
-   * Additive on purpose. The previous shape unioned the caller's roots with one
-   * process-wide "last discovery", so any other session's discovery — a
-   * workspace switch is exactly that — replaced the root the open viewer was
-   * authorized by, and its next read failed with "artifact is outside the
-   * authorized workspace". Roots now only ever accumulate within their scope.
+   * There is deliberately **no workspace fence**. This service only runs on the
+   * machine whose files it reads, under the same authority as the user's own
+   * editor, so a root check never protected anything the user could not already
+   * open — it only produced `403 artifact is outside the authorized workspace`
+   * whenever a panel and an agent call disagreed about a root, which is a
+   * configuration puzzle disguised as a security boundary.
+   *
+   * What remains is what makes the answer trustworthy rather than merely
+   * permitted: the path must be absolute, exist, be a regular file, be of a type
+   * this service renders, and be resolved through symlinks before anything
+   * reads it.
+   * @param artifactPath - absolute path supplied by a client or an agent tool.
    */
-  private authorizedRoots(roots?: readonly string[], sessionId?: string): string[] {
-    const candidates = new Set<string>()
-    for (const root of discoveredRoots(this.discovery(sessionId))) candidates.add(canonical(root))
-    for (const root of roots ?? []) {
-      if (root === undefined || root.trim() === '') continue
-      candidates.add(rootOf(root))
-    }
-    return [...candidates]
-  }
-
-  /**
-   * Authorize one artifact path: canonical, realpath-checked, inside a
-   * workspace root, and of an expected type. A browser request cannot turn
-   * this into an arbitrary filesystem read, even from loopback.
-   */
-  private authorize(
-    artifactPath: string,
-    roots: readonly string[] | undefined,
-    sessionId?: string,
-  ): { path: string; kind: 'schematic' | 'pcb' } {
+  private authorize(artifactPath: string): { path: string; kind: 'schematic' | 'pcb' } {
     if (!isAbsolute(artifactPath)) {
       throw errorWithCode('artifact identity must be an absolute path', 'invalid-identity', 400)
     }
@@ -978,16 +934,6 @@ export class HardwareArtifactService {
     if (kind === undefined) {
       throw errorWithCode(`unsupported artifact type: ${extname(requested)}`, 'unsupported-artifact', 415)
     }
-    const authorized = this.authorizedRoots(roots, sessionId)
-    if (authorized.length === 0) {
-      throw errorWithCode('no authorized workspace is known to the host', 'unauthorized', 403)
-    }
-    // Boundary check before existence: a path outside the workspace is refused
-    // whether or not it exists, so the route cannot probe the filesystem.
-    const permittedLexically = authorized.some((root) => isInside(requested, canonical(root)))
-    if (!permittedLexically) {
-      throw errorWithCode('artifact is outside the authorized workspace', 'unauthorized', 403)
-    }
     if (!existsSync(requested)) {
       throw errorWithCode(`artifact does not exist: ${requested}`, 'missing-artifact', 404)
     }
@@ -995,26 +941,20 @@ export class HardwareArtifactService {
     if (real === undefined) {
       throw errorWithCode(`artifact cannot be resolved: ${requested}`, 'invalid-identity', 400)
     }
-    const permitted = authorized.some((root) => {
-      const realRoot = realOrUndefined(root) ?? root
-      return isInside(real, realRoot)
-    })
-    if (!permitted) {
-      throw errorWithCode('artifact is outside the authorized workspace', 'unauthorized', 403)
-    }
     const info = statSync(real)
     if (!info.isFile()) {
       throw errorWithCode(`artifact is not a regular file: ${requested}`, 'invalid-identity', 400)
     }
-    if ((SOURCE_EXTENSIONS[extname(real).toLowerCase()]) === undefined) {
+    const resolvedKind = SOURCE_EXTENSIONS[extname(real).toLowerCase()]
+    if (resolvedKind === undefined) {
       throw errorWithCode('artifact type changed during resolution', 'unsupported-artifact', 415)
     }
-    return { path: real, kind: SOURCE_EXTENSIONS[extname(real).toLowerCase()] as 'schematic' | 'pcb' }
+    return { path: real, kind: resolvedKind as 'schematic' | 'pcb' }
   }
 
   /** Saved source text plus a content-addressed revision. */
   async readSource(request: SourceRequest): Promise<SourceResult> {
-    const { path, kind } = this.authorize(request.artifactPath, request.roots, request.sessionId)
+    const { path, kind } = this.authorize(request.artifactPath)
     const info = statSync(path)
     if (info.size > this.maxSourceBytes) {
       throw errorWithCode(`artifact is larger than ${this.maxSourceBytes} bytes`, 'too-large', 413)
@@ -1062,7 +1002,7 @@ export class HardwareArtifactService {
    * - a timeout or abort leaves no partial file behind
    */
   async exportGlb(request: GlbRequest): Promise<GlbResult> {
-    const { path } = this.authorize(request.artifactPath, request.roots, request.sessionId)
+    const { path } = this.authorize(request.artifactPath)
     if (extname(path).toLowerCase() !== '.kicad_pcb') {
       throw errorWithCode('GLB export requires a .kicad_pcb artifact', 'unsupported-artifact', 415)
     }
@@ -1146,11 +1086,10 @@ export class HardwareArtifactService {
    */
   async exportBom(request: {
     readonly artifactPath: string
-    readonly roots?: readonly string[]
     readonly sessionId?: string
     readonly signal?: AbortSignal
   }): Promise<BomResult> {
-    const { path, kind } = this.authorize(request.artifactPath, request.roots, request.sessionId)
+    const { path, kind } = this.authorize(request.artifactPath)
     if (kind !== 'schematic') {
       throw errorWithCode('BOM export requires a .kicad_sch artifact', 'unsupported-artifact', 415)
     }
@@ -1256,14 +1195,13 @@ export class HardwareArtifactService {
   async fabricate(request: {
     readonly boardPath: string
     readonly schematicPath?: string
-    readonly roots?: readonly string[]
     readonly sessionId?: string
     readonly signal?: AbortSignal
   }): Promise<FabricationResult & { readonly archiveData: Uint8Array; readonly assemblyFiles?: {
     readonly positions: string
     readonly bom: string
   } }> {
-    const { path } = this.authorize(request.boardPath, request.roots, request.sessionId)
+    const { path } = this.authorize(request.boardPath)
     if (extname(path).toLowerCase() !== '.kicad_pcb') {
       throw errorWithCode('Fabrication packaging requires a .kicad_pcb artifact', 'unsupported-artifact', 415)
     }
@@ -1275,7 +1213,7 @@ export class HardwareArtifactService {
     const revision = this.sourceRevision(path)
     const schematicPath = request.schematicPath === undefined
       ? undefined
-      : this.authorize(request.schematicPath, request.roots, request.sessionId).path
+      : this.authorize(request.schematicPath).path
     const key = `${path}:${revision}:${schematicPath ?? ''}`
     const cached = this.packageCache.get(key)
     if (cached !== undefined) return cached
@@ -1325,7 +1263,6 @@ export class HardwareArtifactService {
         const positions = parsePositions(readFileSync(positionsFile, 'utf8'))
         const bom = await this.exportBom({
           artifactPath: schematicPath,
-          ...(request.roots === undefined ? {} : { roots: request.roots }),
           ...(signal === undefined ? {} : { signal }),
         })
         const bomRows = orderBomRows(positions, bom.rows)
@@ -1416,7 +1353,6 @@ export class HardwareArtifactService {
     const bundle = await this.fabricate({
       boardPath: request.boardPath,
       ...(request.schematicPath === undefined ? {} : { schematicPath: request.schematicPath }),
-      ...(request.roots === undefined ? {} : { roots: request.roots }),
       ...(request.sessionId === undefined ? {} : { sessionId: request.sessionId }),
       ...(request.signal === undefined ? {} : { signal: request.signal }),
     })
@@ -1530,9 +1466,11 @@ export class HardwareArtifactService {
       throw errorWithCode('the order endpoint returned an order id that cannot form a page URL', 'order-rejected', 502)
     }
 
-    // Opening the page is the whole point of the action, but a browser that
-    // will not start must never discard a successfully created order.
-    const launch = request.launch !== false
+    // The page must be shown, but the *client* shows it: a DSH panel opens it in
+    // its own Browser tab, so the host opening the OS browser too would leave two
+    // copies of the same order. Only a caller with no client asks for `launch`,
+    // and even then a browser that will not start never discards the order.
+    const launch = request.launch === true
     let opened: { launched: boolean; launcher?: string } = { launched: false }
     if (launch) {
       try {
@@ -1550,8 +1488,8 @@ export class HardwareArtifactService {
       ...opened,
       status: opened.launched ? 'launched' : 'ready',
       message: opened.launched
-        ? `Opened the ${request.kind === 'pcb' ? 'PCB' : 'assembly'} order page in your default browser.`
-        : `The ${request.kind === 'pcb' ? 'PCB' : 'assembly'} order page is ready; open the URL to continue.`,
+        ? `Opened the ${request.kind === 'pcb' ? 'PCB' : 'assembly'} order page in the default browser.`
+        : `The ${request.kind === 'pcb' ? 'PCB' : 'assembly'} order page is ready at orderUrl.`,
       endpoint,
       facts,
       archive: bundle.archive,

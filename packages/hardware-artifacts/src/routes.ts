@@ -53,14 +53,6 @@ function failure(error: unknown): { status: number; body: unknown } {
   return { status, body: { ok: false, error: { code, message: error instanceof Error ? error.message : String(error) } } }
 }
 
-/** Roots a request may read: the caller's workspace, then the host's own. */
-function rootsOf(body: unknown): string[] {
-  if (body === null || typeof body !== 'object') return []
-  const cwd = asString((body as Record<string, unknown>).cwd)
-  const workspace = asString((body as Record<string, unknown>).workspace)
-  return [cwd, workspace].filter((value): value is string => value !== undefined)
-}
-
 /** The DSH session a request belongs to: a query field for reads, a body field for writes. */
 function sessionOf(url: URL, body?: unknown): string | undefined {
   const fromBody = body === null || typeof body !== 'object'
@@ -69,40 +61,6 @@ function sessionOf(url: URL, body?: unknown): string | undefined {
   return fromBody ?? asString(url.searchParams.get('session') ?? undefined)
 }
 
-/**
- * Everything one request may read: the roots it named plus the workspace of the
- * session it belongs to.
- *
- * The session's workspace is resolved here, not taken from `cwd`: the browser
- * sends whichever cwd its session hook held at render time, and a viewer that
- * stayed mounted across a workspace switch would otherwise authorize against a
- * workspace it no longer shows.
- */
-async function authorizeRequest(
-  options: HardwareHandlerOptions,
-  url: URL,
-  body?: unknown,
-): Promise<{ roots: string[]; sessionId?: string }> {
-  const sessionId = sessionOf(url, body)
-  const roots = rootsOf(body)
-  // Reads carry theirs in the query string; writes in the body. Either way they
-  // only add to the session's workspace, never replace it.
-  for (const key of ['cwd', 'workspace']) {
-    const value = asString(url.searchParams.get(key) ?? undefined)
-    if (value !== undefined && !roots.includes(value)) roots.push(value)
-  }
-  if (sessionId === undefined || options.resolveWorkspace === undefined) {
-    return { roots }
-  }
-  try {
-    const workspace = await options.resolveWorkspace(sessionId)
-    if (workspace !== undefined && workspace !== '') roots.push(workspace)
-  } catch {
-    // An unresolvable session is not a reason to fail a local read: the caller's
-    // own roots still apply, and they can only come from this machine.
-  }
-  return { roots, sessionId }
-}
 
 export function createHardwareHandler(
   service: HardwareArtifactService,
@@ -157,12 +115,11 @@ export function createHardwareHandler(
             return
           }
           const revision = asString(url.searchParams.get('revision') ?? undefined)
-          const { roots, sessionId } = await authorizeRequest(options, url)
+          const sessionId = sessionOf(url)
           try {
             const source = await service.readSource({
               artifactPath,
               ...(revision === undefined ? {} : { expectedRevision: revision }),
-              roots,
               ...(sessionId === undefined ? {} : { sessionId }),
             })
             sendJson(res, 200, { ok: true, ...source })
@@ -184,12 +141,11 @@ export function createHardwareHandler(
             return
           }
           const schematic = asString(body.schematic)
-          const { roots, sessionId } = await authorizeRequest(options, url, body)
+          const sessionId = sessionOf(url, body)
           try {
             const prepared = await service.fabricate({
               boardPath: artifactPath,
               ...(schematic === undefined ? {} : { schematicPath: schematic }),
-              roots,
               ...(sessionId === undefined ? {} : { sessionId }),
             })
             sendJson(res, 200, {
@@ -226,16 +182,15 @@ export function createHardwareHandler(
             return
           }
           const schematic = asString(body.schematic)
-          const { roots, sessionId } = await authorizeRequest(options, url, body)
+          const sessionId = sessionOf(url, body)
           try {
             const placed = await service.placeOrder({
               kind: 'pcb',
               boardPath: artifactPath,
               ...(schematic === undefined ? {} : { schematicPath: schematic }),
-              roots,
               ...(sessionId === undefined ? {} : { sessionId }),
               ...(typeof body.quantity === 'number' ? { quantity: body.quantity } : {}),
-              ...(body.launch === false ? { launch: false } : {}),
+              ...(body.launch === true ? { launch: true } : {}),
             })
             sendJson(res, 200, { ok: true, ...placed })
           } catch (error) {
@@ -262,16 +217,15 @@ export function createHardwareHandler(
             return
           }
           const schematic = asString(body.schematic)
-          const { roots, sessionId } = await authorizeRequest(options, url, body)
+          const sessionId = sessionOf(url, body)
           try {
             const placed = await service.placeOrder({
               kind: 'smt',
               boardPath: artifactPath,
               ...(schematic === undefined ? {} : { schematicPath: schematic }),
-              roots,
               ...(sessionId === undefined ? {} : { sessionId }),
               ...(typeof body.quantity === 'number' ? { quantity: body.quantity } : {}),
-              ...(body.launch === false ? { launch: false } : {}),
+              ...(body.launch === true ? { launch: true } : {}),
             })
             sendJson(res, 200, { ok: true, ...placed })
           } catch (error) {
@@ -303,11 +257,10 @@ export function createHardwareHandler(
             sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
             return
           }
-          const { roots, sessionId } = await authorizeRequest(options, url, body)
+          const sessionId = sessionOf(url, body)
           try {
             const bom = await service.exportBom({
               artifactPath,
-              roots,
               ...(sessionId === undefined ? {} : { sessionId }),
             })
             sendJson(res, 200, { ok: true, ...bom })
@@ -324,11 +277,10 @@ export function createHardwareHandler(
             sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
             return
           }
-          const { roots, sessionId } = await authorizeRequest(options, url, body)
+          const sessionId = sessionOf(url, body)
           try {
             const glb = await service.exportGlb({
               artifactPath,
-              roots,
               ...(sessionId === undefined ? {} : { sessionId }),
             })
             const query = new URLSearchParams({ path: glb.path, revision: glb.revision })

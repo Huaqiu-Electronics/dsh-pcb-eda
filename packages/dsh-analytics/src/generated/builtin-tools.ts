@@ -28,6 +28,8 @@ export const BUILTIN_TOOLS = [
   "get_selection_netlist",
   "hardware_bom",
   "hardware_fabricate",
+  "hardware_place_pcb_order",
+  "hardware_place_smt_order",
   "hardware_projects",
   "import_kicad_component",
   "import_kicad_symbol",

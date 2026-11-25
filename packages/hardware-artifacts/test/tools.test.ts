@@ -63,6 +63,10 @@ interface FakeCliOptions {
   readonly copper?: readonly string[]
   readonly outline?: boolean
   readonly drill?: boolean
+  /** Configured Huaqiu token; absent means the order path must refuse (401). */
+  readonly token?: string
+  /** Collects every endpoint URL the order path actually uploaded to. */
+  readonly posted?: string[]
 }
 
 function serviceWithFakeCli(options: FakeCliOptions = {}): HardwareArtifactService {
@@ -74,6 +78,7 @@ function serviceWithFakeCli(options: FakeCliOptions = {}): HardwareArtifactServi
     kicadRoot: app,
     probeVersion: () => '10.0.7',
     cacheRoot: join(root, '.cache'),
+    ...(options.token === undefined ? {} : { accessToken: options.token }),
     runCommand: async (_command, args) => {
       const out = args[args.indexOf('--output') + 1] ?? ''
       if (args[1] === 'export' && args[2] === 'gerbers') {
@@ -91,7 +96,10 @@ function serviceWithFakeCli(options: FakeCliOptions = {}): HardwareArtifactServi
     },
     openExternal: url => ({ command: 'open', args: [url] }),
     spawnProcess: () => ({ pid: 1 }),
-    postOrder: async () => ({ status: 200, text: JSON.stringify({ url: 'https://www.hqpcb.com/x?id=7' }) }),
+    postOrder: async url => {
+      options.posted?.push(url)
+      return { status: 200, text: JSON.stringify({ url: 'https://www.hqpcb.com/x?id=7' }) }
+    },
   })
 }
 
@@ -117,8 +125,14 @@ async function run(service: HardwareArtifactService, name: string, args: unknown
 }
 
 describe('tool registry', () => {
-  it('registers the three M4 responsibilities under the hardware namespace', () => {
-    expect(hardwareToolNames()).toEqual(['hardware_projects', 'hardware_bom', 'hardware_fabricate'])
+  it('registers the fabrication and order responsibilities under the hardware namespace', () => {
+    expect(hardwareToolNames()).toEqual([
+      'hardware_projects',
+      'hardware_bom',
+      'hardware_fabricate',
+      'hardware_place_pcb_order',
+      'hardware_place_smt_order',
+    ])
     expect(createHardwareTools({ service: serviceWithFakeCli(), workspaceOf: () => root }).map(tool => tool.name))
       .toEqual(hardwareToolNames())
     // Every tool must declare the mandatory output contract.
@@ -229,15 +243,16 @@ describe('hardware_fabricate', () => {
       .rejects.toThrow(/missing required property "path"/u)
   })
 
-  it('refuses a board outside the session workspace', async () => {
+  it('fabricates a board outside the session workspace', async () => {
     const outside = realpathSync(mkdtempSync(join(tmpdir(), 'hw-outside-')))
     writeFileSync(join(outside, 'elsewhere.kicad_pcb'), BOARD)
     try {
+      // No discovery first: the user's own board is not gated on a root.
       const result = await run(serviceWithFakeCli(), 'hardware_fabricate', {
         path: join(outside, 'elsewhere.kicad_pcb'),
       })
-      expect(result.ok).toBe(false)
-      expect(result.error).toMatchObject({ code: 'unauthorized' })
+      expect(result.ok).toBe(true)
+      expect(result.boardPath).toBe(join(outside, 'elsewhere.kicad_pcb'))
     } finally {
       rmSync(outside, { recursive: true, force: true })
     }
@@ -288,7 +303,140 @@ describe('order gate', () => {
         throw new Error('an invalid package must not reach the endpoint')
       },
     })
-    await expect(withToken.placeOrder({ kind: 'pcb', boardPath: board, roots: [root], launch: false }))
+    await expect(withToken.placeOrder({ kind: 'pcb', boardPath: board, launch: false }))
       .rejects.toMatchObject({ code: 'package-invalid', status: 422 })
+  })
+})
+
+describe('hardware_place_pcb_order', () => {
+  it('uploads the package and hands back the order page', async () => {
+    const { board } = project()
+    const posted: string[] = []
+    const result = await run(serviceWithFakeCli({ token: 'tok', posted }), 'hardware_place_pcb_order', {
+      path: board,
+      confirm: true,
+      launch: false,
+    })
+    expect(result.ok).toBe(true)
+    expect(result.kind).toBe('pcb')
+    expect(result.status).toBe('ready')
+    expect(result.launched).toBe(false)
+    expect(String(result.orderUrl)).toContain('hqpcb.com')
+    expect(result.validation).toMatchObject({ ok: true })
+    expect(result).not.toHaveProperty('archiveData')
+    // Exactly one upload, to the PCB quote endpoint.
+    expect(posted).toEqual(['https://www.eda.cn/openapi/api/hqpcb/External/fileQuote'])
+  })
+
+  it('hands the page back for the client to open, without launching a browser', async () => {
+    const { board } = project()
+    const posted: string[] = []
+    const result = await run(serviceWithFakeCli({ token: 'tok', posted }), 'hardware_place_pcb_order', {
+      path: board,
+      confirm: true,
+    })
+    expect(result.ok).toBe(true)
+    expect(result.status).toBe('ready')
+    expect(result.orderUrl).toMatch(/^https:\/\//u)
+    // Uploaded once; the DSH client opens the URL in its own Browser tab, so
+    // the host must not also hand it to the OS browser.
+    expect(posted).toHaveLength(1)
+  })
+
+  it('does not offer a system-browser switch at all', () => {
+    const tool = toolOf(serviceWithFakeCli(), 'hardware_place_pcb_order')
+    expect(Object.keys((tool as { parameters?: Record<string, unknown> }).parameters ?? {})).not.toContain('launch')
+  })
+
+  it('refuses without an explicit confirmation, before uploading anything', async () => {
+    const { board } = project()
+    const posted: string[] = []
+    const result = await run(serviceWithFakeCli({ token: 'tok', posted }), 'hardware_place_pcb_order', {
+      path: board,
+      confirm: false,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatchObject({ code: 'confirmation-required' })
+    expect(posted).toEqual([])
+  })
+
+  it('requires the confirmation argument at all', async () => {
+    const { board } = project()
+    await expect(toolOf(serviceWithFakeCli(), 'hardware_place_pcb_order').execute({ path: board }, EXEC))
+      .rejects.toThrow(/missing required property "confirm"/u)
+  })
+
+  it('reports a missing Huaqiu login instead of uploading', async () => {
+    const { board } = project()
+    const posted: string[] = []
+    const result = await run(serviceWithFakeCli({ posted }), 'hardware_place_pcb_order', {
+      path: board,
+      confirm: true,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatchObject({ code: 'unauthorized', status: 401 })
+    expect(posted).toEqual([])
+  })
+
+  it('refuses a package that failed validation instead of uploading it', async () => {
+    const { board } = project()
+    const posted: string[] = []
+    const result = await run(serviceWithFakeCli({ copper: ['F_Cu', 'B_Cu'], token: 'tok', posted }),
+      'hardware_place_pcb_order', { path: board, confirm: true })
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatchObject({ code: 'package-invalid', status: 422 })
+    expect(posted).toEqual([])
+  })
+
+  it('orders a board outside the session workspace', async () => {
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'hw-order-outside-')))
+    writeFileSync(join(outside, 'elsewhere.kicad_pcb'), BOARD)
+    try {
+      const result = await run(serviceWithFakeCli({ token: 'tok' }), 'hardware_place_pcb_order', {
+        path: join(outside, 'elsewhere.kicad_pcb'),
+        confirm: true,
+      })
+      expect(result.ok).toBe(true)
+      expect(result.status).toBe('ready')
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('hardware_place_smt_order', () => {
+  it('uploads the board, positions and BOM to the assembly endpoint', async () => {
+    const { board, schematic } = project()
+    const posted: string[] = []
+    const result = await run(serviceWithFakeCli({ token: 'tok', posted }), 'hardware_place_smt_order', {
+      path: board,
+      schematic,
+      confirm: true,
+      launch: false,
+    })
+    expect(result.ok).toBe(true)
+    expect(result.kind).toBe('smt')
+    expect(result.assembly).toMatchObject({ positions: 2, bomLines: 2 })
+    expect(posted).toEqual(['https://www.eda.cn/openapi/pcba/saveDfmTmpOrder'])
+  })
+
+  it('requires the root schematic at all', async () => {
+    const { board } = project()
+    await expect(toolOf(serviceWithFakeCli({ token: 'tok' }), 'hardware_place_smt_order')
+      .execute({ path: board, confirm: true }, EXEC))
+      .rejects.toThrow(/missing required property "schematic"/u)
+  })
+
+  it('refuses without an explicit confirmation', async () => {
+    const { board, schematic } = project()
+    const posted: string[] = []
+    const result = await run(serviceWithFakeCli({ token: 'tok', posted }), 'hardware_place_smt_order', {
+      path: board,
+      schematic,
+      confirm: false,
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatchObject({ code: 'confirmation-required' })
+    expect(posted).toEqual([])
   })
 })

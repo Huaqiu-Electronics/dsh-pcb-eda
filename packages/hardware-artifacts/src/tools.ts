@@ -1,16 +1,33 @@
 /**
  * Agent tools for `@huaqiu/hardware-artifacts`.
  *
- *   hardware_projects    which projects/boards this workspace has, and whether
- *                        a `kicad-cli` can export from them
- *   hardware_bom         the grouped BOM of one root schematic
- *   hardware_fabricate   gerber + drill (+ assembly inputs), validated
+ *   hardware_projects          which projects/boards this workspace has, and
+ *                              whether a `kicad-cli` can export from them
+ *   hardware_bom               the grouped BOM of one root schematic
+ *   hardware_fabricate         gerber + drill (+ assembly inputs), validated
+ *   hardware_place_pcb_order   upload the package and enter the hqpcb order flow
+ *   hardware_place_smt_order   the same for assembly (board zip + BOM + positions)
  *
- * These are the file-based path to fabrication. They take a path, resolve it
- * against the session workspace, and run `kicad-cli` in the board's own
- * directory — no HQ Edge, no open PCB editor, no live KiCad IPC. The order
- * backend (`placeOrder`) is deliberately not exposed here: creating a purchase
- * needs a human decision, and it keeps its own confirmed route.
+ * These are the file-based path to fabrication. They take a path — absolute
+ * anywhere on this machine, or relative to the session workspace — and run
+ * `kicad-cli` in the board's own directory — no HQ Edge, no open PCB editor, no
+ * live KiCad IPC, and no workspace authorization step: the user is the owner of
+ * the machine, and making them prove which directory their own board is in is
+ * how a working order turned into `403 artifact is outside the authorized
+ * workspace`.
+ *
+ * Every name is prefixed with this plugin's own `hardware_` namespace. The
+ * order tools deliberately do not reuse `@huaqiu/dsh-tool-quote`'s bare
+ * `place_pcb_order`/`place_smt_order`: that plugin drives the EDA host's own
+ * action, this one runs the file-based path, and two plugins registering one
+ * name would collide in the tool registry if a profile ever mounted both.
+ *
+ * The two order tools call the same `service.placeOrder` the panel's
+ * `/hardware/order/*` routes call, so this one package owns both the route and
+ * the agent tool for the same action instead of splitting the order backend
+ * across two plugins. Creating a purchase is a human decision, so the tools
+ * carry the route's own guard — a required `confirm: true` — and the service
+ * refuses a package that failed validation before anything is uploaded.
  *
  * Every tool answers with one `{ ok, ... }` JSON value. A prepared package that
  * fails validation is still a successful call with `ok: false` and the issues:
@@ -42,11 +59,10 @@ interface ToolExecLike {
 export interface HardwareToolEnv {
   readonly service: HardwareArtifactService
   /**
-   * Workspace root of one DSH session.
+   * Base directory for a relative path: the DSH session's workspace.
    *
-   * The session's own header, never the path the caller typed: that is the same
-   * base the HTTP routes authorize against, so an agent call cannot widen what
-   * the host would let a panel read.
+   * Only a base, never a limit. An absolute path is used exactly as given; this
+   * resolves the convenient relative form the panel and the model both use.
    */
   readonly workspaceOf: (sessionId?: string) => Promise<string | undefined> | string | undefined
   /** Used when the execution names no session (tests, a bare host). */
@@ -67,12 +83,7 @@ async function workspaceOf(env: HardwareToolEnv, exec: unknown): Promise<string>
   return resolve(env.defaultCwd?.() ?? process.cwd())
 }
 
-/** The roots one call may read: the workspace it was issued from. */
-function rootsOf(cwd: string): readonly string[] {
-  return [cwd]
-}
-
-/** Resolve a caller-supplied path against the workspace. */
+/** Resolve a caller-supplied path: absolute as given, relative against the workspace. */
 function resolveUnder(cwd: string, input: unknown): string {
   const text = typeof input === 'string' ? input.trim() : ''
   if (text === '') throw new Error('path is required')
@@ -98,7 +109,58 @@ function failure(error: unknown): Json {
   const code = typeof (error as { code?: unknown }).code === 'string'
     ? String((error as { code: string }).code)
     : 'internal'
-  return { ok: false, error: { code, message } }
+  const status = (error as { status?: unknown }).status
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      // The order path distinguishes a missing login (401) from a package the
+      // service refused (422), and the caller has to act on which it was.
+      ...(typeof status === 'number' ? { status } : {}),
+    },
+  }
+}
+
+/** The refusal the order routes and the order tools share. */
+function confirmationRequired(kind: 'pcb' | 'assembly'): Json {
+  return {
+    ok: false,
+    error: {
+      code: 'confirmation-required',
+      message: kind === 'pcb'
+        ? 'placing an order uploads the board files and requires explicit confirmation'
+        : 'placing an assembly order uploads the board, BOM and positions and requires explicit confirmation',
+    },
+  }
+}
+
+/** Compact one placed order for the model: the flow's outcome, not the upload. */
+function placedOrderJson(placed: {
+  readonly kind: 'pcb' | 'smt'
+  readonly orderUrl: string
+  readonly status: 'launched' | 'ready'
+  readonly message: string
+  readonly launched: boolean
+  readonly endpoint: string
+  readonly facts: unknown
+  readonly archive: unknown
+  readonly validation: unknown
+  readonly assembly?: unknown
+}): Json {
+  return asJson({
+    ok: true,
+    kind: placed.kind,
+    orderUrl: placed.orderUrl,
+    status: placed.status,
+    message: placed.message,
+    launched: placed.launched,
+    endpoint: placed.endpoint,
+    facts: placed.facts,
+    archive: placed.archive,
+    validation: placed.validation,
+    ...(placed.assembly === undefined ? {} : { assembly: placed.assembly }),
+  })
 }
 
 export function createHardwareTools(env: HardwareToolEnv) {
@@ -108,8 +170,9 @@ export function createHardwareTools(env: HardwareToolEnv) {
     defineTool({
       name: 'hardware_projects',
       description:
-        'List the hardware projects and boards this workspace contains, and whether a KiCad CLI is ' +
-        'available to export from them. Use this first when the user names a project or asks what ' +
+        'List the hardware projects and boards a directory contains, and whether a KiCad CLI is ' +
+        'available to export from them. Convenience only: every other tool takes a path directly, ' +
+        'so this is never a required first step. Use it when the user asks what ' +
         'can be manufactured, and before hardware_fabricate when the board path is not already ' +
         'known. Reads the workspace only — no KiCad process is started. Returns project paths, ' +
         'their boards, the deterministic default board (only when ownership is unambiguous), and ' +
@@ -186,7 +249,6 @@ export function createHardwareTools(env: HardwareToolEnv) {
           const sessionId = sessionIdOf(exec)
           const bom = await service.exportBom({
             artifactPath,
-            roots: rootsOf(cwd),
             ...(sessionId === undefined ? {} : { sessionId }),
             ...(exec.signal === undefined ? {} : { signal: exec.signal }),
           })
@@ -255,7 +317,6 @@ export function createHardwareTools(env: HardwareToolEnv) {
           const prepared = await service.fabricate({
             boardPath,
             ...(typeof a.schematic === 'string' ? { schematicPath: resolveUnder(cwd, a.schematic) } : {}),
-            roots: rootsOf(cwd),
             ...(sessionId === undefined ? {} : { sessionId }),
             ...(exec.signal === undefined ? {} : { signal: exec.signal }),
           })
@@ -276,12 +337,132 @@ export function createHardwareTools(env: HardwareToolEnv) {
         }
       },
     }),
+    defineTool({
+      name: 'hardware_place_pcb_order',
+      description:
+        'Place a bare-PCB (fabrication-only) order: fabricate and validate the package from one ' +
+        '.kicad_pcb, upload it to the configured Huaqiu order endpoint, and return the order page ' +
+        'URL — the same flow the Hardware panel\'s order action runs, through the same service. ' +
+        'Use only when the user has clearly asked to order/prototype this board ("下单", "place ' +
+        'order", "打样"): this uploads the board files and creates a real purchase, so `confirm` ' +
+        'must be true. Refused before any upload when the user is not signed in to Huaqiu ' +
+        '(error code "unauthorized") or when the package fails validation (error code ' +
+        '"package-invalid"); relay either instead of retrying. The order origin is this plugin\'s ' +
+        'configured setting (default eda.cn) — there is no region parameter. The PCB order uploads ' +
+        'the gerber/drill archive only; use hardware_place_smt_order when assembly inputs matter. ' +
+        'Returns { orderUrl, status, message, facts, archive, validation }. The DSH client opens ' +
+        'orderUrl in its own Browser tab as soon as this result arrives; do not paste the URL or ' +
+        'ask the user to click it. `status` is "ready" — the page is prepared, and nothing is ' +
+        'bought until the user finishes there.',
+      parameters: {
+        path: {
+          type: 'string' as const,
+          required: true as const,
+          description: 'Board (.kicad_pcb) path, absolute or relative to the workspace.',
+        },
+        confirm: {
+          type: 'boolean' as const,
+          required: true as const,
+          description:
+            'Must be true. The user\'s explicit request to order this board is the confirmation; ' +
+            'passing false (or omitting it) refuses the call without uploading anything.',
+        },
+        quantity: {
+          type: 'number' as const,
+          description: 'Board quantity for the order form. Omit to let the endpoint use its default.',
+        },
+      },
+      output: { schema: { type: 'json' }, render: renderJson },
+      async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
+        const a = (args ?? {}) as Record<string, unknown>
+        try {
+          if (a.confirm !== true) return confirmationRequired('pcb')
+          const cwd = await workspaceOf(env, exec)
+          const sessionId = sessionIdOf(exec)
+          const placed = await service.placeOrder({
+            kind: 'pcb',
+            boardPath: resolveUnder(cwd, a.path),
+            ...(typeof a.quantity === 'number' ? { quantity: a.quantity } : {}),
+            ...(sessionId === undefined ? {} : { sessionId }),
+            ...(exec.signal === undefined ? {} : { signal: exec.signal }),
+          })
+          return placedOrderJson(placed)
+        } catch (error) {
+          return failure(error)
+        }
+      },
+    }),
+    defineTool({
+      name: 'hardware_place_smt_order',
+      description:
+        'Place an SMT assembly order: fabricate the package plus the assembly inputs (board zip, ' +
+        'component positions and BOM from the root schematic), upload them to the configured ' +
+        'Huaqiu order endpoint, and return the order page URL. Same flow, service and guards as ' +
+        'hardware_place_pcb_order, but `schematic` is required — without it there is nothing to assemble ' +
+        'from. Requires the user\'s explicit request to order assembly for this board, so ' +
+        '`confirm` must be true. Refused before any upload when the user is not signed in to ' +
+        'Huaqiu (error code "unauthorized") or when the package fails validation (error code ' +
+        '"package-invalid"). The order origin is this plugin\'s configured setting (default ' +
+        'eda.cn) — there is no region parameter.',
+      parameters: {
+        path: {
+          type: 'string' as const,
+          required: true as const,
+          description: 'Board (.kicad_pcb) path, absolute or relative to the workspace.',
+        },
+        schematic: {
+          type: 'string' as const,
+          required: true as const,
+          description:
+            'Root schematic (.kicad_sch) path for the BOM. Required: the assembly endpoint needs ' +
+            'the grouped BOM alongside the positions.',
+        },
+        confirm: {
+          type: 'boolean' as const,
+          required: true as const,
+          description:
+            'Must be true. The user\'s explicit request to order assembly for this board is the ' +
+            'confirmation; passing false (or omitting it) refuses the call without uploading ' +
+            'anything.',
+        },
+        quantity: {
+          type: 'number' as const,
+          description: 'Assembled quantity for the order form. Omit to let the endpoint use its default.',
+        },
+      },
+      output: { schema: { type: 'json' }, render: renderJson },
+      async execute(args: unknown, exec: ToolExecLike): Promise<Json> {
+        const a = (args ?? {}) as Record<string, unknown>
+        try {
+          if (a.confirm !== true) return confirmationRequired('assembly')
+          const cwd = await workspaceOf(env, exec)
+          const sessionId = sessionIdOf(exec)
+          const placed = await service.placeOrder({
+            kind: 'smt',
+            boardPath: resolveUnder(cwd, a.path),
+            schematicPath: resolveUnder(cwd, a.schematic),
+            ...(typeof a.quantity === 'number' ? { quantity: a.quantity } : {}),
+            ...(sessionId === undefined ? {} : { sessionId }),
+            ...(exec.signal === undefined ? {} : { signal: exec.signal }),
+          })
+          return placedOrderJson(placed)
+        } catch (error) {
+          return failure(error)
+        }
+      },
+    }),
   ]
 }
 
 /** The tool names this package registers; the bundle test asserts them. */
 export function hardwareToolNames(): string[] {
-  return ['hardware_projects', 'hardware_bom', 'hardware_fabricate']
+  return [
+    'hardware_projects',
+    'hardware_bom',
+    'hardware_fabricate',
+    'hardware_place_pcb_order',
+    'hardware_place_smt_order',
+  ]
 }
 
 function renderJson(_args: unknown, value: unknown) {

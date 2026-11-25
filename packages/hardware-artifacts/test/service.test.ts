@@ -263,37 +263,39 @@ describe('native launch', () => {
   })
 })
 
-describe('authorized source reads', () => {
+describe('source reads', () => {
   it('returns saved text with a content revision', async () => {
     const sch = write('main.kicad_sch', schematic([]))
     const service = new HardwareArtifactService()
-    const result = await service.readSource({ artifactPath: sch, roots: [root] })
+    const result = await service.readSource({ artifactPath: sch })
     expect(result.kind).toBe('schematic')
     expect(result.revision).toMatch(/^[0-9a-f]{64}$/)
     expect(result.text).toContain('kicad_sch')
     expect(result.bytes).toBe(Buffer.byteLength(result.text))
   })
 
-  it('rejects paths outside the authorized workspace', async () => {
+  it('reads a schematic anywhere on the machine', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'hw-outside-'))
     try {
       const sch = join(outside, 'other.kicad_sch')
       writeFileSync(sch, schematic([]))
       const service = new HardwareArtifactService()
-      await expect(service.readSource({ artifactPath: sch, roots: [root] }))
-        .rejects.toMatchObject({ code: 'unauthorized', status: 403 })
+      // No discovery, no session, no root: the user's own file is readable.
+      await expect(service.readSource({ artifactPath: sch }))
+        .resolves.toMatchObject({ path: realpathSync(sch), kind: 'schematic' })
     } finally {
       rmSync(outside, { recursive: true, force: true })
     }
   })
 
   /**
-   * Regression: a workspace switch is just another session's discovery, so a
-   * single process-wide "last discovery" used to revoke every viewer that
-   * stayed open in the previous workspace — the read then failed with
-   * "artifact is outside the authorized workspace" while the file was intact.
+   * Regression: `authorizedRoots()` used to union a session's discovery, so a
+   * workspace switch (or a relaunch that emptied the discovery cache) refused a
+   * file the user could see in their own tree with "artifact is outside the
+   * authorized workspace". Discovery is now a convenience, never a gate, so
+   * every one of these reads succeeds whatever the session history says.
    */
-  it('scopes authorization to the session, so a workspace switch revokes nothing', async () => {
+  it('reads without any discovery in any session', async () => {
     const sch = write('main.kicad_sch', schematic([]))
     const other = mkdtempSync(join(tmpdir(), 'hw-other-workspace-'))
     try {
@@ -301,28 +303,16 @@ describe('authorized source reads', () => {
       service.discover(root, undefined, 'session-a')
       service.discover(other, undefined, 'session-b')
 
-      // Session A still reads its own workspace although B discovered last.
       await expect(service.readSource({ artifactPath: sch, sessionId: 'session-a' }))
         .resolves.toMatchObject({ path: realpathSync(sch) })
-      // And B's discovery did not widen A's boundary.
       await expect(service.readSource({ artifactPath: sch, sessionId: 'session-b' }))
-        .rejects.toMatchObject({ code: 'unauthorized', status: 403 })
-      // A read that names neither session nor root has no discovery to lean on.
+        .resolves.toMatchObject({ path: realpathSync(sch) })
+      // A read that names no session at all is just as valid.
       await expect(service.readSource({ artifactPath: sch }))
-        .rejects.toMatchObject({ code: 'unauthorized', status: 403 })
+        .resolves.toMatchObject({ path: realpathSync(sch) })
     } finally {
       rmSync(other, { recursive: true, force: true })
     }
-  })
-
-  it('reads a project file named as the workspace root as its directory', async () => {
-    const sch = write('main.kicad_sch', schematic([]))
-    const project = write('main.kicad_pro', '{}')
-    const service = new HardwareArtifactService()
-    // The panel holds the project path, not the workspace; naming it must not
-    // authorize an empty set of files.
-    await expect(service.readSource({ artifactPath: sch, roots: [project] }))
-      .resolves.toMatchObject({ path: realpathSync(sch) })
   })
 
   it('keeps the unscoped discovery working for embeds without sessions', async () => {
@@ -332,15 +322,16 @@ describe('authorized source reads', () => {
     await expect(service.readSource({ artifactPath: sch })).resolves.toMatchObject({ path: realpathSync(sch) })
   })
 
-  it('rejects traversal and relative identities', async () => {
+  it('rejects a relative identity and a path that does not exist', async () => {
     const service = new HardwareArtifactService()
-    await expect(service.readSource({ artifactPath: '../escape.kicad_sch', roots: [root] }))
+    await expect(service.readSource({ artifactPath: '../escape.kicad_sch' }))
       .rejects.toMatchObject({ code: 'invalid-identity', status: 400 })
-    await expect(service.readSource({ artifactPath: join(root, '..', 'escape.kicad_sch'), roots: [root] }))
-      .rejects.toMatchObject({ code: 'unauthorized', status: 403 })
+    // Absolute but absent: a plain 404, named after the path, not a fence.
+    await expect(service.readSource({ artifactPath: join(root, '..', 'escape.kicad_sch') }))
+      .rejects.toMatchObject({ code: 'missing-artifact', status: 404 })
   })
 
-  it('rejects a symlink that escapes the workspace', async () => {
+  it('follows a symlink to the file it names', async () => {
     const outside = mkdtempSync(join(tmpdir(), 'hw-link-'))
     try {
       const target = join(outside, 'secret.kicad_sch')
@@ -352,8 +343,8 @@ describe('authorized source reads', () => {
         return // Windows without Developer Mode: symlinks unavailable, nothing to assert
       }
       const service = new HardwareArtifactService()
-      await expect(service.readSource({ artifactPath: link, roots: [root] }))
-        .rejects.toMatchObject({ code: 'unauthorized', status: 403 })
+      await expect(service.readSource({ artifactPath: link }))
+        .resolves.toMatchObject({ path: realpathSync(target) })
     } finally {
       rmSync(outside, { recursive: true, force: true })
     }
@@ -362,22 +353,22 @@ describe('authorized source reads', () => {
   it('rejects unsupported file types and oversized sources', async () => {
     const txt = write('notes.txt', 'hello')
     const service = new HardwareArtifactService()
-    await expect(service.readSource({ artifactPath: txt, roots: [root] }))
+    await expect(service.readSource({ artifactPath: txt }))
       .rejects.toMatchObject({ code: 'unsupported-artifact', status: 415 })
 
     const big = write('big.kicad_sch', 'x'.repeat(64))
     const limited = new HardwareArtifactService({ maxSourceBytes: 32 })
-    await expect(limited.readSource({ artifactPath: big, roots: [root] }))
+    await expect(limited.readSource({ artifactPath: big }))
       .rejects.toMatchObject({ code: 'too-large', status: 413 })
   })
 
   it('rejects a stale expected revision', async () => {
     const sch = write('main.kicad_sch', schematic([]))
     const service = new HardwareArtifactService()
-    const first = await service.readSource({ artifactPath: sch, roots: [root] })
-    await expect(service.readSource({ artifactPath: sch, roots: [root], expectedRevision: 'deadbeef' }))
+    const first = await service.readSource({ artifactPath: sch })
+    await expect(service.readSource({ artifactPath: sch, expectedRevision: 'deadbeef' }))
       .rejects.toMatchObject({ code: 'stale-revision', status: 409 })
-    const second = await service.readSource({ artifactPath: sch, roots: [root], expectedRevision: first.revision })
+    const second = await service.readSource({ artifactPath: sch, expectedRevision: first.revision })
     expect(second.revision).toBe(first.revision)
   })
 })
@@ -414,7 +405,7 @@ describe('pcb glb export', () => {
       calls.push({ command, args, cwd: options.cwd })
       return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
     })
-    const result = await service.exportGlb({ artifactPath: board, roots: [root] })
+    const result = await service.exportGlb({ artifactPath: board })
     expect(result.cached).toBe(false)
     expect(result.revision).toMatch(/^[0-9a-f]{64}$/)
     expect(calls).toHaveLength(1)
@@ -433,12 +424,12 @@ describe('pcb glb export', () => {
       runs += 1
       return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
     })
-    await service.exportGlb({ artifactPath: board, roots: [root] })
-    await service.exportGlb({ artifactPath: board, roots: [root] })
+    await service.exportGlb({ artifactPath: board })
+    await service.exportGlb({ artifactPath: board })
     expect(runs).toBe(1)
     // Same size, same second: only the content hash can tell them apart.
     writeFileSync(board, '(kicad_pcb (version 20231121))')
-    const after = await service.exportGlb({ artifactPath: board, roots: [root] })
+    const after = await service.exportGlb({ artifactPath: board })
     expect(runs).toBe(2)
     expect(after.cached).toBe(false)
   })
@@ -452,8 +443,8 @@ describe('pcb glb export', () => {
       return { exitCode: 0, stdout: '', stderr: '', timedOut: false }
     })
     const [left, right] = await Promise.all([
-      service.exportGlb({ artifactPath: board, roots: [root] }),
-      service.exportGlb({ artifactPath: board, roots: [root] }),
+      service.exportGlb({ artifactPath: board }),
+      service.exportGlb({ artifactPath: board }),
     ])
     expect(runs).toBe(1)
     expect(left.revision).toBe(right.revision)
@@ -462,7 +453,7 @@ describe('pcb glb export', () => {
   it('reports a timeout and leaves no partial output', async () => {
     const board = write('main.kicad_pcb', '(kicad_pcb)')
     const service = serviceWithCli(async () => ({ exitCode: null, stdout: '', stderr: '', timedOut: true }))
-    await expect(service.exportGlb({ artifactPath: board, roots: [root] }))
+    await expect(service.exportGlb({ artifactPath: board }))
       .rejects.toMatchObject({ code: 'export-timeout', status: 504 })
     expect(() => service.glbFile(board, 'anything')).toThrowError(/not available/)
   })
@@ -470,21 +461,21 @@ describe('pcb glb export', () => {
   it('reports a CLI failure without publishing the result', async () => {
     const board = write('main.kicad_pcb', '(kicad_pcb)')
     const service = serviceWithCli(async () => ({ exitCode: 3, stdout: '', stderr: 'unsupported board', timedOut: false }))
-    await expect(service.exportGlb({ artifactPath: board, roots: [root] }))
+    await expect(service.exportGlb({ artifactPath: board }))
       .rejects.toMatchObject({ code: 'export-failed', status: 502 })
   })
 
   it('rejects an unconfigured CLI instead of falling back to PATH', async () => {
     const board = write('main.kicad_pcb', '(kicad_pcb)')
     const service = new HardwareArtifactService({ cacheRoot: join(root, '.cache') })
-    await expect(service.exportGlb({ artifactPath: board, roots: [root] }))
+    await expect(service.exportGlb({ artifactPath: board }))
       .rejects.toMatchObject({ code: 'not-configured', status: 412 })
   })
 
   it('rejects a non-board artifact', async () => {
     const sch = write('main.kicad_sch', schematic([]))
     const service = serviceWithCli(async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }))
-    await expect(service.exportGlb({ artifactPath: sch, roots: [root] }))
+    await expect(service.exportGlb({ artifactPath: sch }))
       .rejects.toMatchObject({ code: 'unsupported-artifact', status: 415 })
   })
 })
@@ -549,23 +540,23 @@ describe('bom projection', () => {
   it('exports from the saved root schematic and caches by content revision', async () => {
     const sch = write('main.kicad_sch', schematic([]))
     const service = serviceWithBomCli()
-    const first = await service.exportBom({ artifactPath: sch, roots: [root] })
+    const first = await service.exportBom({ artifactPath: sch })
     expect(first.rows).toHaveLength(4)
     expect(first.source).toBe('kicad-cli-bom')
-    const second = await service.exportBom({ artifactPath: sch, roots: [root] })
+    const second = await service.exportBom({ artifactPath: sch })
     expect(second.cached).toBe(true)
     writeFileSync(sch, schematic(['sub/x.kicad_sch']))
-    const third = await service.exportBom({ artifactPath: sch, roots: [root] })
+    const third = await service.exportBom({ artifactPath: sch })
     expect(third.cached).toBe(false)
   })
 
   it('rejects a board artifact and an unconfigured CLI', async () => {
     const board = write('main.kicad_pcb', '(kicad_pcb)')
     const service = serviceWithBomCli()
-    await expect(service.exportBom({ artifactPath: board, roots: [root] }))
+    await expect(service.exportBom({ artifactPath: board }))
       .rejects.toMatchObject({ code: 'unsupported-artifact', status: 415 })
     const sch = write('main2.kicad_sch', schematic([]))
-    await expect(new HardwareArtifactService({ cacheRoot: join(root, 'c') }).exportBom({ artifactPath: sch, roots: [root] }))
+    await expect(new HardwareArtifactService({ cacheRoot: join(root, 'c') }).exportBom({ artifactPath: sch }))
       .rejects.toMatchObject({ code: 'not-configured', status: 412 })
   })
 })

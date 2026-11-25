@@ -1,12 +1,11 @@
-# Hardware Engineering — implementation report (M1–M4)
+# Hardware Engineering — implementation report (M1–M5)
 
 **Task:** `docs/tasks/hardware-engineering-full-impl-code-spec.md`
 **Scope delivered:** §3 Phase A (DSH document MDI integration), §4 Phase B
 (schematic), §5 Phase C (PCB), §6 Phase D (STEP/STP), §7 Phase E as it applies
-to reading those documents, and §10 Phase H / M4 (agent-driven fabrication
-preparation — §7 below).
-**Not delivered:** M5 (ordering page in the MDI) and M6 (bundle/installer).
-Status and blockers in §7 below — they are listed rather than half-built.
+to reading those documents, §10 Phase H / M4 (agent-driven fabrication
+preparation) and M5 (the order page as a DSH tab) — §7 below.
+**Not delivered:** M6 (bundle/installer), the release step, in §7.
 **Repositories touched:** `dsh-pcb-eda` only. `deepseek-harness` was inspected and
 **not modified**.
 
@@ -204,13 +203,16 @@ delays the render the user asked for.
 |---|---|
 | `pnpm --filter @huaqiu/dsh-hardware-ui typecheck` | clean |
 | `pnpm --filter @huaqiu/dsh-hardware-ui build` | 2 bundles, client 5.39 MB (was 5.26 MB) + occt glue |
-| Package unit/integration tests | **94 passed** (9 files): 42 existing, 52 new (`document-*` + service access) |
+| `@huaqiu/dsh-hardware-ui` tests | **107 passed** (12 files): 42 existing, 65 document/order additions |
+| `@huaqiu/hardware-artifacts` tests | **110 passed** (6 files), including the paths that used to be refused with 403 |
 | Dispatch against the real harness registry | four extensions resolve to the new renderers, uppercase included, text retained as alternative |
 | Live web profile (`pnpm launch-dsh:standalone`) | boots with no server-side warning; plugin row active |
 | Browser walk (headless Chrome, Settings → Built-in plugins) | plugin synced: row present with no error, product settings section renders (KiCad 10.0.7 detected), no console errors |
 | `GET /hardware-ui/assets/occt-import-js.wasm` on the live server | `200`, `application/wasm`, `7,604,031` bytes, valid `\0asm` header |
 | Served client bundle contains the four registrations | yes (`document/schematic`, `document/pcb`, `document/step`, and the wasm route) |
 | Existing product behaviour | untouched tests (42) still pass; product tab, settings and artifact viewer code unchanged |
+| No workspace fence | `service.test.ts` reads a schematic in a temp dir with no discovery/session; `routes.test.ts` reads another session's workspace and gets 200; `tools.test.ts` fabricates and orders a board outside the workspace |
+| Order page opens in a DSH tab | temporary probe injected into the built bundle (hash-restored afterwards): tab entitled 华秋订单, header shows `订单 4684707` and no token text, one iframe on hqpcb with the checkout sandbox flags and `referrerPolicy=no-referrer` |
 
 Workspace-wide state, for honesty about what "green" means here: `pnpm -r typecheck`
 and `pnpm -r test` already fail on `master` for five packages this change does not
@@ -257,7 +259,7 @@ only at the mount/registry level, so §15's UI-level pixel cases remain open.
 
 ---
 
-## 7. Phase status: M4 delivered, M5/M6 open
+## 7. Phase status: M4 and M5 delivered, M6 open
 
 ### M4 — agent-driven fabrication preparation (delivered)
 
@@ -314,28 +316,59 @@ Exit condition §13 M4: *"the agent can identify a target project/board and
 produce a validated fabrication package without a dedicated UI order
 entrypoint"* — met: `hardware_projects` → `hardware_fabricate` needs no panel.
 
-### M5 — Huaqiu ordering page in the MDI (open, now unblocked)
+### M5 — Huaqiu ordering page in the MDI (delivered, with a correction)
 
-The MDI already has the capability: `@deepseek-ai/dsh-client-ui-sidebar-browser`
-registers a `browser` tab kind whose params accept a URL
-(`packages/client/ui-sidebar-browser/src/client/index.ts:32-37`,
-`definition.tsx:16-27`), so `ctx.sidebarRight.openTab('browser', { params: { url } })`
-opens it as a normal tab. No new web-document renderer is needed.
+**The earlier plan was wrong about the mechanism.** It said
+`openTab('browser', { params: { url } })` would work because
+`@deepseek-ai/dsh-client-ui-sidebar-browser` registers that kind. That package is
+not in this deployment's client batch — the served profile lists
+`ui-sidebar-sidebar-{right,terminal,files,documentpreview}` and no browser — so
+such a call would name a kind nobody registered and silently do nothing.
 
-The URL producer now exists too and no longer involves HQ Edge:
-`HardwareArtifactService.placeOrder` posts multipart straight to the eda.cn
-endpoint and composes the page URL the KiCad action loads. Two things remain:
+What shipped instead is a tab type this plugin owns:
 
-1. an agent tool calling it with `launch: false`;
-2. the client opening the returned URL in the `browser` tab.
+- `hardware-order` registered as `multiple: true` (one tab per order, so a second
+  order never replaces the first), with a body in `sidebar.right.pane.tab`;
+- the body frames the page with `allow-scripts allow-forms allow-same-origin
+  allow-popups allow-downloads allow-modals`, `referrerPolicy="no-referrer"`, and
+  a header that shows **the order id only** — the URL carries the user's Huaqiu
+  access token, which is never rendered as text;
+- one escape hatch (`在系统浏览器打开`) for a checkout that needs a full browser
+  profile, since a cross-site iframe cannot rely on hqpcb's cookies.
 
-**The design question that keeps (1) out of this change:** an order uploads
-real files and creates a real purchase, and the existing HTTP route guards that
-with `confirm: true` from a human click. An agent-callable tool needs an
-equivalent gate (DSH's `tools/pre-execute` approval, or a two-step
-prepare/confirm pair); shipping it without one would let a model spend the
-user's money on its own reading of a conversation. That decision belongs to the
-product, not to this task.
+Both producers go through one function, `openOrderPage`:
+the panel's confirm button and a session watcher that reads tool results. The
+watcher is what makes an **agent-driven** order land in a tab, because the host
+that ran the tool has no client context; it registers in
+`conversation.session.header.actions`, renders nothing, and opens only orders that
+appear after it has seen the inherited transcript (a reload must not resurrect old
+order tabs).
+
+The page is frameable: `curl -I` on the order URL returns `200` with no
+`X-Frame-Options` and no `Content-Security-Policy`, so no proxy or Electron
+webview is needed.
+
+### M4 follow-up — the workspace fence is gone
+
+The 403 in the delivery report (`artifact is outside the authorized workspace`,
+after every relaunch) was a boundary that protected nothing: the plugin runs on the
+user's machine, under the user's authority, against files the user can already
+open. It only produced a puzzle whose answer was "run `hardware_projects` first so
+discovery repopulates the roots".
+
+Removed rather than patched:
+
+- `authorize()` no longer consults roots at all. It still requires an absolute
+  path, existence, a regular file, a supported type, and resolves symlinks —
+  everything that makes the answer trustworthy, nothing that asks the user to
+  prove ownership of their own directory.
+- `authorizedRoots`, `discoveredRoots`, `rootOf`, `isInside`, the `roots` field on
+  five request types, the route's `rootsOf`/`authorizeRequest` plumbing, and the
+  tools' `rootsOf(cwd)` are deleted. There is no residual "boundary off" switch.
+- `hardware_projects` is now described as convenience, not a prerequisite.
+- `launch` is gone from the order tools and defaults to **false** in the service:
+  the client owns the tab, and opening the OS browser as well would show the same
+  order twice. The route keeps `launch` for a caller with no client.
 
 ### M6 — bundle and installer (not attempted)
 

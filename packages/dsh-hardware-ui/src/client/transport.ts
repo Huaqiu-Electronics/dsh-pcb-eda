@@ -262,20 +262,19 @@ export interface PlacedOrder {
 
 /**
  * Submit one order. `confirm` is what the host requires; the panel sets it only
- * after the user confirms the upload in the dialog. The host opens the order
- * page in the default browser unless `launch` is false.
+ * after the user confirms the upload in the dialog. The host never opens the
+ * page by itself — the client shows `orderUrl` in its own Browser tab.
  */
 export async function placeOrder(
   kind: 'pcb' | 'smt',
   requestBody: {
     path: string
     schematic?: string
-    /** Workspace root, never the project file; the host authorizes against it. */
+    /** Workspace root of the panel's session; the base for a relative path. */
     cwd?: string
     session?: string
     quantity?: number
     confirm: boolean
-    launch?: boolean
   },
   signal?: AbortSignal,
 ): Promise<PlacedOrder> {

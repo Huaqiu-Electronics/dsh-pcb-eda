@@ -30,6 +30,7 @@ vi.mock('three', () => {
 vi.mock('three/addons/loaders/GLTFLoader.js', () => ({ GLTFLoader: class { async loadAsync() { return { scene: { traverse() {} }, scenes: [] } } } }))
 
 import { apply, HARDWARE_TAB_ID, HARDWARE_TAB_KIND, kindForPath } from '../src/client/index.js'
+import { openOrderPage } from '../src/client/order-page.js'
 import { missingState, selectedArtifact } from '../src/client/components.js'
 import { DESTINATIONS, DESTINATION_LABELS, applicationFor } from '../src/client/model.js'
 import { createHardwareStore } from '../src/client/store.js'
@@ -75,27 +76,37 @@ describe('client slot registrations', () => {
     const { registrations, tabTypes, context } = fakeContext()
     apply(context)
     expect(registrations.map(entry => entry.name)).toEqual([
+      // The product page, then the order-page tab body.
+      'sidebar.right.pane.tab',
       'sidebar.right.pane.tab',
       'settings.section',
+      // Renders nothing: it only watches tool results for an order URL so the
+      // page can open in a tab. It is not a conversation action.
+      'conversation.session.header.actions',
     ])
     expect(registrations.map(entry => entry.name)).not.toContain('conversation.session.header.corner')
     // The panel's header is the only navigation: a second one above the
     // conversation would be a duplicate, so the seat is gone.
     expect(registrations.map(entry => entry.name)).not.toContain('conversation.header.leading')
     expect(registrations[0]?.key).toBe(HARDWARE_TAB_ID)
-    expect(tabTypes).toEqual([{
+    expect(tabTypes).toHaveLength(2)
+    // The order page is its own tab type so one order never replaces another.
+    expect(tabTypes[0]).toMatchObject({ kind: 'hardware-order', multiple: true })
+    expect(tabTypes[1]).toEqual({
       id: HARDWARE_TAB_ID,
       kind: HARDWARE_TAB_KIND,
       keepMounted: true,
       default: true,
       title: expect.any(Function),
-    }])
+    })
   })
 
   it('declares itself the panel default page so the expand button opens it', () => {
     const { tabTypes, context } = fakeContext()
     apply(context)
-    expect(tabTypes).toEqual([expect.objectContaining({ kind: HARDWARE_TAB_KIND, default: true })])
+    expect(tabTypes).toContainEqual(expect.objectContaining({ kind: HARDWARE_TAB_KIND, default: true }))
+    // Exactly one type may claim the default page.
+    expect(tabTypes.filter(entry => (entry as { default?: boolean }).default === true)).toHaveLength(1)
   })
 
   it('never mounts one store handle in two scopes', () => {
@@ -110,7 +121,8 @@ describe('client slot registrations', () => {
   it('delivers the controller verbatim instead of a hooks compartment', () => {
     const { registrations, context } = fakeContext()
     apply(context)
-    for (const registration of registrations) {
+    // The watcher injects nothing; the product seats carry the controller.
+    for (const registration of registrations.filter(entry => entry.store !== undefined)) {
       const face = registration.inject?.()
       expect(face).toBeDefined()
       // A `hooks` member would be rebound into `use<Name>` selector hooks and
@@ -393,6 +405,23 @@ describe('empty viewer placeholders', () => {
       { activeDestination: 'pcb', revision: 1, discovery: { cwd: '/w', projects: [project], selected: project } },
       'pcb',
     )).toBeUndefined()
+  })
+})
+
+describe('order page tab', () => {
+  it('opens a placed order in its own tab kind, passing the URL as a parameter', () => {
+    const opened: { kind: string; params?: Readonly<Record<string, unknown>> }[] = []
+    const { context } = fakeContext()
+    apply({
+      ...context,
+      sidebarRight: {
+        openTab: (kind, options) => { opened.push({ kind, ...(options?.params === undefined ? {} : { params: options.params }) }) },
+      },
+    })
+    openOrderPage('https://www.hqpcb.com/mycenter/orders/pcb/quote?id=7')
+    expect(opened).toEqual([
+      { kind: 'hardware-order', params: { url: 'https://www.hqpcb.com/mycenter/orders/pcb/quote?id=7' } },
+    ])
   })
 })
 

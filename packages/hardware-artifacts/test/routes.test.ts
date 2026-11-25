@@ -73,7 +73,7 @@ function harness(): { handler: Handler; resolver: WorkspaceResolver } {
   return { handler: createHardwareHandler(service, { resolveWorkspace: resolver }), resolver }
 }
 
-describe('session-scoped workspace authorization', () => {
+describe('session workspace as a base, not a boundary', () => {
   it('resolves each session to its own workspace instead of process.cwd()', async () => {
     const { handler } = harness()
     const a = await call(handler, '/api/v1/hardware/projects?session=session-a')
@@ -86,9 +86,10 @@ describe('session-scoped workspace authorization', () => {
   /**
    * The reported failure: session A's viewer kept answering after a switch to a
    * session in another workspace, and its read was refused because the shared
-   * "last discovery" now pointed at B.
+   * "last discovery" now pointed at B — and after a relaunch, because the cache
+   * was empty. There is no fence now, so neither state can refuse a read.
    */
-  it('keeps an open viewer authorized across a workspace switch', async () => {
+  it('keeps an open viewer reading across a workspace switch', async () => {
     const { handler } = harness()
     const sch = join(workspaceA, 'main.kicad_sch')
     writeFileSync(sch, '(kicad_sch (version 20231120))\n', 'utf8')
@@ -101,21 +102,22 @@ describe('session-scoped workspace authorization', () => {
     expect(read.status).toBe(200)
     expect(read.body.kind).toBe('schematic')
 
-    // A read names its session; naming the other one does not grant this path.
+    // The same path from the other session, which never discovered workspace A.
     const crossed = await call(handler, `/api/v1/hardware/source?path=${encodeURIComponent(sch)}&session=session-b`)
-    expect(crossed.status).toBe(403)
-    expect((crossed.body.error as { message?: string } | undefined)?.message).toBe('artifact is outside the authorized workspace')
+    expect(crossed.status).toBe(200)
+    expect(crossed.body.kind).toBe('schematic')
   })
 
-  it('refuses a read that names no session and no root', async () => {
+  it('reads a path that names no session at all', async () => {
     const { handler } = harness()
     const sch = join(workspaceA, 'main.kicad_sch')
     writeFileSync(sch, '(kicad_sch (version 20231120))\n', 'utf8')
     const read = await call(handler, `/api/v1/hardware/source?path=${encodeURIComponent(sch)}`)
-    expect(read.status).toBe(403)
+    expect(read.status).toBe(200)
+    expect(read.body.kind).toBe('schematic')
   })
 
-  it('authorizes the write routes through the same session workspace', async () => {
+  it('runs the write routes without consulting a workspace', async () => {
     const { handler } = harness()
     const sch = join(workspaceA, 'main.kicad_sch')
     writeFileSync(sch, '(kicad_sch (version 20231120))\n', 'utf8')
@@ -133,6 +135,6 @@ describe('session-scoped workspace authorization', () => {
       method: 'POST',
       body: { path: sch, session: 'session-b' },
     })
-    expect(crossed.status).toBe(403)
+    expect(crossed.status).toBe(412)
   })
 })

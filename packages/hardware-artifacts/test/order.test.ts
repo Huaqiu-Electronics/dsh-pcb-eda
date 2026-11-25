@@ -89,6 +89,20 @@ describe('board facts', () => {
   it('rejects a document that is not a board', () => {
     expect(() => readBoardFacts('(kicad_sch (version 20231120))')).toThrow(/not a kicad_pcb/u)
   })
+
+  it('keeps a renamed copper layer as an alias of its canonical name', () => {
+    // `(0 "F.Cu" power "top_copper")` — KiCad plots `top_copper` into the
+    // filename, so the package validator needs the mapping back.
+    const renamed = BOARD.replace('(0 "F.Cu" signal)', '(0 "F.Cu" power "top_copper")')
+    expect(readBoardFacts(renamed).copperAliases).toEqual({ top_copper: 'F_Cu' })
+    expect(readBoardFacts(renamed).layers).toBe(2)
+  })
+
+  it('reports no aliases for a board keeping the default layer names', () => {
+    // `(32 "B.Adhes" user "B.Adhesive")` renames a *non-copper* layer, which is
+    // not the validator's problem, and no copper layer is renamed.
+    expect(readBoardFacts(BOARD).copperAliases).toBeUndefined()
+  })
 })
 
 describe('order form', () => {
@@ -280,7 +294,7 @@ describe('order submission', () => {
   it('packages gerbers and drill output into the upload archive', async () => {
     const { board, schematic } = project()
     const { service, calls } = serviceWithFakeCli()
-    const prepared = await service.fabricate({ boardPath: board, schematicPath: schematic, roots: [root] })
+    const prepared = await service.fabricate({ boardPath: board, schematicPath: schematic })
     expect(prepared.archive.zipName).toBe('demo.zip')
     expect(prepared.archive.files.map(file => file.name)).toEqual([
       'main-B_Cu.gbr', 'main-Edge_Cuts.gbr', 'main-F_Cu.gbr', 'main.drl',
@@ -290,25 +304,26 @@ describe('order submission', () => {
     expect(prepared.assembly).toMatchObject({ positions: 2, bomLines: 2 })
     // Cached by revision: a second read must not run the exporter again.
     const before = calls.length
-    await service.fabricate({ boardPath: board, schematicPath: schematic, roots: [root] })
+    await service.fabricate({ boardPath: board, schematicPath: schematic })
     expect(calls.length).toBe(before)
   })
 
-  it('posts the PCB form and archive, then opens the webview page in the browser', async () => {
+  it('posts the PCB form and archive, then hands the page back unopened', async () => {
     const { board, schematic } = project()
     const capture: Captured[] = []
     const opened: string[] = []
     const { service } = serviceWithFakeCli({ capture, opened, token: 'tok' })
-    const placed = await service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic, roots: [root], quantity: 20 })
+    const placed = await service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic, quantity: 20 })
     expect(placed.responseUrl).toBe('https://www.hqpcb.com/mycenter/orders/pcb/quote?id=42&guid=ab')
     // The exact URL KiCad's PlaceOrderForPCB builds for its webview.
     expect(placed.orderUrl).toBe(
       'https://www.hqpcb.com/mycenter/orders/pcb/quote?type=PCB&id=42&guid=ab&tid=354&token=tok',
     )
-    expect(placed.launched).toBe(true)
-    expect(placed.launcher).toBe('open')
-    expect(placed.status).toBe('launched')
-    expect(opened).toEqual([placed.orderUrl])
+    // The client opens the page in its own Browser tab; the host opening the OS
+    // browser as well would show the same order twice.
+    expect(placed.launched).toBe(false)
+    expect(placed.status).toBe('ready')
+    expect(opened).toEqual([])
     expect(capture).toHaveLength(1)
     const request = capture[0]
     expect(request?.url).toBe('https://www.eda.cn/openapi/api/hqpcb/External/fileQuote')
@@ -328,7 +343,7 @@ describe('order submission', () => {
     // Both kinds need the hqpcb token: it is the Huaqiu login token, and the
     // order page would otherwise open signed out.
     for (const kind of ['pcb', 'smt'] as const) {
-      await expect(service.placeOrder({ kind, boardPath: board, schematicPath: schematic, roots: [root] }))
+      await expect(service.placeOrder({ kind, boardPath: board, schematicPath: schematic }))
         .rejects.toMatchObject({ code: 'unauthorized' })
     }
     expect(capture).toHaveLength(0)
@@ -339,9 +354,9 @@ describe('order submission', () => {
     const opened: string[] = []
     const { service } = serviceWithFakeCli({ opened, session: async () => TOKEN })
     expect(await service.orderConfig()).toMatchObject({ hasToken: true, provider: 'huaqiu' })
-    const placed = await service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic, roots: [root] })
+    const placed = await service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic })
     expect(placed.orderUrl?.endsWith(`&token=${TOKEN}`)).toBe(true)
-    expect(opened).toEqual([placed.orderUrl])
+    expect(opened).toEqual([])
   })
 
   it('treats a signed-out session as no token', async () => {
@@ -359,15 +374,15 @@ describe('order submission', () => {
       token: 'tok',
       respond: () => ({ result: { url: 'https://www.hqpcb.com/mycenter/orders/smt/quote?id=1309829474627354699' } }),
     })
-    const placed = await service.placeOrder({ kind: 'smt', boardPath: board, schematicPath: schematic, roots: [root], quantity: 10 })
+    const placed = await service.placeOrder({ kind: 'smt', boardPath: board, schematicPath: schematic, quantity: 10 })
     expect(placed.responseUrl).toBe('https://www.hqpcb.com/mycenter/orders/smt/quote?id=1309829474627354699')
     // The assembly page the webview ends on: id, source=bom, token — the same
     // query the site shows, composed from the id the endpoint returned.
     expect(placed.orderUrl).toBe(
       'https://www.hqpcb.com/mycenter/orders/smt/quote?id=1309829474627354699&source=bom&token=tok',
     )
-    expect(placed.launched).toBe(true)
-    expect(opened).toEqual([placed.orderUrl])
+    expect(placed.launched).toBe(false)
+    expect(opened).toEqual([])
     const request = capture[0]
     expect(request?.url).toBe('https://www.eda.cn/openapi/pcba/saveDfmTmpOrder')
     expect(request?.headers).toEqual({ authorization: 'tok' })
@@ -381,17 +396,17 @@ describe('order submission', () => {
     expect(form.smt_order?.number).toBe('10')
   })
 
-  it('returns the page without opening a browser when launch is false', async () => {
+  it('opens the OS browser only when a caller explicitly asks for it', async () => {
     const { board, schematic } = project()
     const opened: string[] = []
     const { service } = serviceWithFakeCli({ opened, token: 'tok' })
     const placed = await service.placeOrder({
-      kind: 'pcb', boardPath: board, schematicPath: schematic, roots: [root], launch: false,
+      kind: 'pcb', boardPath: board, schematicPath: schematic, launch: true,
     })
-    expect(placed.launched).toBe(false)
-    expect(placed.status).toBe('ready')
+    expect(placed.launched).toBe(true)
+    expect(placed.status).toBe('launched')
     expect(placed.orderUrl).toContain('/mycenter/orders/pcb/quote?')
-    expect(opened).toEqual([])
+    expect(opened).toEqual([placed.orderUrl])
   })
 
   it('opens only web URLs, and only loopback over plain HTTP', () => {
@@ -410,14 +425,14 @@ describe('order submission', () => {
       token: 'tok',
       respond: () => ({ code: 500, msg: 'login required' }),
     })
-    await expect(service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic, roots: [root] }))
+    await expect(service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic }))
       .rejects.toMatchObject({ code: 'order-rejected' })
   })
 
   it('explains a missing KiCad installation instead of uploading', async () => {
     const { board } = project()
     const service = new HardwareArtifactService({ cacheRoot: join(root, '.cache'), postOrder: async () => ({ status: 200, text: '{}' }) })
-    await expect(service.placeOrder({ kind: 'pcb', boardPath: board, roots: [root] }))
+    await expect(service.placeOrder({ kind: 'pcb', boardPath: board }))
       .rejects.toMatchObject({ code: 'not-configured' })
     expect(await service.orderConfig()).toMatchObject({ configured: false, provider: 'huaqiu' })
   })
@@ -426,7 +441,7 @@ describe('order submission', () => {
     const { board, schematic } = project()
     const capture: Captured[] = []
     const { service } = serviceWithFakeCli({ capture, baseUrl: 'http://127.0.0.1:9999/', token: 'tok' })
-    await service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic, roots: [root] })
+    await service.placeOrder({ kind: 'pcb', boardPath: board, schematicPath: schematic })
     expect(capture[0]?.url).toBe('http://127.0.0.1:9999/openapi/api/hqpcb/External/fileQuote')
   })
 })
