@@ -152,6 +152,32 @@ const CSS = `
 .cga-history-dialog__head { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 20px 14px 8px 24px; }
 .cga-history-dialog__title { font-size: 16px; line-height: 24px; font-weight: 500; color: var(--dsw-alias-label-primary, currentColor); }
 .cga-history-dialog__body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 24px 24px; }
+
+/* Workspace popup panel (host shell.overlay) — size lives here so the
+   portrait breakpoint below can take it full-screen. */
+.cga-ws-panel { width: min(760px, 100%); height: min(510px, 100%); border-radius: 24px; }
+
+/* ── mobile / portrait ────────────────────────────────────────────────────
+   Narrow viewports stack the two-column layouts vertically and keep the
+   dimension canvas aligned by scaling it as a whole (zoom also scales the
+   absolutely-positioned data points, so they stay on the artwork). */
+@media (max-width: 720px) {
+  .cga-ws-panel { width: 100%; height: auto; max-height: 100%; border-radius: 16px; }
+  .cga-app { padding: 0 12px 12px; }
+  .cga-app__head { padding: 12px 0 10px; }
+  .cga-app__head-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cga-extract { flex-direction: column; align-items: stretch; gap: 12px; }
+  .cga-extract__upload { flex: 0 0 auto; width: 100%; }
+  .cga-extract__side .cga-field { flex-wrap: wrap; }
+  .cga-eip__body { flex-direction: column; align-items: stretch; }
+  .cga-eip__stage { align-self: center; max-width: 100%; box-sizing: border-box; overflow-x: auto; padding: 0; }
+  .cga-eip__canvas { zoom: 0.85; }
+  .cga-eip__sidepanel { width: 100%; }
+  .cga-eip__actions { flex-wrap: wrap; }
+  .cga-toast { max-width: calc(100vw - 24px); box-sizing: border-box; }
+  .cga-history-dialog { padding: 12px; }
+  .cga-history-dialog__panel { max-height: calc(100vh - 24px); border-radius: 16px; }
+}
 `
 
 export function injectAppStyles(): void {

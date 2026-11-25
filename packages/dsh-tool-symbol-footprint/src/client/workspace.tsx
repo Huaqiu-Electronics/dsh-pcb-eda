@@ -238,15 +238,14 @@ function WorkspaceOverlay({ ports }: { ports: ComponentGenPorts }): JSX.Element 
   // Chrome follows dsh's Modal primitive (which the settings dialog shares):
   // mask-1 + mask-blur overlay, layer-2 surface with elevation-prominent,
   // r24 panel, l2 scrollbar rebinding.
+  // Size + radius live in the app stylesheet (`.cga-ws-panel`) so the portrait
+  // breakpoint can make the panel full-screen.
   const panelStyle = {
     position: 'relative' as const,
     zIndex: 1,
     display: 'flex',
     flexDirection: 'column',
-    width: 'min(760px, 100%)',
-    height: 'min(510px, 100%)',
     overflow: 'hidden',
-    borderRadius: '24px',
     background: 'var(--dsw-alias-bg-layer-2)',
     boxShadow: 'var(--dsw-elevation-prominent)',
     '--dsh-scrollbar-thumb': 'var(--dsw-alias-scrollbar-bg-l2)',
@@ -276,8 +275,8 @@ function WorkspaceOverlay({ ports }: { ports: ComponentGenPorts }): JSX.Element 
           backdropFilter: 'var(--dsw-mask-blur)',
         }}
       />
-      <div style={panelStyle}>
-        <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+      <div className="cga-ws-panel" style={panelStyle}>
+        <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           <ComponentGenApp ports={ports} page={page} lang={lang} onClose={close} />
         </div>
       </div>
