@@ -395,3 +395,86 @@ describe('empty viewer placeholders', () => {
     )).toBeUndefined()
   })
 })
+
+describe('Cordis service access', () => {
+  // Cordis contexts throw on any property that was not declared, which is how a
+  // direct `ctx.remote` read took the whole plugin down at load time:
+  // "cannot get property \"remote\" without inject". This proxy reproduces that
+  // rule so the regression is caught here instead of in the product panel.
+  const INTRINSIC = ['effect', 'inject', 'get', 'then']
+
+  function strictContext(services: Record<string, unknown>): {
+    specs: Record<string, unknown>[]
+    definitions: { id: string }[]
+    ctx: Parameters<typeof apply>[0]
+  } {
+    const specs: Record<string, unknown>[] = []
+    const definitions: { id: string }[] = []
+    const resolve = (name: string): unknown => {
+      if (name === 'slots') {
+        return {
+          inject: (_key: string, callback: () => () => void) => callback(),
+          register: (spec: Record<string, unknown>) => {
+            specs.push(spec)
+            return () => {}
+          },
+        }
+      }
+      if (name === 'documentPreviews') {
+        return {
+          register: (definition: { id: string }) => {
+            definitions.push(definition)
+            return () => {}
+          },
+        }
+      }
+      return name.split('.').reduce<unknown>(
+        (value, part) => (value as Record<string, unknown> | undefined)?.[part],
+        services,
+      )
+    }
+    const make = (allowed: Set<string>): unknown => new Proxy({} as Record<string, unknown>, {
+      get(_target, key) {
+        const name = String(key)
+        if (!allowed.has(name)) throw new Error(`cannot get property "${name}" without inject`)
+        if (name === 'effect') return (fn: () => unknown) => { void fn() }
+        if (name === 'inject') {
+          return (deps: readonly string[], callback: (scope: unknown) => void) => {
+            if (!deps.every(dep => resolve(dep) !== undefined)) return
+            callback(make(new Set([...allowed, ...deps])))
+          }
+        }
+        return resolve(name)
+      },
+    })
+    // The plugin's own declared dependencies, available for the whole lifecycle.
+    return {
+      specs, definitions,
+      ctx: make(new Set([...INTRINSIC, 'slots', 'sidebarRightTabs', 'configForms'])) as Parameters<typeof apply>[0],
+    }
+  }
+
+  it('installs every renderer without reading an undeclared service', () => {
+    const fake = strictContext({})
+    // The old code read `ctx.remote` here and threw before any registration ran.
+    expect(() => apply(fake.ctx as never)).not.toThrow()
+    expect(fake.definitions.map(definition => definition.id)).toEqual([
+      '@huaqiu/dsh-hardware-ui/document/schematic',
+      '@huaqiu/dsh-hardware-ui/document/pcb',
+      '@huaqiu/dsh-hardware-ui/document/step',
+    ])
+  })
+
+  it('answers the child-sheet probe from the injected workspace remote', async () => {
+    const readBytes = vi.fn(async () => ({ ok: true as const, value: null }))
+    const fake = strictContext({ remote: { workspaceFiles: { readBytes } } })
+    apply(fake.ctx as never)
+    const schematic = fake.specs.find(spec => spec.key === '@huaqiu/dsh-hardware-ui/document/schematic')
+    const injected = (schematic?.inject as (...args: unknown[]) => Record<string, unknown>)('session-1')
+    const probe = injected.probeSheet as (path: string, signal?: AbortSignal) => Promise<boolean>
+    expect(await probe('/w/power.kicad_sch')).toBe(true)
+    expect(readBytes).toHaveBeenCalledWith(
+      'session-1', '/w/power.kicad_sch', { range: { offset: 0, length: 1 } }, undefined,
+    )
+  })
+})

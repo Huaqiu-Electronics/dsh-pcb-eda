@@ -204,9 +204,10 @@ delays the render the user asked for.
 |---|---|
 | `pnpm --filter @huaqiu/dsh-hardware-ui typecheck` | clean |
 | `pnpm --filter @huaqiu/dsh-hardware-ui build` | 2 bundles, client 5.39 MB (was 5.26 MB) + occt glue |
-| Package unit/integration tests | **92 passed** (9 files): 42 existing, 50 new (`document-*`) |
+| Package unit/integration tests | **94 passed** (9 files): 42 existing, 52 new (`document-*` + service access) |
 | Dispatch against the real harness registry | four extensions resolve to the new renderers, uppercase included, text retained as alternative |
-| Live web profile (`pnpm launch-dsh:standalone`) | boots with **no** activation warning; plugin row active |
+| Live web profile (`pnpm launch-dsh:standalone`) | boots with no server-side warning; plugin row active |
+| Browser walk (headless Chrome, Settings → Built-in plugins) | plugin synced: row present with no error, product settings section renders (KiCad 10.0.7 detected), no console errors |
 | `GET /hardware-ui/assets/occt-import-js.wasm` on the live server | `200`, `application/wasm`, `7,604,031` bytes, valid `\0asm` header |
 | Served client bundle contains the four registrations | yes (`document/schematic`, `document/pcb`, `document/step`, and the wasm route) |
 | Existing product behaviour | untouched tests (42) still pass; product tab, settings and artifact viewer code unchanged |
@@ -229,12 +230,30 @@ New tests, by file:
 | `test/document-mount.test.ts` (6) | canvas attach/removal, double dispose, parse failure typed, pre-aborted mount paints nothing, late render disposed after timeout |
 | `test/document-step.test.ts` (8) | canvas attach/removal, empty/oversized/no-geometry rejection, wasm failure surfaced and cache cleared, single reader instance |
 | `test/document-body.test.tsx` (7) | loading → rendered, in-document `role="alert"` on a bad file, sheet disclosure, no hierarchy claimed for a flat sheet, BOM-aware UTF-8 decode |
+| `test/client.test.ts` (+2) | the plugin installs on a context that throws on undeclared services; the child-sheet probe answers from an injected `remote.workspaceFiles` |
 
-**What was not verified, and cannot be claimed:** a headless walk of the real UI
-(opening a file from the explorer and screenshotting the drawing). No browser
-fixture is provisioned in this environment; the dispatch proof above substitutes
-for it at the registry level, and the live server proves the host/client halves
-load. §15's UI-level cases remain open until that walk is run.
+### The browser walk found a real activation bug
+
+The first headless walk of Settings → Built-in plugins reported
+`@huaqiu/dsh-hardware-ui: Error: cannot get property "remote" without inject`,
+and the whole plugin was missing from the page. Cause: `sheetProbeFactory(ctx)`
+read `ctx.remote?.workspaceFiles` inside `apply()`, and Cordis throws on any
+property that was not declared. Declaring `remote` plugin-wide would have been
+the wrong fix — a Host without a client remote would then lose the product panel
+too, which is the opposite of the graceful-degradation rule this package follows.
+
+The dependency is now acquired in its own nested
+`inject(['remote', 'remote.workspaceFiles'], …)` and written into a holder that
+the probe reads per mount, so:
+`remote` never appears in a direct context read, the panel and renderers install
+regardless, and a schematic opened after the dependency resolves still gets a
+working probe. `test/client.test.ts` reproduces Cordis's rule with a proxy that
+throws on undeclared access — the old code fails that test.
+
+**What was still not verified:** opening a `.kicad_sch` / `.kicad_pcb` / `.step`
+from the explorer and inspecting the drawing itself. Plugin activation and the
+settings section are now proven in a real browser; the drawing surface is proven
+only at the mount/registry level, so §15's UI-level pixel cases remain open.
 
 ---
 

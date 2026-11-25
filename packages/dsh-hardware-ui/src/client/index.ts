@@ -75,12 +75,24 @@ interface ClientContext {
   readonly configForms?: {
     get<T>(entryId: string): ConfigFormLike<T>
   }
-  /** Workspace byte reads, used to resolve the child sheets a schematic declares. */
+  /**
+   * Workspace byte reads, used to resolve the child sheets a schematic declares.
+   *
+   * Readable only from inside a nested `inject(['remote', …])` scope: Cordis
+   * throws `cannot get property "remote" without inject` on a direct access, and
+   * declaring `remote` on the whole plugin would drop the product panel on a
+   * Host that has no client remote.
+   */
   readonly remote?: { readonly workspaceFiles?: WorkspaceFilesRemote }
   /** DSH's document-renderer registry; absent on a Host without document previews. */
   readonly documentPreviews?: DocumentClientContext['documentPreviews']
   effect?(fn: () => (() => void) | void, label?: string): void
   inject?(dependencies: readonly string[], callback: (scope: ClientContext) => void): void
+}
+
+/** Holder for a dependency that arrives after this plugin installs its renderers. */
+interface WorkspaceHolder {
+  files?: WorkspaceFilesRemote
 }
 
 /**
@@ -90,18 +102,26 @@ interface ClientContext {
  * the session's own workspace endpoint either succeeds or reports a structured
  * failure. Nothing here decides what the workspace contains — that is precisely
  * the authority the document preview must not duplicate.
- * @param ctx - client context carrying the workspace remote.
- * @returns the probe factory, or a factory returning undefined when the remote is absent.
+ *
+ * The remote is read from a holder, not off the context: the dependency is
+ * acquired by nested injection (see `apply`), which resolves after the renderers
+ * are registered, and resolving it per mount means a schematic opened later still
+ * gets a working probe. While it is absent the factory answers `undefined`, which
+ * the body already treats as "list the references, do not claim they exist".
+ * @param workspace - holder filled by nested injection once `remote` is available.
+ * @returns a per-session probe factory that stays usable across a late dependency.
  */
-function sheetProbeFactory(ctx: ClientContext): (sessionId: string) => ProbeSheetFile | undefined {
-  const files = ctx.remote?.workspaceFiles
-  if (files === undefined) return () => undefined
-  return sessionId => async (path, signal) => {
-    try {
-      const result = await files.readBytes(sessionId, path, { range: { offset: 0, length: 1 } }, signal)
-      return result.ok
-    } catch {
-      return false
+function sheetProbeFactory(workspace: WorkspaceHolder): (sessionId: string) => ProbeSheetFile | undefined {
+  return sessionId => {
+    const files = workspace.files
+    if (files === undefined) return undefined
+    return async (path, signal) => {
+      try {
+        const result = await files.readBytes(sessionId, path, { range: { offset: 0, length: 1 } }, signal)
+        return result.ok
+      } catch {
+        return false
+      }
     }
   }
 }
@@ -208,8 +228,17 @@ export function apply(ctx: ClientContext): void {
   // registry entries and four bodies, and nothing else. Installed through a
   // nested injection so a Host without the document-preview service loses only
   // the ECAD previews, not the product panel.
-  const documentOptions = { probeSheet: sheetProbeFactory(ctx) }
+  //
+  // The same applies to the child-sheet probe's dependency: `remote` is acquired
+  // in its own nested injection rather than read off `ctx` (Cordis throws on an
+  // undeclared access) or declared plugin-wide (which would take the product
+  // panel down with it on a Host without a client remote).
+  const workspace: WorkspaceHolder = {}
+  const documentOptions = { probeSheet: sheetProbeFactory(workspace) }
   if (ctx.inject !== undefined) {
+    ctx.inject(['remote', 'remote.workspaceFiles'], (scope) => {
+      workspace.files = scope.remote?.workspaceFiles
+    })
     ctx.inject(['documentPreviews'], (scope) => {
       installDocumentPreviews(scope as unknown as DocumentClientContext, documentOptions)
     })
