@@ -76,10 +76,6 @@
       name: '@huaqiu/dsh-tool-part-search'
       inject: ['tools']
 
-    - id: huaqiu-tool-quote
-      name: '@huaqiu/dsh-tool-quote'
-      inject: ['tools']
-
     - id: huaqiu-tool-symbol-footprint
       name: '@huaqiu/dsh-tool-symbol-footprint'
       inject: ['tools', 'huaqiuAuth', 'huaqiuArtifacts', 'webServer']

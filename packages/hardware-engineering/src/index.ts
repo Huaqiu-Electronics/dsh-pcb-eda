@@ -70,7 +70,6 @@ export const HARDWARE_ENGINEERING_PLUGINS: readonly HardwareEngineeringPlugin[] 
     role: 'capability',
   }),
   Object.freeze({ id: 'huaqiu-tool-part-search', name: '@huaqiu/dsh-tool-part-search', inject: ['tools'], provides: [], role: 'capability' }),
-  Object.freeze({ id: 'huaqiu-tool-quote', name: '@huaqiu/dsh-tool-quote', inject: ['tools'], provides: [], role: 'capability' }),
   Object.freeze({
     id: 'huaqiu-tool-symbol-footprint',
     name: '@huaqiu/dsh-tool-symbol-footprint',

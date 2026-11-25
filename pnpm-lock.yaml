@@ -605,9 +605,6 @@ importers:
       '@huaqiu/dsh-tool-part-search':
         specifier: workspace:*
         version: link:../dsh-tool-part-search
-      '@huaqiu/dsh-tool-quote':
-        specifier: workspace:*
-        version: link:../dsh-tool-quote
       '@huaqiu/dsh-tool-symbol-footprint':
         specifier: workspace:*
         version: link:../dsh-tool-symbol-footprint
