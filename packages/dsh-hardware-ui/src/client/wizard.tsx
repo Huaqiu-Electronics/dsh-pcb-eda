@@ -29,6 +29,7 @@
  * @module @huaqiu/dsh-hardware-ui/client/wizard
  */
 import { createElement, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type ReactNode } from 'react'
+import { HUAQIU_LOGO_SRC } from './brand.js'
 import { COPY } from './copy.js'
 import type { ConfigFormLike, HardwareInstallationConfig } from './model.js'
 import { ToolchainCard, TOOLCHAIN_ICONS } from './toolchain-view.js'
@@ -82,12 +83,15 @@ export function onboardingPhase(input: {
   readonly status?: ToolchainStatus
   readonly loading: boolean
   readonly setup?: string
-  readonly onboardingComplete?: boolean
 }): OnboardingPhase {
   if (!input.hasController) return 'no-controller'
+  // `toolchainSetup` is the only record of what the first-run step was told:
+  // `complete` and `deferred` both mean "never interrupt again". The old
+  // `onboardingComplete` boolean is deliberately not honoured — this product is
+  // still in internal test, and one source of truth is worth more than the
+  // compatibility. A profile that only carries the legacy flag is treated as
+  // unanswered.
   if (input.setup === 'complete' || input.setup === 'deferred') return 'dismissed'
-  // Legacy configs only carried the boolean: honour it instead of re-interrupting.
-  if (input.onboardingComplete === true) return 'dismissed'
   if (input.status === undefined || input.loading) return 'waiting'
   if (setupComplete(input.status)) return 'configured'
   return 'open'
@@ -115,7 +119,6 @@ export function saveReady(snapshot: ToolchainSnapshot): boolean {
   if (left === undefined || right === undefined) return false
   return left.kicadRoot === right.kicadRoot
     && left.solidcraftRoot === right.solidcraftRoot
-    && left.onboardingComplete === right.onboardingComplete
     && left.toolchainSetup === right.toolchainSetup
 }
 
@@ -212,7 +215,6 @@ export function ToolchainOnboarding(props: OnboardingProps): ReactNode {
     ...(snapshot.status === undefined ? {} : { status: snapshot.status }),
     loading: snapshot.loading,
     ...(value?.toolchainSetup === undefined ? {} : { setup: value.toolchainSetup }),
-    ...(value?.onboardingComplete === undefined ? {} : { onboardingComplete: value.onboardingComplete }),
   })
 
   const persist = async (patch: Partial<HardwareInstallationConfig>): Promise<void> => {
@@ -228,14 +230,14 @@ export function ToolchainOnboarding(props: OnboardingProps): ReactNode {
   useEffect(() => {
     if (phase !== 'configured' || autoCompleted.current) return
     autoCompleted.current = true
-    void persist({ toolchainSetup: 'complete', onboardingComplete: true }).then(() => complete?.())
+    void persist({ toolchainSetup: 'complete' }).then(() => complete?.())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase])
 
   if (phase !== 'open' || controller === undefined) return null
 
   const skip = async (): Promise<void> => {
-    await persist({ toolchainSetup: 'deferred', onboardingComplete: true })
+    await persist({ toolchainSetup: 'deferred' })
     controller.toast('info', COPY.toolchain.toastSkipped)
     props.complete?.()
   }
@@ -251,7 +253,7 @@ export function ToolchainOnboarding(props: OnboardingProps): ReactNode {
       const outcome = await controller.save(id, path)
       if (!outcome.ok) return
     }
-    await persist({ toolchainSetup: 'complete', onboardingComplete: true })
+    await persist({ toolchainSetup: 'complete' })
     props.complete?.()
   }
 
@@ -279,20 +281,24 @@ export function ToolchainOnboarding(props: OnboardingProps): ReactNode {
           boxShadow: '0 24px 64px rgba(0,0,0,0.5)', overflow: 'hidden',
         },
       },
-      // Header: red "H" mark, title, First-Time Setup pill, close.
+      // Header: the HuaQiu mark (`assets/huaqiu.svg`, inlined in `brand.ts`), title,
+      // First-Time Setup pill, close.
       createElement(
         'div',
         { style: HEADER },
         createElement(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 } },
-          createElement('span', {
-            style: {
-              width: 40, height: 40, borderRadius: 10, background: C.accent, color: '#fff',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontWeight: 700, fontSize: 18, flex: '0 0 auto',
-            },
-          }, 'H'),
+          createElement('img', {
+            src: HUAQIU_LOGO_SRC,
+            alt: '',
+            'aria-hidden': true,
+            width: 40,
+            height: 40,
+            // The vendor file draws its own rounded frame; the tile adds no colour of
+            // its own so the shipped mark is what the user sees.
+            style: { width: 40, height: 40, flex: '0 0 auto', display: 'block' },
+          }),
           createElement(
             'div',
             { style: { display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 } },

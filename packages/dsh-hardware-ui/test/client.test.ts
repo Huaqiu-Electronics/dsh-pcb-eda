@@ -315,8 +315,13 @@ describe('first-run onboarding gating', () => {
   it('stays shut once the user completed or skipped it', () => {
     expect(onboardingPhase({ ...firstRun, status: undefined, setup: 'complete' })).toBe('dismissed')
     expect(onboardingPhase({ ...firstRun, status: undefined, setup: 'deferred' })).toBe('dismissed')
-    // Legacy configurations only carry the old boolean and must not re-interrupt.
-    expect(onboardingPhase({ ...firstRun, status: undefined, onboardingComplete: true })).toBe('dismissed')
+  })
+
+  it('does not honour the dropped legacy boolean', () => {
+    // `onboardingComplete` no longer exists: a profile that only carries it is
+    // unanswered, so the step still asks instead of silently assuming consent.
+    const legacy = { hasController: true, loading: false, status: undefined, onboardingComplete: true } as unknown as Parameters<typeof onboardingPhase>[0]
+    expect(onboardingPhase(legacy)).toBe('waiting')
   })
 
   it('never flashes on a machine whose toolchain already validates', () => {

@@ -55,7 +55,7 @@ function props(state: HardwareState, params: ViewerNavigationParams, configured 
     : state
   // Stable snapshots: `useSyncExternalStore` re-renders whenever `getSnapshot`
   // returns a new object, so a fresh literal here would loop forever.
-  const snapshot = { status: 'ready', value: { onboardingComplete: true } }
+  const snapshot = { status: 'ready', value: { toolchainSetup: 'complete' as const } }
   const form = {
     getSnapshot: () => snapshot,
     subscribe: () => () => {},

@@ -125,14 +125,14 @@ export interface HardwareInstallationConfig {
   readonly kicadRoot?: string
   readonly solidcraftRoot?: string
   /**
-   * Legacy first-run flag: set once the user finished *or* skipped setup.
+   * What the first-run step was told: `deferred` = skipped but still missing,
+   * `complete` = configured (§4.6).
    *
-   * Kept because older configurations only carry this; a `toolchainSetup` value
-   * now says which of the two happened, and that difference is what decides
-   * whether the sidebar keeps asking for a toolchain (§4.6).
+   * This is the single source of truth. The legacy `onboardingComplete` boolean is
+   * gone from the client (and from the Host schema) — internal-test builds do not
+   * need the compatibility, and two overlapping flags made the state harder to
+   * reason about than it was worth.
    */
-  readonly onboardingComplete?: boolean
-  /** `deferred` = skipped but still missing, `complete` = configured (§4.6). */
   readonly toolchainSetup?: 'deferred' | 'complete'
 }
 

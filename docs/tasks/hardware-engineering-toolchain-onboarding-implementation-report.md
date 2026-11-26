@@ -70,10 +70,13 @@ dependency (toast is drawn by the plugin).
    renders from its snapshot. Nothing decides "configured" locally.
 2. **Green is earned.** A tool is `configured` only after the Host resolved an executable *and*
    it answered a version probe. Discovery results are evidence, never configuration.
-3. **Skip ≠ complete.** `toolchainSetup: 'deferred' | 'complete'`. Skipping writes `deferred`
-   (plus the legacy `onboardingComplete` flag) so the step stops interrupting while the sidebar
-   dot and Settings keep saying setup is missing. Legacy configs with only the boolean are
-   honoured and never re-interrupted.
+3. **Skip ≠ complete, and one flag says which.** `toolchainSetup: 'deferred' | 'complete'` is the
+   only record. Skipping writes `deferred` so the step stops interrupting while the sidebar dot and
+   Settings keep saying setup is missing. The legacy `onboardingComplete` boolean was **dropped** —
+   from the client's phase rule, from what the wizard writes, and from the Host config schema —
+   because internal-test builds do not need that compatibility and two overlapping flags made the
+   state harder to reason about than it was worth. A profile that only carries the old flag is
+   treated as unanswered.
 4. **Single page, two cards (§4.4).** No multi-step installer; both tools are visible at once.
    Manual input, native browse and download stay three independent routes on the same card.
 5. **Discovery never blocks (§4.2).** The step opens on the first status read; discovery is
@@ -170,7 +173,7 @@ starvation, and there were two independent ones plus one dead end found while wa
 2. **`configForm.getSnapshot()` allocates a new object per call**, so passing it straight to
    `useSyncExternalStore` made React see a changed store on every render and re-render forever.
    Fix: `useFormValue` keeps a local copy and replaces it only when `kicadRoot`,
-   `solidcraftRoot`, `onboardingComplete` or `toolchainSetup` actually moved.
+   `solidcraftRoot` or `toolchainSetup` actually moved.
 3. **The modal's only submit button was permanently disabled.** The prototype's wizard card has
    no per-card *validate* control (that button is a Settings affordance), so `Save & Get Started`
    is the step's only way to persist a path — and it was gated on "both tools already
@@ -188,7 +191,7 @@ Measured on a genuinely clean `DSH_HOME` (`rm -rf ~/.dsh` equivalent, see §7):
 | Console errors / exceptions | 0 |
 | Reload with the wizard open | same as above — no freeze, no re-entrancy |
 | `Save & Get Started` (both paths typed) | enabled; `KiCad v10.0.7 validated and saved.` + `SolidCraft v0.49.1 validated and saved.` toasts; modal dismissed |
-| Persisted result | `cordis.patch.yml` gained `kicadRoot`, `solidcraftRoot`, both versions/sources/`validatedAt`, `toolchainSetup: complete`, `onboardingComplete: true` |
+| Persisted result | `cordis.patch.yml` gained `kicadRoot`, `solidcraftRoot`, both versions/sources/`validatedAt` and `toolchainSetup: complete` |
 | Second launch | no wizard, no "setup needed" dot, composer usable |
 
 ### 4.6 UI follows the prototype, element for element
@@ -200,7 +203,7 @@ Both surfaces were rebuilt against
 
 | Prototype | Implementation |
 |---|---|
-| Header: red `H` tile, title, `First-Time Setup` pill, close button | same, `×` closes = skip |
+| Header: brand mark, title, `First-Time Setup` pill, close button | same; the mark is `assets/huaqiu.svg` itself — byte-for-byte, inlined as a base64 data URI in `brand.ts` and pinned by `test/brand.test.ts`, not a redrawn `H` |
 | Blue info callout | same |
 | Card: `Ki`/`Sc` tile, name + `(kicad-cli)` + chip (`Required for PCB/Sch`, `Optional • MCAD`), blurb, amber `Not configured` pill | same |
 | Path input with the prototype's example path as placeholder + `Select Local File...` (folder icon) | same |
@@ -336,7 +339,7 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
   (the `Browse`/`Select Local File` buttons stay in-app). A real dialog blocks an automated walk;
   treat it as untested until someone clicks that one link on Windows, macOS and Linux.
 - **The stale-tab hazard is real, not hypothetical.** During this pass a leftover tab of the
-  earlier session wrote `toolchainSetup: deferred` + `onboardingComplete: true` into the live
+  earlier session wrote `toolchainSetup: deferred` into the live
   `~/.dsh/profiles/web/cordis.patch.yml`, dropping `kicadRoot`/`solidcraftRoot`. The file was
   restored from `.smoke/cordis.patch.configured.yml`; check that file's `config:` block if the
   cards ever come up "Not configured" on a machine that was configured.
@@ -345,8 +348,10 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
 - **`sidebar.footer.action` renders a dot, not a link.** The plugin has no seat that can open
   Settings, so the dot is intentionally inert (tooltip says what is missing) rather than a
   button that promises navigation it cannot perform.
-- **Legacy `onboardingComplete` is honoured as "completed".** A user who finished the old wizard
-  will not be re-prompted; they reach the same setup from Settings.
+- **`onboardingComplete` is gone, so a legacy-only profile is asked again.** The key was removed
+  from the client rule, from the wizard's writes and from the Host schema; `toolchainSetup` is the
+  single source of truth. A profile that carries only the old boolean shows the wizard once, and
+  the answer is recorded the new way.
 - **The download button was not pressed in the UI walk.** The transfer, checksum and promotion
   paths are covered by real-archive tests (§4.2) and the archive the user already downloaded is
   the one the manifest serves; what remains unobserved is the click-to-bar choreography on a

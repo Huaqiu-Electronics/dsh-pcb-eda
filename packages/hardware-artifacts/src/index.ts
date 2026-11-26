@@ -77,11 +77,11 @@ export const Config = Schema.object({
   solidcraftValidatedAt: Schema.number().default(0).volatile(),
   /**
    * First-run setup progress: empty until the operator answers, then `deferred`
-   * (skipped: never re-prompt, keep the reminder) or `complete`.
+   * (skipped: never re-prompt, keep the reminder) or `complete`. This is the only
+   * flag the client reads; the old `onboardingComplete` boolean was dropped with
+   * its compatibility rule (internal-test build).
    */
   toolchainSetup: Schema.string().default('').volatile(),
-  /** Set by the first-run wizard once setup was completed or skipped. */
-  onboardingComplete: Schema.boolean().default(false).volatile(),
   /**
    * Place-order origin. Empty uses `HUAQIU_ORDER_BASE_URL`, then the Huaqiu
    * host. It is only the transport target; it does not imply the endpoint
@@ -111,7 +111,6 @@ export interface HardwareArtifactsPluginConfig {
   readonly solidcraftSource?: ConfigValue<string>
   readonly solidcraftValidatedAt?: ConfigValue<number>
   readonly toolchainSetup?: ConfigValue<string>
-  readonly onboardingComplete?: ConfigValue<boolean>
   readonly orderBaseUrl?: ConfigValue<string>
   readonly accessToken?: ConfigValue<string>
 }
