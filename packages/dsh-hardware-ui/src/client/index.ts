@@ -23,7 +23,7 @@ import type {
   ViewerNavigationParams,
 } from './model.js'
 import { createHardwareStore } from './store.js'
-import { COPY } from './copy.js'
+import { COPY, HARDWARE_UI_NS, installCopyLocale, type CopyLocale } from './copy.js'
 import { loadInstallations, loadProjects, openArtifact } from './transport.js'
 import { installDocumentPreviews } from './document/index.js'
 import { setOrderPageOpener } from './order-page.js'
@@ -33,7 +33,7 @@ import type { DocumentClientContext, WorkspaceFilesRemote } from './document/con
 import type { ProbeSheetFile } from './document/EcadBody.js'
 
 /** Real Cordis service names this browser plugin waits for. */
-export const inject = ['slots', 'sidebarRight', 'sidebarRightTabs', 'configForms'] as const
+export const inject = ['slots', 'locale', 'sidebarRight', 'sidebarRightTabs', 'configForms'] as const
 
 export const HARDWARE_SETTINGS_ID = 'hardware-engineering'
 export const HARDWARE_TAB_ID = '@huaqiu/dsh-hardware-ui'
@@ -47,6 +47,8 @@ interface SlotSpec {
   key?: string
   order?: number
   label?: () => string
+  /** Makes the renderer re-derive the entry's `t` seat on a locale switch. */
+  locale?: string
   store?: unknown
   inject?: (...args: unknown[]) => unknown
 }
@@ -56,6 +58,8 @@ interface ClientContext {
     inject(key: string, callback: () => () => void): () => void
     register(spec: SlotSpec, component: unknown): () => void
   }
+  /** DSH's locale service; optional so a Host without it still gets the panel. */
+  readonly locale?: CopyLocale
   readonly sidebarRight?: {
     openTab(kind: string, options?: {
       params?: Readonly<Record<string, unknown>>
@@ -158,6 +162,13 @@ export function apply(ctx: ClientContext): void {
     else fn()
   }
 
+  // Register the product's zh/en dictionaries with DSH's locale service and
+  // bind the copy facade to the active language. Everything below reads through
+  // that facade, so a language switch follows the host setting without any
+  // render site knowing about locales.
+  const disposeCopy = installCopyLocale(ctx.locale)
+  effect(() => disposeCopy, 'hardware-ui: dictionaries')
+
   const controller: HardwareController = {
     discover(cwd, project, session) {
       return loadProjects(cwd, project, session)
@@ -223,6 +234,7 @@ export function apply(ctx: ClientContext): void {
   effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register({
     name: 'sidebar.right.pane.tab',
     key: HARDWARE_TAB_ID,
+    locale: HARDWARE_UI_NS,
     store: viewerStore,
     inject: () => controller,
   }, HardwareViewerBody)), 'hardware-ui: viewer body')
@@ -237,6 +249,7 @@ export function apply(ctx: ClientContext): void {
     id: HARDWARE_SETTINGS_ID,
     order: 85,
     label: () => COPY.product.name,
+    locale: HARDWARE_UI_NS,
     store: rootStore,
     inject: () => controller,
   }, HardwareSettingsSection)), 'hardware-ui: CAD installation settings')

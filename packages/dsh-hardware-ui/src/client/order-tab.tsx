@@ -20,7 +20,7 @@
  * @module
  */
 import { createElement, type CSSProperties, type ReactNode } from 'react'
-import { COPY } from './copy.js'
+import { COPY, HARDWARE_UI_NS } from './copy.js'
 import { C, MONO } from './theme.js'
 
 /** Tab kind `openTab` names for an order page. */
@@ -110,7 +110,8 @@ export function OrderTabBody(props: OrderTabProps): ReactNode {
 export function orderTabRegistration(): {
   readonly name: string
   readonly key: string
+  readonly locale: string
   readonly inject: () => Record<string, never>
 } {
-  return { name: 'sidebar.right.pane.tab', key: ORDER_TAB_ID, inject: () => ({}) }
+  return { name: 'sidebar.right.pane.tab', key: ORDER_TAB_ID, locale: HARDWARE_UI_NS, inject: () => ({}) }
 }

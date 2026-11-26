@@ -22,15 +22,16 @@ export const DESTINATIONS: readonly HardwareDestination[] = Object.freeze([
  *
  * Read from the copy module rather than written here: the same strings are
  * rendered from the navigation row and the viewer strip, and the two must never
- * disagree. Keys stay in destination order because the navigation maps over
- * `DESTINATIONS`, not over this object.
+ * disagree. Getters, not captured values: a DSH language switch must change the
+ * navigation labels without a module reload. Keys stay in destination order
+ * because the navigation maps over `DESTINATIONS`, not over this object.
  */
 export const DESTINATION_LABELS: Readonly<Record<HardwareDestination, string>> = Object.freeze({
-  schematic: COPY.destinations.schematic,
-  pcb: COPY.destinations.pcb,
-  bom: COPY.destinations.bom,
-  '3d': COPY.destinations['3d'],
-  order: COPY.destinations.order,
+  get schematic() { return COPY.destinations.schematic },
+  get pcb() { return COPY.destinations.pcb },
+  get bom() { return COPY.destinations.bom },
+  get '3d'() { return COPY.destinations['3d'] },
+  get order() { return COPY.destinations.order },
 })
 
 /** Which native application a destination can open, if any. */

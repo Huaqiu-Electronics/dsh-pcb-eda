@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-import { COPY, describeHostError, issueText } from '../src/client/copy.js'
+import {
+  COPY, HARDWARE_UI_NS, describeHostError, installCopyLocale, issueText,
+} from '../src/client/copy.js'
+import { en, zh, type HardwareCopyKey } from '../src/client/locales.js'
 import { DESTINATION_LABELS, DESTINATIONS } from '../src/client/model.js'
 
 const HAN = /[\u4e00-\u9fff]/u
@@ -119,5 +122,53 @@ describe('discovery issue translation', () => {
 
   it('shows the host sentence for an unknown issue code', () => {
     expect(issueText({ code: 'future-issue', message: 'something specific' })).toBe('something specific')
+  })
+})
+
+describe('DSH locale binding', () => {
+  it('ships a complete English dictionary for every Chinese key', () => {
+    expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+    for (const [key, sentence] of Object.entries(en)) {
+      expect(sentence, key).not.toMatch(HAN)
+      expect(sentence.trim(), key).not.toBe('')
+    }
+  })
+
+  it('ships no dictionary key that no copy reader uses', () => {
+    // A key with no `translateCopy` reader is dead weight in both dictionaries.
+    const readers = ['copy.ts', 'document/copy.ts']
+      .map(name => readFileSync(fileURLToPath(new URL(`../src/client/${name}`, import.meta.url)), 'utf8'))
+      .join('\n')
+    const referenced = new Set(
+      [...readers.matchAll(/translateCopy\(\s*'([^']+)'/gu)].map(match => match[1] as string),
+    )
+    expect(Object.keys(zh).filter(key => !referenced.has(key)).sort()).toEqual([])
+  })
+
+  it('follows the host language without a render site knowing about locales', () => {
+    let locale: 'zh' | 'en' = 'zh'
+    const registered: { readonly zh: typeof zh; readonly en: typeof en }[] = []
+    const dispose = installCopyLocale({
+      register: (_ns, dictionaries) => { registered.push(dictionaries); return () => {} },
+      bind: (ns) => (key, params) => {
+        expect(ns).toBe(HARDWARE_UI_NS)
+        const template = (locale === 'en' ? en : zh)[key as HardwareCopyKey] ?? key
+        return template.replace(/\{([A-Za-z][\w.-]*)\}/gu, (match, name: string) =>
+          params?.[name] === undefined ? match : String(params[name]))
+      },
+    })
+    try {
+      expect(registered).toHaveLength(1)
+      expect(COPY.product.name).toBe('硬件工程')
+      locale = 'en'
+      expect(COPY.product.name).toBe('Hardware Engineering')
+      expect(DESTINATION_LABELS.schematic).toBe('Schematic')
+      expect(COPY.discovery.selectionRequiredCount(3)).toBe('Found 3 hardware projects; select one explicitly.')
+      expect(describeHostError('export-failed', 'kicad-cli exit 1'))
+        .toBe('kicad-cli export failed. (kicad-cli exit 1)')
+    } finally {
+      dispose()
+    }
+    expect(COPY.product.name).toBe('硬件工程')
   })
 })

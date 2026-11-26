@@ -1,86 +1,117 @@
 /**
- * zh_CN copy for every user-visible string of the Hardware Engineering product
- * UI (browser half).
+ * User-visible copy for the Hardware Engineering UI, backed by DSH's locale
+ * service.
  *
- * Why one module instead of strings at the call sites: the same sentence is
- * rendered from up to three seats (navigation row, viewer body, settings
- * section), and a literal that drifts between them reads as two different
- * products. One dictionary also makes "is this text translated?" a mechanical
- * question — grep for a Chinese character outside this file and the answer is
- * no.
+ * The dictionaries live in {@link ./locales.ts} in the same zh-source/en-checked
+ * shape as `@huaqiu/dsh-huaqiu-about` and the other bilingual plugins. `apply`
+ * registers them as namespace {@link HARDWARE_UI_NS} and binds a translator;
+ * this module keeps the structured call-site API (nested groups, interpolation
+ * as functions, string arrays) so nothing that renders needs to change when a
+ * language switches. DSH dictionaries are flat `{name}` templates, so the
+ * lookup and interpolation happen here, at read time.
  *
- * Why not DSH's own locale service: `ctx.locale.register(ns, { zh, en })` plus a
- * `locale: 'ns'` slot registration would put a typed, reactive `t` seat on the
- * component props, and it is the right answer for a bilingual plugin. It cannot
- * express zh-only: the typed overload takes
- * `Record<BuiltInLocaleId, LocaleDictOf<N>>` — both baseline locales are
- * required — and the untyped single-locale arm leaves an en-active host falling
- * back to the raw key (`FALLBACK_LOCALE = 'en'`, and a namespace registered only
- * for `zh` is not in `en`'s chain). The sibling packages hit the same wall and
- * self-contained for the same reason (`dsh-auth/src/client/i18n.ts`,
- * `dsh-tool-plugin-update/src/client/copy.ts`).
+ * Reads are deliberately getters/functions, never captured constants: DSH's
+ * renderer re-renders every slot outlet on a locale change, and `bind()` reads
+ * the active locale at call time. Before a locale service is bound (unit tests,
+ * a Host without one), the context-independent zh dictionary is used — the
+ * behaviour this module had when it shipped zh-only.
  *
- * Why one module instead of strings at the call sites: the same sentence is
- * rendered from up to three seats (navigation row, viewer body, settings
- * section), and a literal that drifts between them reads as two different
- * products. One dictionary also makes "is this text translated?" a mechanical
- * question — grep for a Chinese character outside this file and the answer is
- * no.
- *
- * Adding a language later is mechanical: turn `COPY` into `{ zh, en }` with
- * `en: Record<CopyKeys, string>` (the `dsh-auth` shape, so a missing key is a
- * COMPILE error), pick by `<html lang>`, and — if the second language is real —
- * move the dictionary into `ctx.locale.register` and declare `locale:` on the
- * slots to get the framework's reactive `t` seat instead. Nothing that renders
- * would move, because every render site already reads through this module.
- *
- * Wording rules that hold across the file:
+ * Wording rules that hold across both languages:
  *   - Commands, file names, extension names, and host paths are NOT translated
- *     (`kicad-cli`, `.kicad_pcb`, `Settings → Hardware Engineering` becomes
- *     「设置 → 硬件工程」 only because the host section label is translated too).
+ *     (`kicad-cli`, `.kicad_pcb`, `Settings → Hardware Engineering`).
  *   - Host-origin text is never re-spelled here: {@link describeHostError} maps
- *     a stable host `code` to a sentence and appends the host detail where it
- *     is technical output (kicad-cli stderr) rather than prose.
- *   - Interpolation is a function, not `{placeholder}` templates: a function
- *     cannot be rendered with its placeholders unfilled by accident.
+ *     a stable host `code` to a sentence and appends the host detail only where
+ *     it is technical output (kicad-cli stderr) rather than prose.
+ *   - Interpolation is a function, not a `{placeholder}` at the call site: a
+ *     function cannot be rendered with its placeholders unfilled by accident.
  *
- * @module
+ * Adding a language is mechanical: add its dictionary to `locales.ts` (checked
+ * against the `zh` key union) and pass it to `locale.register` in `index.ts`.
+ * No render site moves.
+ *
+ * @module @huaqiu/dsh-hardware-ui/client/copy
  */
 
-/** The only locale this bundle ships. See the module note above. */
+import { en, zh, type HardwareCopyKey } from './locales.js'
+
+/** DSH locale namespace owned by this plugin. */
+export const HARDWARE_UI_NS = 'hardware-ui.huaqiu'
+
+/** Fallback dictionary locale, used only until DSH's locale service is bound. */
 export const LOCALE = 'zh_CN' as const
+
+export type TranslateCopy = (key: HardwareCopyKey, params?: Record<string, unknown>) => string
+
+/** The slice of DSH's client locale service this module needs. */
+export interface CopyLocale {
+  register(namespace: string, dictionaries: { readonly zh: typeof zh; readonly en: typeof en }): unknown
+  bind(namespace: string): (key: string, params?: Record<string, unknown>) => string
+}
+
+function interpolate(template: string, params?: Record<string, unknown>): string {
+  return template.replace(/\{([A-Za-z][\w.-]*)\}/gu, (match, name: string) => {
+    const value = params?.[name]
+    return value === undefined ? match : String(value)
+  })
+}
+
+const fallback: TranslateCopy = (key, params) => interpolate(zh[key], params)
+let active: TranslateCopy = fallback
+
+/** Read one dictionary entry through the active locale. */
+export function translateCopy(key: HardwareCopyKey, params?: Record<string, unknown>): string {
+  return active(key, params)
+}
+
+/**
+ * Bind the copy facade to DSH's locale service.
+ *
+ * Call once from the client entry. The returned disposer restores the zh
+ * fallback so an HMR reload cannot leave a stale binding behind.
+ */
+export function installCopyLocale(locale?: CopyLocale): () => void {
+  if (locale === undefined) return () => {}
+  const dispose = locale.register(HARDWARE_UI_NS, { zh, en })
+  const bound = locale.bind(HARDWARE_UI_NS)
+  const installed: TranslateCopy = (key, params) => bound(key, params)
+  active = installed
+  return () => {
+    if (active === installed) active = fallback
+    if (typeof dispose === 'function') dispose()
+  }
+}
 
 export const COPY = {
   /** Product name — tab title, settings section label, wizard title. */
   product: {
-    name: '硬件工程',
+    get name(): string { return translateCopy('product.name') },
   },
 
   /** The five persistent destinations, in `DESTINATIONS` order. */
   destinations: {
-    schematic: '原理图',
-    pcb: 'PCB',
-    bom: 'BOM',
-    '3d': '3D 模型',
-    order: '下单',
+    get schematic(): string { return translateCopy('destinations.schematic') },
+    get pcb(): string { return translateCopy('destinations.pcb') },
+    get bom(): string { return translateCopy('destinations.bom') },
+    get '3d'(): string { return translateCopy('destinations.3d') },
+    get order(): string { return translateCopy('destinations.order') },
   },
 
   /** Navigation row + viewer strip. */
   viewer: {
-    discoveryFailed: (detail: string) => `产物扫描失败：${detail}`,
-    installationFailed: (detail: string) => `安装检查失败：${detail}`,
-    noArtifact: '未选择产物',
-    kicadMissing: '未找到 KiCad',
-    kicadVersion: (version: string) => `KiCad ${version}`,
-    openInKicad: '用 KiCad 打开',
-    openInKicadTitle: (path: string) => `在 KiCad 中打开 ${path}`,
-    selectArtifactFirst: '请先选择一个产物',
-    configureKicad: '请在「设置 → 硬件工程」中配置 KiCad',
-    selectProject: '选择工程…',
+    discoveryFailed: (detail: string): string => translateCopy('viewer.discoveryFailed', { detail }),
+    installationFailed: (detail: string): string => translateCopy('viewer.installationFailed', { detail }),
+    get noArtifact(): string { return translateCopy('viewer.noArtifact') },
+    get kicadMissing(): string { return translateCopy('viewer.kicadMissing') },
+    kicadVersion: (version: string): string => translateCopy('viewer.kicadVersion', { version }),
+    get openInKicad(): string { return translateCopy('viewer.openInKicad') },
+    openInKicadTitle: (path: string): string => translateCopy('viewer.openInKicadTitle', { path }),
+    get selectArtifactFirst(): string { return translateCopy('viewer.selectArtifactFirst') },
+    get configureKicad(): string { return translateCopy('viewer.configureKicad') },
+    get selectProject(): string { return translateCopy('viewer.selectProject') },
     // aria labels / titles (screen-reader text is visible text too)
-    projectField: '工程',
-    schematicSheetField: '原理图页',
-    boardField: '板文件',
+    get projectField(): string { return translateCopy('viewer.projectField') },
+    get schematicSheetField(): string { return translateCopy('viewer.schematicSheetField') },
+    get boardField(): string { return translateCopy('viewer.boardField') },
   },
 
   /**
@@ -91,24 +122,22 @@ export const COPY = {
    */
   placeholder: {
     title: {
-      schematic: '暂无原理图',
-      pcb: '暂无 PCB',
-      bom: '暂无 BOM',
-      '3d': '暂无 3D 模型',
-      order: '暂无可下单的板',
+      get schematic(): string { return translateCopy('placeholder.title.schematic') },
+      get pcb(): string { return translateCopy('placeholder.title.pcb') },
+      get bom(): string { return translateCopy('placeholder.title.bom') },
+      get '3d'(): string { return translateCopy('placeholder.title.3d') },
+      get order(): string { return translateCopy('placeholder.title.order') },
     },
     /** One sentence: what the agent can create for this destination. */
     guide: {
-      schematic: '可以让智能体在当前工程中创建原理图（.kicad_sch），创建后会直接在这里显示。',
-      pcb: '可以让智能体创建 PCB 并完成布局（.kicad_pcb），保存后会直接在这里显示。',
-      bom: 'BOM 由原理图自动生成：让智能体先创建原理图，BOM 会自动更新。',
-      '3d': '3D 模型由 PCB 生成：让智能体创建 PCB 后，这里会自动出现三维预览。',
-      order: '制板与贴片都需要 PCB：让智能体创建 PCB 后即可在这里报价下单。',
+      get schematic(): string { return translateCopy('placeholder.guide.schematic') },
+      get pcb(): string { return translateCopy('placeholder.guide.pcb') },
+      get bom(): string { return translateCopy('placeholder.guide.bom') },
+      get '3d'(): string { return translateCopy('placeholder.guide.3d') },
+      get order(): string { return translateCopy('placeholder.guide.order') },
     },
     /** Shown instead of a destination guide when no project was discovered. */
-    noProject: '可以让智能体在当前工作区创建 KiCad 工程（.kicad_pro），工程出现后这里会自动刷新。',
-    /** The ask, phrased so the user can paste it into the conversation. */
-    askAgent: '对智能体说：「为当前工程创建原理图」/「创建 PCB」/「导出 3D 模型」即可。',
+    get noProject(): string { return translateCopy('placeholder.noProject') },
   },
 
   /**
@@ -118,178 +147,200 @@ export const COPY = {
    * two: known codes get translated, unknown ones fall back to the host text.
    */
   discovery: {
-    selectionRequiredCount: (count: number) => `发现 ${count} 个硬件工程，请明确选择一个。`,
-    selectionRequiredArtifact: '该工程包含多个可选产物，请明确选择一个。',
-    noProjectSelected: '尚未选择硬件工程。请打开或选择一个硬件工程。',
-    noSchematic: '该工程没有可用的根原理图。',
-    noBoard: '该工程没有可用的 .kicad_pcb 板文件。',
-    noBoardToOrder: '请先选择板文件，再报价或下单制板。',
+    selectionRequiredCount: (count: number): string => translateCopy('discovery.selectionRequiredCount', { count }),
+    get selectionRequiredArtifact(): string { return translateCopy('discovery.selectionRequiredArtifact') },
+    get noProjectSelected(): string { return translateCopy('discovery.noProjectSelected') },
+    get noSchematic(): string { return translateCopy('discovery.noSchematic') },
+    get noBoard(): string { return translateCopy('discovery.noBoard') },
+    get noBoardToOrder(): string { return translateCopy('discovery.noBoardToOrder') },
     // Host `issue.code` vocabulary.
-    noProject: (cwd: string) => (cwd === '' ? '未找到 .kicad_pro 工程文件' : `${cwd} 下未找到 .kicad_pro 工程文件`),
-    missingProject: (path: string) => `工程文件不存在：${path}`,
-    badManifest: (detail: string) => `配置文件 .hardware-engineering.json 无效：${detail}`,
+    noProject: (cwd: string): string => cwd === ''
+      ? translateCopy('discovery.noProject')
+      : translateCopy('discovery.noProjectIn', { cwd }),
+    missingProject: (path: string): string => translateCopy('discovery.missingProject', { path }),
+    badManifest: (detail: string): string => translateCopy('discovery.badManifest', { detail }),
   },
 
   /** schematic / pcb / 3d / bom stages. */
   preview: {
-    loading: '正在加载已保存的产物…',
-    kindSchematic: '原理图',
-    kindBoard: 'PCB',
-    revision: (revision: string) => `版本 ${revision}`,
-    ecadHint: '仅预览已保存的文件；文件必须存在且可解析。',
-    ecadKindMismatch: (expected: string, actual: string) =>
-      `宿主返回的产物类型（${actual}）与预览类型（${expected}）不一致。`,
-    ecadOverlay: '已保存文件 · 滚轮缩放，拖拽平移',
-    kicadNotConfigured: 'KiCad 尚未配置。',
-    glbExporting: '正在用 kicad-cli 导出 PCB 的 GLB…',
-    glbLoading: '正在加载 3D 模型…',
-    glbCached: '缓存',
-    glbGenerated: '已生成',
-    glbOverlay: '拖拽旋转 · 滚轮缩放',
-    bomHint: 'BOM 行来自 kicad-cli sch export bom。请在「设置 → 硬件工程」中配置 KiCad。',
-    bomTitle: (lines: number) => `物料清单 · ${String(lines)} 行`,
-    bomPlacements: (count: number) => `${String(count)} 个元件位`,
-    bomColumns: ['位号', '数量', '值', '封装', '备注'] as const,
+    get loading(): string { return translateCopy('preview.loading') },
+    get kindSchematic(): string { return translateCopy('preview.kindSchematic') },
+    get kindBoard(): string { return translateCopy('preview.kindBoard') },
+    revision: (revision: string): string => translateCopy('preview.revision', { revision }),
+    get ecadHint(): string { return translateCopy('preview.ecadHint') },
+    ecadKindMismatch: (expected: string, actual: string): string =>
+      translateCopy('preview.ecadKindMismatch', { expected, actual }),
+    get ecadOverlay(): string { return translateCopy('preview.ecadOverlay') },
+    get kicadNotConfigured(): string { return translateCopy('preview.kicadNotConfigured') },
+    get glbExporting(): string { return translateCopy('preview.glbExporting') },
+    get glbLoading(): string { return translateCopy('preview.glbLoading') },
+    get glbCached(): string { return translateCopy('preview.glbCached') },
+    get glbGenerated(): string { return translateCopy('preview.glbGenerated') },
+    get glbOverlay(): string { return translateCopy('preview.glbOverlay') },
+    get bomHint(): string { return translateCopy('preview.bomHint') },
+    bomTitle: (lines: number): string => translateCopy('preview.bomTitle', { lines }),
+    bomPlacements: (count: number): string => translateCopy('preview.bomPlacements', { count }),
+    get bomColumns(): readonly string[] {
+      return [
+        translateCopy('preview.bomColumn.reference'),
+        translateCopy('preview.bomColumn.quantity'),
+        translateCopy('preview.bomColumn.value'),
+        translateCopy('preview.bomColumn.footprint'),
+        translateCopy('preview.bomColumn.notes'),
+      ]
+    },
   },
 
   /** Order Placing destination. */
   order: {
-    title: '制板与贴片',
-    packaging: '打包中…',
-    packageReady: '打包完成',
-    packagePending: '尚未打包',
-    packageRunning: '正在运行 kicad-cli 导出 Gerber 与钻孔…',
-    packageNotPrepared: '尚未打包。',
-    packageCard: '制板文件包',
-    packageFiles: (files: number, size: string) => `${String(files)} 个文件 · ${size}`,
+    get title(): string { return translateCopy('order.title') },
+    get packaging(): string { return translateCopy('order.packaging') },
+    get packageReady(): string { return translateCopy('order.packageReady') },
+    get packagePending(): string { return translateCopy('order.packagePending') },
+    get packageRunning(): string { return translateCopy('order.packageRunning') },
+    get packageNotPrepared(): string { return translateCopy('order.packageNotPrepared') },
+    get packageCard(): string { return translateCopy('order.packageCard') },
+    packageFiles: (files: number, size: string): string => translateCopy('order.packageFiles', { files, size }),
 
-    pcbTitle: '裸板制板',
-    pcbSubtitle: '通过华秋制板服务对选中的板文件报价并下单。',
-    pcbSummary: (zip: string, files: number, size: string) =>
-      `${zip} · ${String(files)} 个 Gerber/钻孔文件 · ${size}`,
-    pcbAction: '提交 PCB 订单',
+    get pcbTitle(): string { return translateCopy('order.pcbTitle') },
+    get pcbSubtitle(): string { return translateCopy('order.pcbSubtitle') },
+    pcbSummary: (zip: string, files: number, size: string): string =>
+      translateCopy('order.pcbSummary', { zip, files, size }),
+    get pcbAction(): string { return translateCopy('order.pcbAction') },
 
-    smtTitle: '整包贴片',
-    smtSubtitle: '需要工程根原理图以生成 BOM 与元件坐标。',
-    smtSummary: (placements: number, lines: number, size: string) =>
-      `${String(placements)} 个贴片点位 · ${String(lines)} 行 BOM · ${size}`,
-    smtAction: '提交贴片订单',
+    get smtTitle(): string { return translateCopy('order.smtTitle') },
+    get smtSubtitle(): string { return translateCopy('order.smtSubtitle') },
+    smtSummary: (placements: number, lines: number, size: string): string =>
+      translateCopy('order.smtSummary', { placements, lines, size }),
+    get smtAction(): string { return translateCopy('order.smtAction') },
+    /** Kind name interpolated into the result sentences (not a standalone label). */
+    get smtShort(): string { return translateCopy('order.smtShort') },
 
-    boardFile: '板文件',
-    placements: '贴片点位',
-    bomLines: 'BOM 行数',
-    credential: '登录凭据',
-    signedIn: '华秋登录',
-    signedOut: '未登录',
+    get boardFile(): string { return translateCopy('order.boardFile') },
+    get placements(): string { return translateCopy('order.placements') },
+    get bomLines(): string { return translateCopy('order.bomLines') },
+    get credential(): string { return translateCopy('order.credential') },
+    get signedIn(): string { return translateCopy('order.signedIn') },
+    get signedOut(): string { return translateCopy('order.signedOut') },
 
-    signInToOrder: '请先登录华秋账号再下单——订单页将以你的账号打开。',
-    signInToOrderSmt: '请先登录华秋账号再下单贴片——订单页将以你的账号打开。',
-    waitingForPackage: '正在等待制板文件包。',
-    configureToPackage: '请配置 KiCad 以打包板文件。',
-    selectRootSchematic: '请选择根原理图，以便生成 BOM 与坐标。',
+    get signInToOrder(): string { return translateCopy('order.signInToOrder') },
+    get signInToOrderSmt(): string { return translateCopy('order.signInToOrderSmt') },
+    get waitingForPackage(): string { return translateCopy('order.waitingForPackage') },
+    get configureToPackage(): string { return translateCopy('order.configureToPackage') },
+    get selectRootSchematic(): string { return translateCopy('order.selectRootSchematic') },
 
     // Board facts (values keep their units, which are not prose).
-    layers: '层数',
-    layersValue: (layers: number) => `${String(layers)} 层`,
-    outline: '外形尺寸',
-    thickness: '板厚',
-    minTrace: '最小线宽',
-    minDrill: '最小钻孔',
-    outerCopper: '外层铜厚',
-    defaultValue: '默认',
-    copperValue: (oz: number | string) => `${String(oz)} oz`,
+    get layers(): string { return translateCopy('order.layers') },
+    layersValue: (layers: number): string => translateCopy('order.layersValue', { layers }),
+    get outline(): string { return translateCopy('order.outline') },
+    get thickness(): string { return translateCopy('order.thickness') },
+    get minTrace(): string { return translateCopy('order.minTrace') },
+    get minDrill(): string { return translateCopy('order.minDrill') },
+    get outerCopper(): string { return translateCopy('order.outerCopper') },
+    get defaultValue(): string { return translateCopy('order.defaultValue') },
+    copperValue: (oz: number | string): string => translateCopy('order.copperValue', { oz }),
 
-    agentEntryPoints: 'Agent 入口',
-    submitting: '提交中…',
+    get agentEntryPoints(): string { return translateCopy('order.agentEntryPoints') },
+    get submitting(): string { return translateCopy('order.submitting') },
 
-    tabTitle: '华秋订单',
-    tabOrder: (id: string) => `订单 ${id}`,
-    tabMissing: '没有可显示的订单页。',
-    tabAddressHint: '订单页在本页签中打开；链接包含你的登录凭据，因此只显示订单号。',
-    openInSystemBrowser: '在系统浏览器打开',
+    get tabTitle(): string { return translateCopy('order.tabTitle') },
+    tabOrder: (id: string): string => translateCopy('order.tabOrder', { id }),
+    get tabMissing(): string { return translateCopy('order.tabMissing') },
+    get tabAddressHint(): string { return translateCopy('order.tabAddressHint') },
+    get openInSystemBrowser(): string { return translateCopy('order.openInSystemBrowser') },
 
-    resultTitlePcb: 'PCB 订单已创建',
-    resultTitleSmt: '贴片订单已创建',
-    resultLaunched: '已在右侧面板打开',
-    resultReady: '待打开',
-    resultNote: '与 KiCad 在下单窗口中展示的是同一个页面，已在本页右侧的浏览器页签中打开。',
-    resultLaunchedMessage: (kind: string) => `已在右侧面板的浏览器页签中打开「${kind}」订单页。`,
-    resultReadyMessage: (kind: string) => `「${kind}」订单页已就绪，点击「在右侧面板打开」即可继续。`,
-    openInBrowser: '在右侧面板打开',
-    opening: '正在打开…',
-    copyUrl: '复制链接',
-    copied: '已复制',
+    get resultTitlePcb(): string { return translateCopy('order.resultTitlePcb') },
+    get resultTitleSmt(): string { return translateCopy('order.resultTitleSmt') },
+    get resultLaunched(): string { return translateCopy('order.resultLaunched') },
+    get resultReady(): string { return translateCopy('order.resultReady') },
+    get resultNote(): string { return translateCopy('order.resultNote') },
+    resultLaunchedMessage: (kind: string): string => translateCopy('order.resultLaunchedMessage', { kind }),
+    resultReadyMessage: (kind: string): string => translateCopy('order.resultReadyMessage', { kind }),
+    get openInBrowser(): string { return translateCopy('order.openInBrowser') },
+    get opening(): string { return translateCopy('order.opening') },
+    get copyUrl(): string { return translateCopy('order.copyUrl') },
+    get copied(): string { return translateCopy('order.copied') },
 
-    confirmAria: '确认下单上传',
-    confirmTitlePcb: '上传板文件并创建 PCB 订单？',
-    confirmTitleSmt: '上传贴片文件包？',
-    confirmBody: '以下文件将发送到华秋下单服务。订单在那里创建，其页面会在右侧面板中打开；付款仍在该页面完成。',
-    confirmZip: (zip: string, size: string) => `${zip} — Gerber 与钻孔文件（${size}）`,
-    confirmPositions: (size: string) => `元件坐标（${size}）`,
-    confirmBom: (size: string) => `贴片 BOM（${size}）`,
-    confirmHost: (baseUrl: string | undefined) => baseUrl ?? '已配置的下单服务',
-    confirmAck: '我了解这些板文件将离开本机。',
-    cancel: '取消',
-    uploadAndOpen: '上传并打开订单页',
-    uploading: '正在上传…',
+    get confirmAria(): string { return translateCopy('order.confirmAria') },
+    get confirmTitlePcb(): string { return translateCopy('order.confirmTitlePcb') },
+    get confirmTitleSmt(): string { return translateCopy('order.confirmTitleSmt') },
+    get confirmBody(): string { return translateCopy('order.confirmBody') },
+    confirmZip: (zip: string, size: string): string => translateCopy('order.confirmZip', { zip, size }),
+    confirmPositions: (size: string): string => translateCopy('order.confirmPositions', { size }),
+    confirmBom: (size: string): string => translateCopy('order.confirmBom', { size }),
+    confirmHost: (baseUrl: string | undefined): string =>
+      baseUrl ?? translateCopy('order.confirmHostFallback'),
+    get confirmAck(): string { return translateCopy('order.confirmAck') },
+    get cancel(): string { return translateCopy('order.cancel') },
+    get uploadAndOpen(): string { return translateCopy('order.uploadAndOpen') },
+    get uploading(): string { return translateCopy('order.uploading') },
 
-    batch: '生产数量',
-    batchUnits: (count: number) => `${String(count)} 片`,
-    quoteBasis: (count: number) => `报价基准 · ${String(count)} 片`,
+    get batch(): string { return translateCopy('order.batch') },
+    batchUnits: (count: number): string => translateCopy('order.batchUnits', { count }),
+    quoteBasis: (count: number): string => translateCopy('order.quoteBasis', { count }),
   },
 
   /** First-run setup wizard. */
   wizard: {
-    steps: ['欢迎', 'KiCad', 'SolidCraft'] as const,
-    stepCounter: (index: number, total: number, label: string) =>
-      `${String(index)}/${String(total)} · ${label}`,
-    aria: '硬件工程初始化',
+    /** Step titles, in order (also the dot-strip tooltips and the counter label). */
+    get steps(): readonly string[] {
+      return [
+        translateCopy('wizard.steps.welcome'),
+        translateCopy('wizard.steps.kicad'),
+        translateCopy('wizard.steps.solidcraft'),
+      ]
+    },
+    stepCounter: (index: number, total: number, label: string): string =>
+      translateCopy('wizard.stepCounter', { index, total, label }),
+    get aria(): string { return translateCopy('wizard.aria') },
 
-    welcomeTitle: '配置你的硬件工具链',
-    welcomeKicker: '仅需一次 · 可跳过',
-    welcomeLead: '硬件工程可预览 KiCad 工程、导出 PCB 三维模型、打包制板文件并调用本地程序打开文件。只需指定一次本地安装位置。',
-    welcomeUsesTitle: '使用到的组件',
-    welcomeUses: 'kicad-cli 负责预览、BOM、GLB 与 Gerber/钻孔打包。SolidCraft 仅作为环境上下文提供给 Agent。',
-    welcomeLocal: '只使用本机的可执行文件。不会上传任何内容，也不会替你安装任何东西。',
+    get welcomeTitle(): string { return translateCopy('wizard.welcomeTitle') },
+    get welcomeKicker(): string { return translateCopy('wizard.welcomeKicker') },
+    get welcomeLead(): string { return translateCopy('wizard.welcomeLead') },
+    get welcomeUsesTitle(): string { return translateCopy('wizard.welcomeUsesTitle') },
+    get welcomeUses(): string { return translateCopy('wizard.welcomeUses') },
+    get welcomeLocal(): string { return translateCopy('wizard.welcomeLocal') },
 
-    kicadTitle: 'KiCad 安装位置',
-    kicadOptional: '可选',
-    kicadLead: '填写 KiCad 安装目录或 kicad-cli 路径。它用于 .kicad_sch / .kicad_pcb 预览、PCB 的 GLB 导出、制板文件打包，以及「用 KiCad 打开」。',
-    kicadPlaceholder: 'C:\\Program Files\\KiCad\\8.0\\  或  /usr/bin/kicad-cli',
-    kicadSkipHint: '留空即跳过。之后可在「设置 → 硬件工程」中配置。',
+    get kicadTitle(): string { return translateCopy('wizard.kicadTitle') },
+    get kicadOptional(): string { return translateCopy('wizard.kicadOptional') },
+    get kicadLead(): string { return translateCopy('wizard.kicadLead') },
+    get kicadPlaceholder(): string { return translateCopy('wizard.kicadPlaceholder') },
+    get kicadSkipHint(): string { return translateCopy('wizard.kicadSkipHint') },
 
-    solidcraftTitle: 'SolidCraft 安装位置',
-    solidcraftLead: '本 POC 中 SolidCraft 仅作为环境上下文提供给 Agent——不启动本地程序，也不做结构预览。',
-    solidcraftPlaceholder: 'C:\\Program Files\\SolidCraft\\bin\\SolidCraft.exe',
+    get solidcraftTitle(): string { return translateCopy('wizard.solidcraftTitle') },
+    get solidcraftLead(): string { return translateCopy('wizard.solidcraftLead') },
+    get solidcraftPlaceholder(): string { return translateCopy('wizard.solidcraftPlaceholder') },
 
-    skip: '跳过设置',
-    back: '上一步',
-    next: '下一步',
-    finish: '完成',
-    saving: '保存中…',
-    footerNote: '随时可在「设置 → 硬件工程」中修改。',
+    get skip(): string { return translateCopy('wizard.skip') },
+    get back(): string { return translateCopy('wizard.back') },
+    get next(): string { return translateCopy('wizard.next') },
+    get finish(): string { return translateCopy('wizard.finish') },
+    get saving(): string { return translateCopy('wizard.saving') },
+    get footerNote(): string { return translateCopy('wizard.footerNote') },
   },
 
   /** Settings section (the two CAD installation roots). */
   settings: {
-    title: '硬件工程',
-    lead: '用于预览、制板打包、一键调用本地程序以及 Agent 环境上下文的本地 EDA / MCAD 可执行文件。',
-    kicadTitle: 'KiCad EDA 套件',
-    kicadBlurb: '可填 KiCad 安装目录或 kicad-cli 路径。用于 .kicad_sch / .kicad_pcb 预览、GLB 导出、BOM、Gerber 打包与本地打开。',
-    kicadPlaceholder: 'C:\\Program Files\\KiCad\\8.0\\  或  /usr/bin/kicad-cli',
-    solidcraftTitle: 'SolidCraft 三维 CAD',
-    solidcraftBlurb: '本 POC 中仅用于 Agent 环境上下文。不启动本地程序，也不做结构预览；「3D 模型」页签渲染的是所选 PCB。',
-    solidcraftPlaceholder: 'C:\\Program Files\\SolidCraft\\bin\\SolidCraft.exe',
-    pathField: (title: string) => `${title}路径`,
-    validate: '校验并保存',
-    validating: '校验中…',
-    configured: '已配置',
-    notConfigured: '未配置',
-    notDetected: '未检测到',
-    savedAndValidated: (application: string) => `${application} 校验通过并已保存。`,
-    savedButInvalid: (application: string, detail: string) => `${application} 已保存，但校验失败：${detail}`,
-    hostSettingsUnavailable: '宿主未提供设置服务，无法保存。',
-    hostRejected: (application: string) => `宿主拒绝了${application}的设置。`,
+    get title(): string { return translateCopy('settings.title') },
+    get lead(): string { return translateCopy('settings.lead') },
+    get kicadTitle(): string { return translateCopy('settings.kicadTitle') },
+    get kicadBlurb(): string { return translateCopy('settings.kicadBlurb') },
+    get kicadPlaceholder(): string { return translateCopy('settings.kicadPlaceholder') },
+    get solidcraftTitle(): string { return translateCopy('settings.solidcraftTitle') },
+    get solidcraftBlurb(): string { return translateCopy('settings.solidcraftBlurb') },
+    get solidcraftPlaceholder(): string { return translateCopy('settings.solidcraftPlaceholder') },
+    pathField: (title: string): string => translateCopy('settings.pathField', { title }),
+    get validate(): string { return translateCopy('settings.validate') },
+    get validating(): string { return translateCopy('settings.validating') },
+    get configured(): string { return translateCopy('settings.configured') },
+    get notConfigured(): string { return translateCopy('settings.notConfigured') },
+    get notDetected(): string { return translateCopy('settings.notDetected') },
+    savedAndValidated: (application: string): string =>
+      translateCopy('settings.savedAndValidated', { application }),
+    savedButInvalid: (application: string, detail: string): string =>
+      translateCopy('settings.savedButInvalid', { application, detail }),
+    get hostSettingsUnavailable(): string { return translateCopy('settings.hostSettingsUnavailable') },
+    hostRejected: (application: string): string => translateCopy('settings.hostRejected', { application }),
   },
 
   /**
@@ -299,27 +350,27 @@ export const COPY = {
    * answer for an unmodelled failure.
    */
   errors: {
-    unauthorized: '没有权限访问该产物：它不在当前会话的工作区授权范围内。',
-    forbidden: '没有权限执行该操作。',
-    'missing-artifact': '该产物不存在。',
-    'unsupported-artifact': '不支持该产物类型。',
-    'invalid-identity': '产物路径无效。',
-    'missing-executable': '已配置的 KiCad 中没有可打开该产物的程序。',
-    'not-configured': '尚未配置 KiCad。请在「设置 → 硬件工程」中填写安装位置。',
-    'too-large': '产物超过可预览的大小上限。',
-    'export-timeout': 'kicad-cli 执行超时。',
-    'export-failed': 'kicad-cli 导出失败。',
-    'stale-revision': '文件已变化，请刷新后重试。',
-    'invalid-request': '请求参数不完整。',
-    'invalid-application': '不支持该本地程序。',
-    'confirmation-required': '下单需要先在上传确认框中确认。',
-    'invalid-order-url': '订单链接无效，已拒绝打开。',
-    'order-unreachable': '无法连接下单服务。',
-    'order-rejected': '下单服务未能返回可用的订单页。',
-    'not-found': '未找到该接口。',
-    internal: '服务内部错误。',
+    get unauthorized(): string { return translateCopy('errors.unauthorized') },
+    get forbidden(): string { return translateCopy('errors.forbidden') },
+    get 'missing-artifact'(): string { return translateCopy('errors.missing-artifact') },
+    get 'unsupported-artifact'(): string { return translateCopy('errors.unsupported-artifact') },
+    get 'invalid-identity'(): string { return translateCopy('errors.invalid-identity') },
+    get 'missing-executable'(): string { return translateCopy('errors.missing-executable') },
+    get 'not-configured'(): string { return translateCopy('errors.not-configured') },
+    get 'too-large'(): string { return translateCopy('errors.too-large') },
+    get 'export-timeout'(): string { return translateCopy('errors.export-timeout') },
+    get 'export-failed'(): string { return translateCopy('errors.export-failed') },
+    get 'stale-revision'(): string { return translateCopy('errors.stale-revision') },
+    get 'invalid-request'(): string { return translateCopy('errors.invalid-request') },
+    get 'invalid-application'(): string { return translateCopy('errors.invalid-application') },
+    get 'confirmation-required'(): string { return translateCopy('errors.confirmation-required') },
+    get 'invalid-order-url'(): string { return translateCopy('errors.invalid-order-url') },
+    get 'order-unreachable'(): string { return translateCopy('errors.order-unreachable') },
+    get 'order-rejected'(): string { return translateCopy('errors.order-rejected') },
+    get 'not-found'(): string { return translateCopy('errors.not-found') },
+    get internal(): string { return translateCopy('errors.internal') },
   },
-} as const
+}
 
 export type HardwareCopy = typeof COPY
 
@@ -337,7 +388,7 @@ const KEEPS_DETAIL = new Set([
 ])
 
 /**
- * One host error → one zh_CN sentence.
+ * One host error → one sentence in the active locale.
  *
  * `detail` is the host's own message. Unknown codes keep it untouched, so an
  * unmodelled failure still says something specific instead of collapsing into
@@ -347,7 +398,9 @@ export function describeHostError(code: string | undefined, detail: string): str
   if (code === undefined) return detail
   const sentence = (COPY.errors as Record<string, string | undefined>)[code]
   if (sentence === undefined) return detail
-  return KEEPS_DETAIL.has(code) && detail !== '' ? `${sentence}（${detail}）` : sentence
+  return KEEPS_DETAIL.has(code) && detail !== ''
+    ? `${sentence}${translateCopy('error.detail', { detail })}`
+    : sentence
 }
 
 /**

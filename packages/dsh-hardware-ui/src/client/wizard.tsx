@@ -52,9 +52,6 @@ const FIELD_CARD: CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 6,
 }
 
-/** Step titles, in order (also the dot-strip tooltips and the counter label). */
-const STEPS = COPY.wizard.steps
-
 /**
  * Dismissal remembered for the life of this client bundle, not one mount.
  *
@@ -113,6 +110,9 @@ export function wizardPhase(input: {
 
 export function OnboardingWizard(props: HardwareProps): ReactNode {
   const { actions, configForm, saveInstallation, installations, useStore } = props
+  // Step titles are read per render, not captured at module load: DSH's locale
+  // service may switch language while this bundle stays loaded.
+  const steps = COPY.wizard.steps
   const installed = useStore(state => state.installations)
   const form = configForm()
   const empty = useMemo<{ value?: HardwareInstallationConfig; status?: string }>(() => ({}), [])
@@ -202,7 +202,7 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
   }
 
   const next = async (): Promise<void> => {
-    if (step < STEPS.length - 1) {
+    if (step < steps.length - 1) {
       setStep(step + 1)
       return
     }
@@ -284,12 +284,12 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
         createElement(
           'div',
           { style: { ...ROW, gap: 6 } },
-          ...STEPS.map((label, index) => createElement('span', {
+          ...steps.map((label, index) => createElement('span', {
             key: label,
             style: { ...dotStyle(index === step ? C.accent : index < step ? C.ok : C.text3, 6) },
             title: label,
           })),
-          createElement('span', { style: { ...STEP_LABEL, ...MONO_TEXT } }, COPY.wizard.stepCounter(step + 1, STEPS.length, STEPS[step] ?? '')),
+          createElement('span', { style: { ...STEP_LABEL, ...MONO_TEXT } }, COPY.wizard.stepCounter(step + 1, steps.length, steps[step] ?? '')),
         ),
         createElement('button', {
           type: 'button', style: buttonStyle('quiet', { fontSize: 10.5 }),
@@ -314,7 +314,7 @@ export function OnboardingWizard(props: HardwareProps): ReactNode {
           createElement('button', {
             type: 'button', style: buttonStyle('primary'), disabled: busy,
             onClick: () => { void next() },
-          }, busy ? COPY.wizard.saving : step === STEPS.length - 1 ? COPY.wizard.finish : COPY.wizard.next),
+          }, busy ? COPY.wizard.saving : step === steps.length - 1 ? COPY.wizard.finish : COPY.wizard.next),
         ),
       ),
     ),

@@ -479,7 +479,7 @@ describe('Cordis service access', () => {
     // The plugin's own declared dependencies, available for the whole lifecycle.
     return {
       specs, definitions,
-      ctx: make(new Set([...INTRINSIC, 'slots', 'sidebarRightTabs', 'configForms'])) as Parameters<typeof apply>[0],
+      ctx: make(new Set([...INTRINSIC, 'slots', 'locale', 'sidebarRightTabs', 'configForms'])) as Parameters<typeof apply>[0],
     }
   }
 

@@ -20,6 +20,7 @@
  */
 
 import { DOCUMENT_BODY_SLOT, type DocumentClientContext, type DocumentPreviewDefinition } from './contract.js'
+import { HARDWARE_UI_NS } from '../copy.js'
 import { DOCUMENT_COPY } from './copy.js'
 import { EcadBody, type EcadBodyInjected } from './EcadBody.js'
 import { StepBody, type StepBodyInjected } from './StepBody.js'
@@ -112,6 +113,7 @@ export function installDocumentPreviews(ctx: DocumentClientContext, options: Doc
     effect(() => slots.inject(DOCUMENT_BODY_SLOT, () => slots.register({
       name: DOCUMENT_BODY_SLOT,
       key: id,
+      locale: HARDWARE_UI_NS,
       // The injected slice is what the body reads; the framework calls this
       // once per mount with the enclosing session.
       inject: (sessionId: unknown): EcadBodyInjected => {
@@ -126,6 +128,7 @@ export function installDocumentPreviews(ctx: DocumentClientContext, options: Doc
   effect(() => slots.inject(DOCUMENT_BODY_SLOT, () => slots.register({
     name: DOCUMENT_BODY_SLOT,
     key: STEP_BODY_ID,
+    locale: HARDWARE_UI_NS,
     inject: (): StepBodyInjected => (options.stepWasmUrl === undefined ? {} : { wasmUrl: options.stepWasmUrl }),
   }, StepBody)), `hardware-ui: document body ${STEP_BODY_ID}`)
 }

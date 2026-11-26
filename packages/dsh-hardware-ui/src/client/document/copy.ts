@@ -1,51 +1,49 @@
 /**
- * zh_CN copy for the document-rendering surfaces.
+ * Copy for the document-rendering surfaces, backed by the same DSH locale
+ * namespace as `../copy.ts`.
  *
- * Same rationale as `../copy.ts`: one dictionary, so a string rendered from two
- * seats cannot drift, and "is this translated?" stays a grep for a Chinese
- * character outside these two files. The document seats take no `locale`
- * namespace, for the reason spelled out there — DSH's typed `locale` overload
- * requires both baseline locales and this product ships zh-CN only — so these
- * strings are read directly rather than through a slot's `t`.
+ * The dictionaries are flat `{name}` templates in `../locales.ts`; this module
+ * keeps the structured read API so the bodies do not carry a `t` seat. Reads go
+ * through the active locale at call time, and DSH's renderer re-renders the
+ * document slot on a language change.
  *
  * Extension names, viewer verbs and unit symbols are not translated.
  *
  * @module @huaqiu/dsh-hardware-ui/client/document/copy
  */
 
+import { translateCopy } from '../copy.js'
+
 export const DOCUMENT_COPY = {
   /** Toolbar labels for the document viewer menu. */
   viewer: {
-    schematic: '原理图',
-    pcb: 'PCB',
-    model: '3D 模型',
+    get schematic(): string { return translateCopy('document.viewer.schematic') },
+    get pcb(): string { return translateCopy('document.viewer.pcb') },
+    get model(): string { return translateCopy('document.viewer.model') },
   },
   /** Progress and state lines. */
   state: {
-    loading: '正在解析并渲染…',
-    stepLoading: '正在解析 STEP 几何…',
-    empty: '文件为空，没有可渲染的内容。',
-    tooLarge: (limit: string) => `文件超过 ${limit} 上限，文档预览不渲染该文件。`,
-    parseFailed: (message: string) => `解析失败：${message}`,
-    renderFailed: (message: string) => `渲染失败：${message}`,
-    timeout: (seconds: number) => `渲染超过 ${seconds} 秒未完成，已取消。`,
-    aborted: '渲染已取消。',
+    get loading(): string { return translateCopy('document.state.loading') },
+    get stepLoading(): string { return translateCopy('document.state.stepLoading') },
+    tooLarge: (limit: string): string => translateCopy('document.state.tooLarge', { limit }),
+    parseFailed: (message: string): string => translateCopy('document.state.parseFailed', { message }),
+    renderFailed: (message: string): string => translateCopy('document.state.renderFailed', { message }),
+    get aborted(): string { return translateCopy('document.state.aborted') },
     /** Shown when the WebGL canvas cannot be created (no GPU, blocklisted driver). */
-    noWebgl: '当前环境无法创建 WebGL 上下文，无法渲染该文档。',
-    stepUnavailable: '3D 解析组件不可用，无法预览 STEP/STP 文件。',
-    stepInvalid: '该 STEP/STP 文件不含可用实体几何，无法预览。',
-    wasmFailed: '3D 解析组件加载失败。',
+    get noWebgl(): string { return translateCopy('document.state.noWebgl') },
+    get stepInvalid(): string { return translateCopy('document.state.stepInvalid') },
+    get wasmFailed(): string { return translateCopy('document.state.wasmFailed') },
   },
   /** Interaction hints overlaid on a rendered document. */
   hint: {
-    schematic: '拖动平移 · 滚轮缩放',
-    model: '左键旋转 · 右键平移 · 滚轮缩放',
+    get schematic(): string { return translateCopy('document.hint.schematic') },
+    get model(): string { return translateCopy('document.hint.model') },
   },
   /** Child-sheet disclosure under a schematic. */
   sheets: {
-    title: (count: number) => `本图引用 ${count} 个子图（未合并显示）`,
-    missing: (label: string) => `${label}：无法读取`,
-    found: (label: string) => label,
-    hint: '子图在各自的文件中单独打开预览；本预览只渲染当前文档。',
+    title: (count: number): string => translateCopy('document.sheets.title', { count }),
+    missing: (label: string): string => translateCopy('document.sheets.missing', { label }),
+    found: (label: string): string => translateCopy('document.sheets.found', { label }),
+    get hint(): string { return translateCopy('document.sheets.hint') },
   },
-} as const
+}

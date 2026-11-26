@@ -341,8 +341,8 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     // kept on the object for tooling, not rendered.
     createElement('p', { style: MUTED },
       placed.launched
-        ? COPY.order.resultLaunchedMessage(placed.kind === 'pcb' ? 'PCB' : '贴片')
-        : COPY.order.resultReadyMessage(placed.kind === 'pcb' ? 'PCB' : '贴片')),
+        ? COPY.order.resultLaunchedMessage(placed.kind === 'pcb' ? 'PCB' : COPY.order.smtShort)
+        : COPY.order.resultReadyMessage(placed.kind === 'pcb' ? 'PCB' : COPY.order.smtShort)),
     createElement('a', {
       style: LINK, href: placed.orderUrl, target: '_blank', rel: 'noreferrer noopener',
       'data-hardware-order-url': true,
