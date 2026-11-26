@@ -454,11 +454,15 @@ export function HardwareSettingsSection(props: HardwareProps): ReactNode {
   useEffect(() => { toolchain.start() }, [toolchain])
   return createElement(
     'div',
-    { style: { display: 'flex', flexDirection: 'column', gap: 10 }, 'data-hardware-settings': true },
-    createElement('h2', { style: { margin: 0, fontSize: 15, fontWeight: 600 } }, COPY.settings.title),
-    createElement('p', { style: MUTED }, COPY.settings.lead),
-    createElement(ToolchainCard, { tool: 'kicad', controller: toolchain, snapshot }),
-    createElement(ToolchainCard, { tool: 'solidcraft', controller: toolchain, snapshot }),
+    { style: { display: 'flex', flexDirection: 'column', gap: 14 }, 'data-hardware-settings': true },
+    createElement(
+      'div',
+      { style: { display: 'flex', flexDirection: 'column', gap: 3 } },
+      createElement('h3', { style: { margin: 0, fontSize: 14, fontWeight: 600, color: C.text } }, COPY.settings.title),
+      createElement('p', { style: { ...MUTED, margin: 0, lineHeight: 1.6 } }, COPY.settings.lead),
+    ),
+    createElement(ToolchainCard, { tool: 'kicad', controller: toolchain, snapshot, variant: 'settings' }),
+    createElement(ToolchainCard, { tool: 'solidcraft', controller: toolchain, snapshot, variant: 'settings' }),
     ...(snapshot.error === undefined ? [] : [
       createElement('p', { key: 'error', role: 'status', style: { ...MUTED, color: C.accent } }, snapshot.error),
     ]),

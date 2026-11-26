@@ -71,6 +71,22 @@ export interface ToolStatus {
   readonly download?: { readonly version: string; readonly url: string }
 }
 
+/**
+ * The executable picker the card's Browse opens (prototype §"SIMULATED OS SYSTEM
+ * FILE EXPLORER DIALOG"): the detected executables as a list, a path field, and a
+ * link that hands the choice to the real OS dialog.
+ */
+export interface ToolchainPicker {
+  readonly tool: ToolchainId
+  /** Row the user clicked; mirrored into the footer's path field. */
+  readonly chosen?: string
+  /** The real OS chooser is open; the modal waits for it. */
+  readonly nativePending: boolean
+  /** Rows on offer, from the last discovery answer (invalid ones included, disabled). */
+  readonly candidates: readonly DiscoveryCandidate[]
+  readonly refreshing: boolean
+}
+
 /** Everything both surfaces need, from one poll. */
 export interface ToolchainStatus {
   readonly kicad: ToolStatus
@@ -138,6 +154,8 @@ export interface ToolchainSnapshot {
   /** Path currently held in each card's input, kept here so both surfaces agree. */
   readonly drafts: Readonly<Record<ToolchainId, string>>
   readonly toasts: readonly ToastItem[]
+  /** Open executable picker (Browse), if any. */
+  readonly picker?: ToolchainPicker
 }
 
 /** The Host calls the controller needs; injectable so tests need no HTTP. */
@@ -287,19 +305,24 @@ export class ToolchainController {
     }
   }
 
-  private draftPaths: Record<ToolchainId, string> = { kicad: '', solidcraft: '' }
+  /** Last authoritative root seen per tool; the draft follows it, not the other way round. */
+  private roots: Record<ToolchainId, string> = { kicad: '', solidcraft: '' }
 
   /**
-   * Replace a draft only when the authoritative root moved.
+   * Move the input with the authoritative root, unless the user owns the text.
    *
-   * A user typing a path must not be interrupted by a poll, and an empty
-   * unconfigured root must not erase what they typed before pressing validate.
+   * The input follows a changed stored root only while it is empty or still shows
+   * the previous root. Anything the user typed — or picked in the executable
+   * picker — is theirs until they save it, so a poll (or the rescan the picker
+   * itself triggers) cannot erase it.
    */
   private syncDraft(tool: ToolchainId, installPath: string | undefined): string | undefined {
     const next = installPath ?? ''
-    if (next === this.draftPaths[tool]) return undefined
-    this.draftPaths[tool] = next
-    if (this.snapshot.drafts[tool] !== '' && next === '') return undefined
+    const previous = this.roots[tool]
+    if (next === previous) return undefined
+    this.roots[tool] = next
+    const draft = this.snapshot.drafts[tool]
+    if (draft !== '' && draft !== previous) return undefined
     return next
   }
 
@@ -406,7 +429,6 @@ export class ToolchainController {
     try {
       const outcome = await this.transport.browse(tool)
       if (outcome.kind === 'picked' && outcome.path !== undefined) {
-        this.draftPaths[tool] = outcome.path
         this.set({ drafts: this.withDraft(tool, outcome.path) })
         return outcome.path
       }
@@ -420,9 +442,79 @@ export class ToolchainController {
     }
   }
 
+  /** Open the executable picker for one tool (the card's Browse). */
+  openPicker(tool: ToolchainId): void {
+    const discovery = this.snapshot.status?.[tool].discovery
+    this.set({
+      picker: {
+        tool,
+        candidates: discovery?.candidates ?? [],
+        nativePending: false,
+        refreshing: false,
+      },
+    })
+    // A fresh profile may still be scanning, and an all-invalid list is worth
+    // re-checking: the picker opens at once and fills in as the scan answers.
+    if (discovery === undefined || discovery.state !== 'done' || discovery.candidates.length === 0) {
+      void this.refreshPicker()
+    }
+  }
+
+  closePicker(): void {
+    if (this.snapshot.picker === undefined) return
+    this.set({ picker: undefined })
+  }
+
+  /** Highlight one row (the footer path field follows it). */
+  choosePick(path: string): void {
+    const picker = this.snapshot.picker
+    if (picker === undefined) return
+    this.set({ picker: { ...picker, chosen: path } })
+  }
+
+  /** Re-run discovery from inside the picker, then re-list what it found. */
+  async refreshPicker(): Promise<void> {
+    const picker = this.snapshot.picker
+    if (picker === undefined) return
+    this.set({ picker: { ...picker, refreshing: true } })
+    try {
+      await this.transport.discover(picker.tool)
+    } catch (error) {
+      this.toast('warn', messageOf(error))
+    }
+    await this.refresh()
+    const current = this.snapshot.picker
+    if (current === undefined || current.tool !== picker.tool) return
+    this.set({
+      picker: {
+        ...current,
+        candidates: this.snapshot.status?.[picker.tool].discovery.candidates ?? current.candidates,
+        refreshing: false,
+      },
+    })
+  }
+
+  /** Take the highlighted row into the card's input and close the picker. */
+  confirmPick(): void {
+    const picker = this.snapshot.picker
+    if (picker === undefined || picker.chosen === undefined) return
+    this.setDraft(picker.tool, picker.chosen)
+    this.set({ picker: undefined })
+  }
+
+  /** The picker's "Open Native OS Picker" link: the real dialog decides. */
+  async nativePick(): Promise<void> {
+    const picker = this.snapshot.picker
+    if (picker === undefined || picker.nativePending) return
+    this.set({ picker: { ...picker, nativePending: true } })
+    const picked = await this.browse(picker.tool)
+    const current = this.snapshot.picker
+    if (current === undefined) return
+    this.set({ picker: picked === undefined ? { ...current, nativePending: false } : undefined })
+  }
+
   /** Type a path without persisting it. */
   setDraft(tool: ToolchainId, value: string): void {
-    this.draftPaths[tool] = value
     this.set({ drafts: this.withDraft(tool, value) })
   }
 

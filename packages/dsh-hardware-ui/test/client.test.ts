@@ -35,7 +35,7 @@ import { missingState, selectedArtifact } from '../src/client/components.js'
 import { DESTINATIONS, DESTINATION_LABELS, applicationFor } from '../src/client/model.js'
 import { createHardwareStore } from '../src/client/store.js'
 import { COPY } from '../src/client/copy.js'
-import { onboardingPhase } from '../src/client/wizard.js'
+import { onboardingPhase, saveReady } from '../src/client/wizard.js'
 import type { ToolchainStatus } from '../src/client/toolchain.js'
 
 interface Registration {
@@ -329,6 +329,41 @@ describe('first-run onboarding gating', () => {
 
   it('renders nowhere without the shared controller', () => {
     expect(onboardingPhase({ ...firstRun, hasController: false })).toBe('no-controller')
+  })
+})
+
+/**
+ * Regression: a clean launch (`rm -rf ~/.dsh`) was a dead end. The wizard card
+ * follows the prototype and has no per-card validate button, while the footer's
+ * primary button was gated on "both tools already configured" — so nothing could
+ * be configured, because the only button that configures was disabled.
+ */
+describe('wizard primary button readiness', () => {
+  const status = (kicad: 'configured' | 'unconfigured'): ToolchainStatus => ({
+    kicad: { tool: 'kicad', state: kicad, discovery: { tool: 'kicad', state: 'done', candidates: [] } },
+    solidcraft: { tool: 'solidcraft', state: 'unconfigured', discovery: { tool: 'solidcraft', state: 'done', candidates: [] } },
+    manifest: { state: 'ready', schemaVersion: 1, url: 'https://example.test/agent-toolchains.json' },
+    target: { platform: 'win32', arch: 'x64', downloadsSupported: true },
+    official: { kicad: 'https://www.kicad.org/download/', solidcraft: 'https://example.test/' },
+  })
+  const base = { loading: false, drafts: { kicad: '', solidcraft: '' }, toasts: [] } as const
+
+  it('is enabled as soon as one path is typed', () => {
+    expect(saveReady({ ...base, drafts: { kicad: 'C:/KiCad/10.0', solidcraft: '' } })).toBe(true)
+    expect(saveReady({ ...base, drafts: { kicad: '   ', solidcraft: 'C:/SolidCraft' } })).toBe(true)
+  })
+
+  it('is enabled when a tool is already configured, so the step can simply end', () => {
+    expect(saveReady({ ...base, status: status('configured') })).toBe(true)
+  })
+
+  it('stays disabled when there is nothing to persist', () => {
+    expect(saveReady(base)).toBe(false)
+    expect(saveReady({ ...base, status: status('unconfigured') })).toBe(false)
+  })
+
+  it('stays disabled while a write is in flight', () => {
+    expect(saveReady({ ...base, saving: 'kicad', drafts: { kicad: 'C:/KiCad/10.0', solidcraft: '' } })).toBe(false)
   })
 })
 

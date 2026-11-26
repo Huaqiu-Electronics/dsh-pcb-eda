@@ -230,6 +230,58 @@ describe('toolchain controller', () => {
     expect(controller.getSnapshot().toasts.at(-1)?.tone).toBe('warn')
   })
 
+  it('the picker lists what discovery found and takes the chosen row into the draft', async () => {
+    const candidate = {
+      path: 'C:\\Program Files\\KiCad\\10.0\\bin\\kicad-cli.exe',
+      origin: 'system' as const, valid: true, version: '10.0.7',
+    }
+    const transport = fakeTransport({
+      status: status({
+        kicad: tool('kicad', 'unconfigured', {
+          discovery: { tool: 'kicad', state: 'done', candidates: [candidate] },
+        }),
+      }),
+    })
+    controller = new ToolchainController(transport, 1_000_000)
+    await controller.refresh()
+    controller.openPicker('kicad')
+    expect(controller.getSnapshot().picker?.tool).toBe('kicad')
+    expect(controller.getSnapshot().picker?.chosen).toBeUndefined()
+    expect(controller.getSnapshot().picker?.candidates).toHaveLength(1)
+
+    controller.choosePick(candidate.path)
+    expect(controller.getSnapshot().picker?.chosen).toBe(candidate.path)
+
+    controller.confirmPick()
+    expect(controller.getSnapshot().picker).toBeUndefined()
+    expect(controller.getSnapshot().drafts.kicad).toBe(candidate.path)
+    expect(transport.calls).not.toContain(`save:kicad:${candidate.path}`)
+  })
+
+  it('the picker closes without touching the draft when nothing was chosen', () => {
+    controller.openPicker('solidcraft')
+    controller.confirmPick()
+    expect(controller.getSnapshot().drafts.solidcraft).toBe('')
+    controller.closePicker()
+    expect(controller.getSnapshot().picker).toBeUndefined()
+  })
+
+  it('the native link hands the choice to the OS dialog and closes on a pick', async () => {
+    controller.openPicker('kicad')
+    await controller.nativePick()
+    expect(controller.getSnapshot().picker).toBeUndefined()
+    expect(controller.getSnapshot().drafts.kicad).toBe('/picked/kicad')
+  })
+
+  it('a cancelled OS dialog leaves the picker open, not stuck', async () => {
+    const transport = fakeTransport()
+    transport.browse = async () => ({ kind: 'cancelled' })
+    controller = new ToolchainController(transport, 1_000_000)
+    controller.openPicker('kicad')
+    await controller.nativePick()
+    expect(controller.getSnapshot().picker).toMatchObject({ tool: 'kicad', nativePending: false })
+  })
+
   it('dismissing a toast removes it and is idempotent', async () => {
     controller.toast('info', 'one')
     const id = controller.getSnapshot().toasts[0]?.id ?? 0

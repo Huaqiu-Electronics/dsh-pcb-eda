@@ -31,10 +31,11 @@ Browser (`@huaqiu/dsh-hardware-ui`):
 | File | Role |
 |---|---|
 | `src/client/toolchain.ts` | `ToolchainController`: one shared state machine + snapshot + notices |
-| `src/client/toolchain-view.tsx` | The install card (both surfaces), notice overlay, sidebar dot |
-| `src/client/wizard.tsx` | First-run step on `settings.onboarding` + `onboardingPhase` gate |
+| `src/client/toolchain-view.tsx` | The install card in both prototype variants (`wizard` / `settings`), notice overlay, sidebar dot |
+| `src/client/wizard.tsx` | First-run modal on `settings.onboarding`, `onboardingPhase` gate, `saveReady`, stable `useFormValue` |
 | `src/client/components.tsx` | Settings section, now the two shared cards |
 | `src/client/transport.ts` | Toolchain route calls, same error-envelope mapping as the rest |
+| `src/client/copy.ts` · `src/client/locales.ts` | Prototype copy for both surfaces (cycle test forbids unreferenced keys) |
 
 ---
 
@@ -82,6 +83,11 @@ dependency (toast is drawn by the plugin).
    platform the card shows the vendor page; it never renders a disabled button pretending to work.
 7. **Failed installs clean up and never register.** Extraction goes to a staging directory, is
    validated, then promoted; on failure the staging tree and the download are removed.
+8. **The wizard submits what was typed, and only then completes.** The prototype gives the card
+   no validate control, so the footer button owns validation: each typed path is written through
+   the Host first; a rejected path keeps the modal open with the Host's reason toasted, and only
+   a clean round records `complete`. SolidCraft stays optional — one configured tool is enough
+   to leave the wizard, and the sidebar dot keeps reporting the missing one.
 
 ---
 
@@ -96,7 +102,7 @@ under `C:\hardware-toolchains`.
 |---|---|---|
 | `hardware-artifacts` | `pnpm --filter @huaqiu/hardware-artifacts exec vitest run` | **148 passed** (8 files; baseline before this pass was 110) |
 | `hardware-artifacts` | `… exec tsc --noEmit -p tsconfig.json` | clean |
-| `dsh-hardware-ui` | `pnpm --filter @huaqiu/dsh-hardware-ui exec vitest run` | **129 passed** |
+| `dsh-hardware-ui` | `pnpm --filter @huaqiu/dsh-hardware-ui exec vitest run` | **133 passed** (13 files) |
 | `dsh-hardware-ui` | `… exec tsc --noEmit -p tsconfig.json` | clean |
 
 New coverage: `test/toolchain/decode.test.ts` (LZMA fixtures byte-for-byte, ZIP central
@@ -105,7 +111,9 @@ directory / entry / tree extraction, prefix stripping, traversal, entry budget, 
 ranking, path normalisation, manager state machine, compact capabilities),
 `test/toolchain/install-real.test.ts` (whole pipeline on a real vendor archive, opt-in via
 `HUAQIU_TOOLCHAIN_ZIP`), `packages/dsh-hardware-ui/test/toolchain.test.ts` (controller policy:
-green legality, notice transitions, draft protection, browse/install/cancel).
+green legality, notice transitions, draft protection, browse/install/cancel), and
+`packages/dsh-hardware-ui/test/client.test.ts` (onboarding gating + `saveReady`, the dead-end
+regression of §4.5.3).
 
 ### 4.2 Real archives (`install-real.test.ts`)
 
@@ -147,6 +155,91 @@ against the on-disk extraction (601 sampled entries, 0 mismatches) during the LZ
 Both were invisible to synthetic fixtures and only appeared against the vendor archives — which
 is the argument for keeping `install-real.test.ts`.
 
+### 4.5 First launch froze the whole app — three defects behind one symptom
+
+The user's report was "`rm -rf ~/.dsh`, launch clean, and the UI is completely frozen, even a
+page reload does not help". A frozen *page* whose *server* is healthy is a client-side
+starvation, and there were two independent ones plus one dead end found while walking it:
+
+1. **`#root` was set `inert` while the onboarding step was open.** The step renders on
+   `settings.onboarding`, which the shell paints *inside* `#root`
+   (`ui-settings-general/src/client/SettingsRoot.tsx` → `renderSlot('settings.onboarding', …)`),
+   so inerting the root inerted the modal together with the app: nothing was clickable and every
+   reload reproduced it. Fix: never touch `#root`; the full-screen backdrop alone owns the
+   pointer (`wizard.tsx`, and the rule is written into its module docs).
+2. **`configForm.getSnapshot()` allocates a new object per call**, so passing it straight to
+   `useSyncExternalStore` made React see a changed store on every render and re-render forever.
+   Fix: `useFormValue` keeps a local copy and replaces it only when `kicadRoot`,
+   `solidcraftRoot`, `onboardingComplete` or `toolchainSetup` actually moved.
+3. **The modal's only submit button was permanently disabled.** The prototype's wizard card has
+   no per-card *validate* control (that button is a Settings affordance), so `Save & Get Started`
+   is the step's only way to persist a path — and it was gated on "both tools already
+   configured", which a clean profile never is. Fix: `saveReady()` (exported, unit-tested) —
+   enabled when something is worth saving, disabled only while a write is in flight — and
+   `save()` now validates and writes each typed path through the Host before it records
+   `toolchainSetup = 'complete'`, aborting on a rejected path instead of silently completing.
+
+Measured on a genuinely clean `DSH_HOME` (`rm -rf ~/.dsh` equivalent, see §7):
+
+| Observation | Value |
+|---|---|
+| Wizard on first paint | present, prototype layout, both cards, discovery lines already filled |
+| Main-thread responsiveness | 32 `requestAnimationFrame` ticks in 500 ms (~60 fps, i.e. no render loop) |
+| Console errors / exceptions | 0 |
+| Reload with the wizard open | same as above — no freeze, no re-entrancy |
+| `Save & Get Started` (both paths typed) | enabled; `KiCad v10.0.7 validated and saved.` + `SolidCraft v0.49.1 validated and saved.` toasts; modal dismissed |
+| Persisted result | `cordis.patch.yml` gained `kicadRoot`, `solidcraftRoot`, both versions/sources/`validatedAt`, `toolchainSetup: complete`, `onboardingComplete: true` |
+| Second launch | no wizard, no "setup needed" dot, composer usable |
+
+### 4.6 UI follows the prototype, element for element
+
+Both surfaces were rebuilt against
+`docs/prototype/huaqiu_eda_hardware_toolchain_ux_prototype.html` (`toolchain-view.tsx` gained
+`variant: 'wizard' | 'settings'`); the copy compiles down to the prototype's own strings
+(`locales.ts` / `copy.ts`), so a reviewer can diff the running modal against the design.
+
+| Prototype | Implementation |
+|---|---|
+| Header: red `H` tile, title, `First-Time Setup` pill, close button | same, `×` closes = skip |
+| Blue info callout | same |
+| Card: `Ki`/`Sc` tile, name + `(kicad-cli)` + chip (`Required for PCB/Sch`, `Optional • MCAD`), blurb, amber `Not configured` pill | same |
+| Path input with the prototype's example path as placeholder + `Select Local File...` (folder icon) | same |
+| Bordered bar: `Don't have KiCad? v10.0.7-2 (Win x64)` + `Download from HuaQiu Server` (blue / amber) | same; click runs the plugin's download job, `href` stays as fallback |
+| Inline progress bar (label + %, 1.5 px track) | same component, driven by the job's `percent` |
+| Footer: gear, "…in Settings → Hardware Engineering", `Skip for Now`, `Save & Get Started` | same |
+| Settings: title + long lead, version badge pill, blurb, `Browse...`, `Validate and save` + mono status/path, `Download KiCad (v10.0.7-2)` | same; the status slot shows the resolved CLI path when green, the prototype's wording when not, and `Not saved · click Validate and save` while the input holds an edit the Host has not seen |
+
+Two corrections were made after the first visual pass, both raised by the user:
+
+1. **No `Found …` line under the path row.** The discovery line ("Found `C:\Program Files\KiCad\8.0`")
+   used to sit under each wizard card; the prototype has no such row and a duplicate path under a
+   path field reads as noise. It is gone from the cards — `discoveryLine()` survives only inside the
+   picker's empty state, where a *reason* is genuinely needed.
+2. **`Browse`/`Select Local File` is not a raw OS dialog any more.** Clicking it now opens the
+   prototype's simulated file-browser modal (`ExecutablePicker`): OS-style title bar
+   (`Select kicad-cli Executable — System File Explorer` + `×`), mono breadcrumb, the blue underlined
+   `Open Native OS Picker ↗` link in the breadcrumb bar, a row per detected executable (file tile, name,
+   `System install` / `User install` chip, mono path, green version + verdict on the right), and a
+   footer with the selected path (`No file selected` when empty) plus `Cancel` / `Open` (system blue,
+   disabled until a row is chosen). Only the `Open Native OS Picker ↗` link reaches the real OS
+   dialog — the same split the prototype makes.
+
+   Rows that failed validation stay listed with their reason but are `aria-disabled`: the picker never
+   offers a path the Host would reject. The list caps at 288 px (the mock's `max-h-60` with slightly
+   taller rows) and scrolls.
+
+   The picker is rendered **by the card that opened it**, not by `shell.overlay`: the shell's overlay
+   layer paints below the settings modal, so a picker hosted there landed behind the very dialog asking
+   for it. Observed in the first walk-through ("modal: true" but invisible), fixed by re-parenting, then
+   re-observed with a stacking probe (`elementFromPoint` at the picker's centre hits the picker).
+
+Verified live, on both surfaces:
+
+| Walk | Result |
+|---|---|
+| Clean `DSH_HOME` → wizard → `Select Local File...` → row `C:\Program Files\KiCad\8.0` → `Open` | picker listed all 5 real candidates (3 invalid with reasons), input took the chosen path, picker closed (`.smoke/07`, `08`, `09`) |
+| Settings → Hardware Engineering → `Browse…` → row → `Open` | same, painted above the settings modal, input updated, verdict switched to `Not saved` (`.smoke/10`, `11`, `12`) |
+
 ---
 
 ## 5. Acceptance matrix (§16)
@@ -157,15 +250,18 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
 ### First launch
 | Criterion | State |
 |---|---|
-| Wizard appears automatically on first eligible launch | 🟡 step registered on `settings.onboarding`; seal/visibility requires a blank first session in the UI |
+| Wizard appears automatically on first eligible launch | ✅ observed on a clean `DSH_HOME` (§4.5) |
 | Appears without waiting for discovery | ✅ `onboardingPhase` returns `open` on the first status read; `waiting` renders nothing |
 | Discovery asynchronous | ✅ route answers immediately, verdicts arrive by poll (observed) |
 | Discovery failure cannot block | ✅ failure is a card line; phase logic unaffected |
-| Manual input / native browse / download usable immediately | ✅ card renders all three; browse route implemented (dialog itself 🟡) |
+| Manual input / native browse / download usable immediately | ✅ card renders all three; `Browse` opens the prototype's list picker (§4.6), its `Open Native OS Picker ↗` link reaches the OS dialog (🟡 interactive) |
 | Skip/close dismisses | ✅ writes `deferred` + legacy flag, then `complete()` |
-| Skip does not reopen every start | ✅ `onboardingPhase` → `dismissed` (unit-tested) |
+| Skip does not reopen every start | ✅ `onboardingPhase` → `dismissed` (unit-tested, and observed on the second launch) |
 | Skip produces a non-blocking notification | ✅ `shell.overlay` toast |
 | Sidebar indicator when incomplete | ✅ footer dot while any tool is unconfigured |
+| The app stays interactive while the modal is open | ✅ no `#root` inert, 60 fps, 0 console errors (§4.5) |
+| The primary button can actually submit | ✅ `saveReady()` + validate-then-write (§4.5, unit-tested) |
+| UI matches the prototype | ✅ element-by-element (§4.6, screenshots in `.smoke/03…06`, picker in `07…12`) |
 
 ### Discovery
 | Criterion | State |
@@ -180,7 +276,7 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
 | Criterion | State |
 |---|---|
 | Root / `bin` / direct executable accepted (KiCad, SolidCraft) | ✅ `installationRootOf` + regression test |
-| Native browse opens the OS picker | 🟡 implemented per-OS; not exercised interactively (opening a real dialog would block the walk) |
+| Native browse opens the OS picker | 🟡 the in-app list picker is verified (§4.6); the `Open Native OS Picker ↗` link only has unit tests — opening a real dialog would block the automated walk |
 | Invalid paths not saved as valid | ✅ refused write leaves state `unconfigured` |
 | Previous valid configuration survives a failure | ✅ refused save does not clear the stored root |
 
@@ -209,8 +305,8 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
 | Criterion | State |
 |---|---|
 | Available after dismissal | ✅ `settings.section` always registered |
-| Both cards show path + status | ✅ shared card body |
-| Browse / download / inline progress / version badges | ✅ implemented (🟡 visual pass) |
+| Both cards show path + status | ✅ shared card body (`variant: 'settings'`, §4.6) |
+| Browse / download / inline progress / version badges | ✅ implemented; cards seen on screen (`06-settings-cards.png`), `Browse…` walk in `10…12` |
 | Sidebar reflects real configuration | ✅ dot only while incomplete |
 | Wizard and Settings share state | ✅ one controller (unit-tested) |
 
@@ -236,8 +332,14 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
 
 - **Packaged-app verification is not done** (M9) — by the user's instruction.
 - **Native chooser not exercised interactively.** The per-OS implementation is written and
-  wired, but a real dialog blocks an automated walk; treat it as untested until someone clicks
-  Browse once on Windows, macOS and Linux.
+  wired, and it is now reached only through the picker's `Open Native OS Picker ↗` link
+  (the `Browse`/`Select Local File` buttons stay in-app). A real dialog blocks an automated walk;
+  treat it as untested until someone clicks that one link on Windows, macOS and Linux.
+- **The stale-tab hazard is real, not hypothetical.** During this pass a leftover tab of the
+  earlier session wrote `toolchainSetup: deferred` + `onboardingComplete: true` into the live
+  `~/.dsh/profiles/web/cordis.patch.yml`, dropping `kicadRoot`/`solidcraftRoot`. The file was
+  restored from `.smoke/cordis.patch.configured.yml`; check that file's `config:` block if the
+  cards ever come up "Not configured" on a machine that was configured.
 - **KiCad extraction is slow** (~6 min for 83 k+ LZMA entries on this machine). Progress is
   reported throughout; the work never runs on the UI thread.
 - **`sidebar.footer.action` renders a dot, not a link.** The plugin has no seat that can open
@@ -245,6 +347,15 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
   button that promises navigation it cannot perform.
 - **Legacy `onboardingComplete` is honoured as "completed".** A user who finished the old wizard
   will not be re-prompted; they reach the same setup from Settings.
+- **The download button was not pressed in the UI walk.** The transfer, checksum and promotion
+  paths are covered by real-archive tests (§4.2) and the archive the user already downloaded is
+  the one the manifest serves; what remains unobserved is the click-to-bar choreography on a
+  837 MB transfer.
+- **A dev loop artifact, not a defect:** the launcher opens the default browser each boot, and an
+  older tab still pointing at `127.0.0.1:3080` reconnects to the new server and replays its own
+  pending settings writes. That is how `toolchainSetup: complete` can reappear in
+  `cordis.patch.yml` right after someone strips it; use a scratch `DSH_HOME` (below) for
+  destructive walks and close stale tabs.
 
 ---
 
@@ -255,8 +366,8 @@ $env:PATH = "C:\code\deepseek-harness\node_modules\.bin;" + $env:PATH
 cd C:\code\dsh-pcb-eda
 
 # unit + integration
-pnpm --filter @huaqiu/hardware-artifacts exec vitest run
-pnpm --filter @huaqiu/dsh-hardware-ui exec vitest run
+pnpm --filter @huaqiu/hardware-artifacts exec vitest run     # 148 passed
+pnpm --filter @huaqiu/dsh-hardware-ui exec vitest run        # 133 passed
 
 # real archives (opt-in, minutes)
 $env:HUAQIU_TOOLCHAIN_ZIP = "kicad=C:\hardware-toolchains\kicad-huaqiu-10.0.7-2-x86_64.zip,solidcraft=C:\hardware-toolchains\solidcraft-0.49.1-windows-x64-portable.zip"
@@ -264,7 +375,23 @@ pnpm --filter @huaqiu/hardware-artifacts exec vitest run test/toolchain/install-
 
 # web profile (dev loop)
 node scripts/launch-dsh-standalone.mjs --no-install   # http://127.0.0.1:3080
+
+# the clean first launch the freeze was reported on, without touching ~/.dsh
+$env:DSH_HOME = "C:\code\dsh-pcb-eda\.smoke\dsh-home"
+Remove-Item -Recurse -Force $env:DSH_HOME -ErrorAction SilentlyContinue
+node scripts/launch-dsh-standalone.mjs --no-build      # installs the profile fresh, then boots
+
+# wizard on the real profile without destroying its config: swap the hardware-artifacts
+# block to "{}" (fresh), walk, then put the configured copy back
+Copy-Item .smoke\cordis.patch.fresh.yml    C:\Users\yihuo\.dsh\profiles\web\cordis.patch.yml -Force
+Copy-Item .smoke\cordis.patch.configured.yml C:\Users\yihuo\.dsh\profiles\web\cordis.patch.yml -Force
 ```
 
-Then, by hand: open the app on a fresh profile, walk the wizard, press Browse once per card,
-start a download and watch the inline progress, and finally run the M9 desktop build.
+Port hygiene matters more than it looks: a leftover `pnpm dsh web` / `bin.ts web` from an earlier
+launcher keeps the port and the next boot dies with `EADDRINUSE` dressed up as "2 required plugins
+did not activate". Kill the launcher, the `pnpm dsh web` and the `bin.ts web` children before
+starting again.
+
+Then, by hand: open the app on a fresh profile, walk the wizard, press the picker's
+`Open Native OS Picker ↗` once per card (the one step automation cannot take), start a download and
+watch the inline progress, and finally run the M9 desktop build.

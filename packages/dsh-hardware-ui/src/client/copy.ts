@@ -280,43 +280,31 @@ export const COPY = {
     quoteBasis: (count: number): string => translateCopy('order.quoteBasis', { count }),
   },
 
-  /** First-run setup wizard. */
+  /**
+   * First-run wizard, following `docs/prototype/huaqiu_eda_hardware_toolchain_ux_prototype.html`.
+   *
+   * These texts are the prototype's own, so a reviewer can diff the running
+   * modal against the design instead of translating in their head.
+   */
   wizard: {
-    /** Step titles, in order (also the dot-strip tooltips and the counter label). */
-    get steps(): readonly string[] {
-      return [
-        translateCopy('wizard.steps.welcome'),
-        translateCopy('wizard.steps.kicad'),
-        translateCopy('wizard.steps.solidcraft'),
-      ]
-    },
-    stepCounter: (index: number, total: number, label: string): string =>
-      translateCopy('wizard.stepCounter', { index, total, label }),
-    get aria(): string { return translateCopy('wizard.aria') },
-
-    get welcomeTitle(): string { return translateCopy('wizard.welcomeTitle') },
-    get welcomeKicker(): string { return translateCopy('wizard.welcomeKicker') },
-    get welcomeLead(): string { return translateCopy('wizard.welcomeLead') },
-    get welcomeUsesTitle(): string { return translateCopy('wizard.welcomeUsesTitle') },
-    get welcomeUses(): string { return translateCopy('wizard.welcomeUses') },
-    get welcomeLocal(): string { return translateCopy('wizard.welcomeLocal') },
-
-    get kicadTitle(): string { return translateCopy('wizard.kicadTitle') },
-    get kicadOptional(): string { return translateCopy('wizard.kicadOptional') },
-    get kicadLead(): string { return translateCopy('wizard.kicadLead') },
+    get title(): string { return translateCopy('wizard.title') },
+    get badge(): string { return translateCopy('wizard.badge') },
+    get lead(): string { return translateCopy('wizard.lead') },
+    get callout(): string { return translateCopy('wizard.callout') },
+    get kicadTitle(): string { return translateCopy('wizard.kicadName') },
+    get kicadChip(): string { return translateCopy('wizard.kicadChip') },
+    get kicadBlurb(): string { return translateCopy('wizard.kicadBlurb') },
     get kicadPlaceholder(): string { return translateCopy('wizard.kicadPlaceholder') },
-    get kicadSkipHint(): string { return translateCopy('wizard.kicadSkipHint') },
-
-    get solidcraftTitle(): string { return translateCopy('wizard.solidcraftTitle') },
-    get solidcraftLead(): string { return translateCopy('wizard.solidcraftLead') },
     get solidcraftPlaceholder(): string { return translateCopy('wizard.solidcraftPlaceholder') },
-
-    get skip(): string { return translateCopy('wizard.skip') },
-    get back(): string { return translateCopy('wizard.back') },
-    get next(): string { return translateCopy('wizard.next') },
-    get finish(): string { return translateCopy('wizard.finish') },
-    get saving(): string { return translateCopy('wizard.saving') },
-    get footerNote(): string { return translateCopy('wizard.footerNote') },
+    get solidcraftTitle(): string { return translateCopy('wizard.solidcraftName') },
+    get solidcraftChip(): string { return translateCopy('wizard.solidcraftChip') },
+    get solidcraftBlurb(): string { return translateCopy('wizard.solidcraftBlurb') },
+    get selectFile(): string { return translateCopy('wizard.selectFile') },
+    dontHave: (name: string): string => translateCopy('wizard.dontHave', { name }),
+    get serverDownload(): string { return translateCopy('wizard.serverDownload') },
+    get footer(): string { return translateCopy('wizard.footer') },
+    get skip(): string { return translateCopy('wizard.skipNow') },
+    get save(): string { return translateCopy('wizard.save') },
   },
 
   /** Settings section (the two CAD installation roots). */
@@ -324,10 +312,10 @@ export const COPY = {
     get title(): string { return translateCopy('settings.title') },
     get lead(): string { return translateCopy('settings.lead') },
     get kicadTitle(): string { return translateCopy('settings.kicadTitle') },
-    get kicadBlurb(): string { return translateCopy('settings.kicadBlurb') },
+    get kicadBlurb(): string { return translateCopy('settings.kicadCardBlurb') },
     get kicadPlaceholder(): string { return translateCopy('settings.kicadPlaceholder') },
     get solidcraftTitle(): string { return translateCopy('settings.solidcraftTitle') },
-    get solidcraftBlurb(): string { return translateCopy('settings.solidcraftBlurb') },
+    get solidcraftBlurb(): string { return translateCopy('settings.solidcraftCardBlurb') },
     get solidcraftPlaceholder(): string { return translateCopy('settings.solidcraftPlaceholder') },
     pathField: (title: string): string => translateCopy('settings.pathField', { title }),
     get validate(): string { return translateCopy('settings.validate') },
@@ -341,6 +329,12 @@ export const COPY = {
       translateCopy('settings.savedButInvalid', { application, detail }),
     get hostSettingsUnavailable(): string { return translateCopy('settings.hostSettingsUnavailable') },
     hostRejected: (application: string): string => translateCopy('settings.hostRejected', { application }),
+    get statusVerified(): string { return translateCopy('settings.statusVerified') },
+    get statusAwaiting(): string { return translateCopy('settings.statusAwaiting') },
+    get statusUnsaved(): string { return translateCopy('settings.statusUnsaved') },
+    download: (tool: 'kicad' | 'solidcraft', version: string): string => (tool === 'kicad'
+      ? translateCopy('settings.downloadKicad', { version })
+      : translateCopy('settings.downloadSolidCraft', { version })),
   },
 
   /**
@@ -364,6 +358,26 @@ export const COPY = {
     downloadUnavailableWith: (name: string, detail: string): string =>
       translateCopy('toolchain.downloadUnavailableWith', { name, detail }),
     get official(): string { return translateCopy('toolchain.official') },
+    get downloading(): string { return translateCopy('toolchain.downloading') },
+    get statusNotConfigured(): string { return translateCopy('toolchain.statusNotConfigured') },
+    get browseTitle(): string { return translateCopy('toolchain.browseTitle') },
+
+    // Executable picker (prototype §3): title, breadcrumb link, hint, footer.
+    pickerTitle: (name: string): string => translateCopy('toolchain.pickerTitle', { name }),
+    get pickerHint(): string { return translateCopy('toolchain.pickerHint') },
+    get pickerNative(): string { return translateCopy('toolchain.pickerNative') },
+    get pickerNativeWaiting(): string { return translateCopy('toolchain.pickerNativeWaiting') },
+    get pickerRoot(): string { return translateCopy('toolchain.pickerRoot') },
+    get pickerNoSelection(): string { return translateCopy('toolchain.pickerNoSelection') },
+    get pickerOpen(): string { return translateCopy('toolchain.pickerOpen') },
+    get pickerCancel(): string { return translateCopy('toolchain.pickerCancel') },
+    pickerOrigin: (origin: 'managed' | 'system' | 'user-local'): string => (origin === 'managed'
+      ? translateCopy('toolchain.pickerOriginManaged')
+      : origin === 'user-local'
+        ? translateCopy('toolchain.pickerOriginUserLocal')
+        : translateCopy('toolchain.pickerOriginSystem')),
+    get pickerValid(): string { return translateCopy('toolchain.pickerValid') },
+    get pickerInvalid(): string { return translateCopy('toolchain.pickerInvalid') },
     get cancel(): string { return translateCopy('toolchain.cancel') },
     get retryCheck(): string { return translateCopy('toolchain.retryCheck') },
     get statusUnconfigured(): string { return translateCopy('toolchain.statusUnconfigured') },
