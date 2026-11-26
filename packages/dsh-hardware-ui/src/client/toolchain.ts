@@ -1,0 +1,473 @@
+/**
+ * Client-side toolchain state: one controller, shared by every surface.
+ *
+ * The wizard step and the Settings section must never disagree about what is
+ * configured (§10.5), so nothing here is duplicated per surface: both read this
+ * controller, which is the only thing that polls the Host, starts a download,
+ * or opens a native chooser. The controller holds no React state — it exposes a
+ * `useSyncExternalStore`-shaped snapshot — so it can live for the lifetime of
+ * the plugin, survive the settings dialog closing, and keep a download running
+ * while the user navigates away.
+ *
+ * Two kinds of fact arrive from the Host and are kept apart deliberately:
+ *   - `status` is authoritative (the Host resolves paths with the same parser a
+ *     manual save uses), and is re-read after every write;
+ *   - `job` is a mirror of one install run, polled only while it is running.
+ *
+ * Everything the surfaces show about a tool is a projection of those two; none
+ * of them decides "configured" on its own.
+ *
+ * @module @huaqiu/dsh-hardware-ui/client/toolchain
+ */
+import { COPY } from './copy.js'
+import { messageOf } from './transport.js'
+import {
+  browseToolchain, cancelToolchain, installToolchain, loadToolchainStatus,
+  saveToolchain, startToolchainDiscovery, validateToolchain,
+} from './transport.js'
+
+export type ToolchainId = 'kicad' | 'solidcraft'
+
+/** §10.3 status semantics: green only ever follows a successful validation. */
+export type ToolState = 'unconfigured' | 'validating' | 'configured' | 'invalid'
+
+export type ToolSource = 'manual' | 'browse' | 'download' | 'detected'
+
+export type InstallPhase =
+  | 'download' | 'verify' | 'extract' | 'layout' | 'promote' | 'done' | 'failed' | 'cancelled'
+
+/** One directory discovery looked at, and what it found there. */
+export interface DiscoveryCandidate {
+  readonly path: string
+  readonly origin: 'managed' | 'system' | 'user-local'
+  readonly valid: boolean
+  readonly version?: string
+  readonly cli?: string
+  readonly error?: string
+}
+
+/** Background discovery state for one tool (§4.2 — never blocks the UI). */
+export interface ToolDiscoveryView {
+  readonly tool: ToolchainId
+  readonly state: 'idle' | 'running' | 'done' | 'failed'
+  readonly candidates: readonly DiscoveryCandidate[]
+  readonly selected?: DiscoveryCandidate
+  readonly error?: string
+  readonly finishedAt?: number
+}
+
+/** One tool's row in the two cards. */
+export interface ToolStatus {
+  readonly tool: ToolchainId
+  readonly state: ToolState
+  readonly installPath?: string
+  readonly cliPath?: string
+  readonly appPath?: string
+  readonly version?: string
+  readonly source?: ToolSource
+  readonly validatedAt?: number
+  readonly error?: string
+  readonly discovery: ToolDiscoveryView
+  readonly download?: { readonly version: string; readonly url: string }
+}
+
+/** Everything both surfaces need, from one poll. */
+export interface ToolchainStatus {
+  readonly kicad: ToolStatus
+  readonly solidcraft: ToolStatus
+  readonly manifest:
+    | { readonly state: 'unknown' | 'loading' }
+    | { readonly state: 'ready'; readonly schemaVersion: number; readonly url: string }
+    | { readonly state: 'unavailable'; readonly code: string; readonly message: string }
+  readonly target: { readonly platform: string; readonly arch: string; readonly downloadsSupported: boolean }
+  readonly official: Readonly<Record<ToolchainId, string>>
+  readonly job?: InstallJob
+}
+
+/** One install run, as the Host reports it. */
+export interface InstallJob {
+  readonly id: string
+  readonly tool: ToolchainId
+  readonly version: string
+  readonly phase: InstallPhase
+  readonly received: number
+  readonly total?: number
+  readonly percent?: number
+  readonly message: string
+  readonly errorCode?: string
+  readonly error?: string
+  readonly installPath?: string
+  readonly startedAt: number
+  readonly finishedAt?: number
+}
+
+/** Verdict of a validate / save round trip. */
+export interface ValidationOutcome {
+  readonly ok: boolean
+  readonly installPath?: string
+  readonly cliPath?: string
+  readonly appPath?: string
+  readonly version?: string
+  readonly error?: string
+}
+
+/** Result of a native browse request (§6.2). */
+export interface BrowseOutcome {
+  readonly kind: 'picked' | 'cancelled' | 'unsupported'
+  readonly path?: string
+  readonly mechanism?: string
+  readonly message?: string
+}
+
+/** Tone of one transient notice (§11 — never a modal for an ordinary failure). */
+export type ToastTone = 'ok' | 'warn' | 'error' | 'info'
+
+export interface ToastItem {
+  readonly id: number
+  readonly tone: ToastTone
+  readonly text: string
+}
+
+/** Immutable render state; identity changes only when something changed. */
+export interface ToolchainSnapshot {
+  readonly status?: ToolchainStatus
+  readonly loading: boolean
+  readonly error?: string
+  /** Tool whose save round trip is in flight, for per-card button state. */
+  readonly saving?: ToolchainId
+  /** Path currently held in each card's input, kept here so both surfaces agree. */
+  readonly drafts: Readonly<Record<ToolchainId, string>>
+  readonly toasts: readonly ToastItem[]
+}
+
+/** The Host calls the controller needs; injectable so tests need no HTTP. */
+export interface ToolchainTransport {
+  status(jobId?: string): Promise<ToolchainStatus>
+  validate(tool: ToolchainId, path: string): Promise<ValidationOutcome>
+  save(tool: ToolchainId, path: string, source: ToolSource): Promise<ValidationOutcome>
+  browse(tool: ToolchainId): Promise<BrowseOutcome>
+  install(tool: ToolchainId): Promise<InstallJob | undefined>
+  cancel(id: string): Promise<boolean>
+  discover(tool?: ToolchainId): Promise<void>
+}
+
+/** Real transport: the plugin's own route prefix, via `transport.ts`. */
+export const HOST_TRANSPORT: ToolchainTransport = {
+  status: jobId => loadToolchainStatus(jobId),
+  validate: (tool, path) => validateToolchain(tool, path),
+  save: (tool, path, source) => saveToolchain(tool, path, source),
+  browse: tool => browseToolchain(tool),
+  install: tool => installToolchain(tool),
+  cancel: id => cancelToolchain(id),
+  discover: tool => startToolchainDiscovery(tool),
+}
+
+/** How long one toast stays before it fades on its own. */
+const TOAST_MS = 7000
+/** Poll cadence while a job or a discovery run is live. */
+const POLL_MS = 700
+
+const EMPTY_DRAFTS: Readonly<Record<ToolchainId, string>> = { kicad: '', solidcraft: '' }
+
+/** Is this job still doing work? */
+export function jobRunning(job: InstallJob | undefined): boolean {
+  if (job === undefined) return false
+  return job.phase !== 'done' && job.phase !== 'failed' && job.phase !== 'cancelled'
+}
+
+/** Whole-percent progress, derived when the Host has no reliable total. */
+export function jobPercent(job: InstallJob | undefined): number | undefined {
+  if (job === undefined) return undefined
+  if (job.percent !== undefined) return job.percent
+  if (job.total === undefined || job.total <= 0) return undefined
+  return Math.min(100, Math.round((job.received / job.total) * 100))
+}
+
+/** Both tools configured and validated — the condition that ends the nudges. */
+export function setupComplete(status: ToolchainStatus | undefined): boolean {
+  return status?.kicad.state === 'configured' && status.solidcraft.state === 'configured'
+}
+
+/** True while any tool still needs the user (§10.4 sidebar dot). */
+export function setupIncomplete(status: ToolchainStatus | undefined): boolean {
+  if (status === undefined) return false
+  return status.kicad.state !== 'configured' || status.solidcraft.state !== 'configured'
+}
+
+/** One status line for the sidebar indicator's tooltip. */
+export function setupSummary(status: ToolchainStatus | undefined): string {
+  if (status === undefined) return COPY.toolchain.checking
+  const kicad = status.kicad.state === 'configured' ? `KiCad v${status.kicad.version ?? '?'}` : COPY.toolchain.kicadMissing
+  const solidcraft = status.solidcraft.state === 'configured'
+    ? `SolidCraft v${status.solidcraft.version ?? '?'}`
+    : COPY.toolchain.solidcraftMissing
+  return `${kicad} · ${solidcraft}`
+}
+
+type Listener = () => void
+
+/**
+ * The one toolchain state machine of the browser half.
+ *
+ * Writes are serialised by the Host (validate/save/install each answer before
+ * the next poll), so the controller keeps no queue: it refreshes after every
+ * write it issues and lets the poll be the arbiter. Polling stops as soon as
+ * nothing is running, which keeps an idle settings panel free of requests.
+ */
+export class ToolchainController {
+  private snapshot: ToolchainSnapshot = { loading: true, drafts: EMPTY_DRAFTS, toasts: [] }
+  private readonly listeners = new Set<Listener>()
+  private toastSeq = 0
+  private timer?: ReturnType<typeof setTimeout>
+  private readonly timers = new Map<number, ReturnType<typeof setTimeout>>()
+  private stopped = false
+  private started = false
+  private lastPhase?: string
+  private lastTool?: ToolchainId
+
+  constructor(
+    private readonly transport: ToolchainTransport = HOST_TRANSPORT,
+    private readonly pollMs = POLL_MS,
+  ) {}
+
+  subscribe = (listener: Listener): (() => void) => {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  getSnapshot = (): ToolchainSnapshot => this.snapshot
+
+  private set(patch: Partial<ToolchainSnapshot>): void {
+    this.snapshot = { ...this.snapshot, ...patch }
+    for (const listener of this.listeners) listener()
+  }
+
+  /**
+   * Boot the capability once per client session: read the status, then start
+   * discovery in the background (§4.2 — the wizard opens first, discovery
+   * answers later). Safe to call twice: the second call is a no-op.
+   */
+  start(): void {
+    if (this.started) return
+    this.started = true
+    void this.refresh()
+    void this.transport.discover().catch(() => { /* discovery failure is a state, not an error */ })
+  }
+
+  /** Stop polling and drop timers (plugin unload). */
+  stop(): void {
+    this.stopped = true
+    if (this.timer !== undefined) clearTimeout(this.timer)
+    this.timer = undefined
+    for (const timer of this.timers.values()) clearTimeout(timer)
+    this.timers.clear()
+    this.listeners.clear()
+  }
+
+  /** Read the Host status; the job id follows whatever is running. */
+  async refresh(jobId?: string): Promise<void> {
+    if (this.stopped) return
+    const running = jobId ?? (jobRunning(this.snapshot.status?.job) ? this.snapshot.status?.job?.id : undefined)
+    try {
+      const status = await this.transport.status(running)
+      if (this.stopped) return
+      // Keep the drafts in step with authoritative paths, but never overwrite
+      // text the user is typing: only a changed stored root moves the input.
+      let drafts = this.snapshot.drafts
+      const kicad = this.syncDraft('kicad', status.kicad.installPath)
+      if (kicad !== undefined) drafts = { ...drafts, kicad }
+      const solidcraft = this.syncDraft('solidcraft', status.solidcraft.installPath)
+      if (solidcraft !== undefined) drafts = { ...drafts, solidcraft }
+      this.set({ status, loading: false, error: undefined, drafts })
+      if (status.job !== undefined) this.noteJob(status.job)
+      this.scheduleIfBusy()
+    } catch (error) {
+      if (this.stopped) return
+      this.set({ loading: false, error: messageOf(error) })
+    }
+  }
+
+  private draftPaths: Record<ToolchainId, string> = { kicad: '', solidcraft: '' }
+
+  /**
+   * Replace a draft only when the authoritative root moved.
+   *
+   * A user typing a path must not be interrupted by a poll, and an empty
+   * unconfigured root must not erase what they typed before pressing validate.
+   */
+  private syncDraft(tool: ToolchainId, installPath: string | undefined): string | undefined {
+    const next = installPath ?? ''
+    if (next === this.draftPaths[tool]) return undefined
+    this.draftPaths[tool] = next
+    if (this.snapshot.drafts[tool] !== '' && next === '') return undefined
+    return next
+  }
+
+  /** One card's input text, with the other tool's text untouched. */
+  private withDraft(tool: ToolchainId, value: string): Readonly<Record<ToolchainId, string>> {
+    return tool === 'kicad'
+      ? { ...this.snapshot.drafts, kicad: value }
+      : { ...this.snapshot.drafts, solidcraft: value }
+  }
+
+
+  /** Poll again while anything is live; sleep otherwise. */
+  private scheduleIfBusy(): void {
+    if (this.stopped) return
+    if (this.timer !== undefined) clearTimeout(this.timer)
+    this.timer = undefined
+    const busy = jobRunning(this.snapshot.status?.job)
+      || this.snapshot.status?.kicad.discovery.state === 'running'
+      || this.snapshot.status?.solidcraft.discovery.state === 'running'
+    if (!busy) return
+    this.timer = setTimeout(() => {
+      this.timer = undefined
+      void this.refresh()
+    }, this.pollMs)
+  }
+
+  /** One notice, deduplicated by text so a poll cannot spam the overlay. */
+  toast(tone: ToastTone, text: string): void {
+    if (this.snapshot.toasts.some(item => item.text === text)) return
+    this.toastSeq += 1
+    const id = this.toastSeq
+    this.set({ toasts: [...this.snapshot.toasts, { id, tone, text }].slice(-3) })
+    this.timers.set(id, setTimeout(() => {
+      this.timers.delete(id)
+      this.dismiss(id)
+    }, TOAST_MS))
+  }
+
+  /** Drop one notice (the overlay's own close button). */
+  dismiss(id: number): void {
+    const timer = this.timers.get(id)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      this.timers.delete(id)
+    }
+    if (!this.snapshot.toasts.some(item => item.id === id)) return
+    this.set({ toasts: this.snapshot.toasts.filter(item => item.id !== id) })
+  }
+
+  /** Fire the transitions §11 allows; nothing else notifies. */
+  private noteJob(job: InstallJob): void {
+    if (this.lastPhase === job.phase && this.lastTool === job.tool) return
+    const previous = this.lastPhase
+    this.lastPhase = job.phase
+    this.lastTool = job.tool
+    const name = job.tool === 'kicad' ? 'KiCad' : 'SolidCraft'
+    if (job.phase === 'verify') this.toast('info', COPY.toolchain.toastDownloaded(name, job.version))
+    else if (job.phase === 'extract' || job.phase === 'layout' || job.phase === 'promote') {
+      if (previous !== 'extract' && previous !== 'layout' && previous !== 'promote') {
+        this.toast('info', COPY.toolchain.toastExtracting(name))
+      }
+    } else if (job.phase === 'done') {
+      this.toast('ok', COPY.toolchain.toastInstalled(name, job.version))
+    } else if (job.phase === 'failed') {
+      this.toast('error', job.errorCode === 'checksum-mismatch'
+        ? COPY.toolchain.toastChecksum(name)
+        : COPY.toolchain.toastFailed(name, job.error ?? job.message))
+    } else if (job.phase === 'cancelled') {
+      this.toast('warn', COPY.toolchain.toastCancelled(name))
+    }
+  }
+
+  /** Start the manifest-provided download for one tool (§7.4). */
+  async install(tool: ToolchainId): Promise<void> {
+    const name = tool === 'kicad' ? 'KiCad' : 'SolidCraft'
+    try {
+      const job = await this.transport.install(tool)
+      if (job === undefined) {
+        this.toast('warn', COPY.toolchain.downloadUnavailable(name))
+        return
+      }
+      const current = this.snapshot.status
+      if (current !== undefined) this.set({ status: { ...current, job } })
+      this.toast('info', COPY.toolchain.toastStarted(name, job.version))
+      this.scheduleIfBusy()
+      void this.refresh(job.id)
+    } catch (error) {
+      this.toast('warn', COPY.toolchain.downloadUnavailableWith(name, messageOf(error)))
+    }
+  }
+
+  /** Stop a running download or extraction. */
+  async cancel(id: string): Promise<void> {
+    try {
+      await this.transport.cancel(id)
+    } catch (error) {
+      this.toast('error', messageOf(error))
+    }
+    await this.refresh()
+  }
+
+  /** Native chooser; a picked path lands in that card's input, not in config. */
+  async browse(tool: ToolchainId): Promise<string | undefined> {
+    try {
+      const outcome = await this.transport.browse(tool)
+      if (outcome.kind === 'picked' && outcome.path !== undefined) {
+        this.draftPaths[tool] = outcome.path
+        this.set({ drafts: this.withDraft(tool, outcome.path) })
+        return outcome.path
+      }
+      if (outcome.kind === 'unsupported') {
+        this.toast('warn', COPY.toolchain.browseUnsupported(outcome.message ?? ''))
+      }
+      return undefined
+    } catch (error) {
+      this.toast('error', messageOf(error))
+      return undefined
+    }
+  }
+
+  /** Type a path without persisting it. */
+  setDraft(tool: ToolchainId, value: string): void {
+    this.draftPaths[tool] = value
+    this.set({ drafts: this.withDraft(tool, value) })
+  }
+
+  /** Validate and persist one path through the Host (§6.3). */
+  async save(tool: ToolchainId, path: string, source: ToolSource = 'manual'): Promise<ValidationOutcome> {
+    const name = tool === 'kicad' ? 'KiCad' : 'SolidCraft'
+    this.set({ saving: tool })
+    try {
+      const outcome = await this.transport.save(tool, path, source)
+      if (outcome.ok) {
+        this.toast('ok', COPY.toolchain.toastSaved(name, outcome.version ?? '?'))
+      } else {
+        this.toast('warn', COPY.toolchain.toastInvalid(name, outcome.error ?? COPY.toolchain.notDetected))
+      }
+      await this.refresh()
+      return outcome
+    } catch (error) {
+      this.toast('error', messageOf(error))
+      return { ok: false, error: messageOf(error) }
+    } finally {
+      this.set({ saving: undefined })
+    }
+  }
+
+  /** Check a path without persisting anything (the input's own verdict). */
+  async validate(tool: ToolchainId, path: string): Promise<ValidationOutcome> {
+    try {
+      return await this.transport.validate(tool, path)
+    } catch (error) {
+      return { ok: false, error: messageOf(error) }
+    }
+  }
+
+  /** Re-run discovery on demand (the card's "check again"). */
+  async discover(tool?: ToolchainId): Promise<void> {
+    try {
+      await this.transport.discover(tool)
+    } catch (error) {
+      this.toast('warn', messageOf(error))
+    }
+    await this.refresh()
+  }
+
+  /** Adopt a discovered candidate into that card's input (§4.3). */
+  adopt(tool: ToolchainId, path: string): void {
+    this.setDraft(tool, path)
+  }
+}

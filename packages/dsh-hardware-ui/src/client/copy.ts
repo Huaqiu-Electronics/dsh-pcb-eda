@@ -344,6 +344,60 @@ export const COPY = {
   },
 
   /**
+   * Toolchain capability: discovery lines, status pills, download affordances
+   * and the transient notices of §11. Every sentence here is one that only the
+   * plugin can say — the Host's own text arrives separately and is passed
+   * through {@link describeHostError} where it is technical.
+   */
+  toolchain: {
+    get checking(): string { return translateCopy('toolchain.checking') },
+    get kicadMissing(): string { return translateCopy('toolchain.kicadMissing') },
+    get solidcraftMissing(): string { return translateCopy('toolchain.solidcraftMissing') },
+    get discovering(): string { return translateCopy('toolchain.discovering') },
+    get notDetected(): string { return translateCopy('toolchain.notDetected') },
+    detected: (path: string, version: string): string => translateCopy('toolchain.detected', { path, version }),
+    detectedInvalid: (path: string, detail: string): string =>
+      translateCopy('toolchain.detectedInvalid', { path, detail }),
+    get browse(): string { return translateCopy('toolchain.browse') },
+    download: (name: string, version: string): string => translateCopy('toolchain.download', { name, version }),
+    downloadUnavailable: (name: string): string => translateCopy('toolchain.downloadUnavailable', { name }),
+    downloadUnavailableWith: (name: string, detail: string): string =>
+      translateCopy('toolchain.downloadUnavailableWith', { name, detail }),
+    get official(): string { return translateCopy('toolchain.official') },
+    get cancel(): string { return translateCopy('toolchain.cancel') },
+    get retryCheck(): string { return translateCopy('toolchain.retryCheck') },
+    get statusUnconfigured(): string { return translateCopy('toolchain.statusUnconfigured') },
+    get statusValidating(): string { return translateCopy('toolchain.statusValidating') },
+    get statusConfigured(): string { return translateCopy('toolchain.statusConfigured') },
+    get statusInvalid(): string { return translateCopy('toolchain.statusInvalid') },
+    statusDownloading: (percent: string): string => translateCopy('toolchain.statusDownloading', { percent }),
+    get statusExtracting(): string { return translateCopy('toolchain.statusExtracting') },
+    get statusDone(): string { return translateCopy('toolchain.statusDone') },
+    get statusFailed(): string { return translateCopy('toolchain.statusFailed') },
+    toastStarted: (name: string, version: string): string => translateCopy('toolchain.toastStarted', { name, version }),
+    toastDownloaded: (name: string, version: string): string =>
+      translateCopy('toolchain.toastDownloaded', { name, version }),
+    toastExtracting: (name: string): string => translateCopy('toolchain.toastExtracting', { name }),
+    toastInstalled: (name: string, version: string): string =>
+      translateCopy('toolchain.toastInstalled', { name, version }),
+    toastFailed: (name: string, detail: string): string => translateCopy('toolchain.toastFailed', { name, detail }),
+    toastChecksum: (name: string): string => translateCopy('toolchain.toastChecksum', { name }),
+    toastCancelled: (name: string): string => translateCopy('toolchain.toastCancelled', { name }),
+    toastSaved: (name: string, version: string): string => translateCopy('toolchain.toastSaved', { name, version }),
+    toastInvalid: (name: string, detail: string): string => translateCopy('toolchain.toastInvalid', { name, detail }),
+    get toastSkipped(): string { return translateCopy('toolchain.toastSkipped') },
+    browseUnsupported: (detail: string): string => translateCopy('toolchain.browseUnsupported', { detail }),
+    get onboardingTitle(): string { return translateCopy('toolchain.onboardingTitle') },
+    get onboardingLead(): string { return translateCopy('toolchain.onboardingLead') },
+    get onboardingAria(): string { return translateCopy('toolchain.onboardingAria') },
+    get skip(): string { return translateCopy('toolchain.skip') },
+    get finish(): string { return translateCopy('toolchain.finish') },
+    get footNote(): string { return translateCopy('toolchain.footNote') },
+    indicator: (summary: string): string => translateCopy('toolchain.indicator', { summary }),
+    get pending(): string { return translateCopy('toolchain.pending') },
+  },
+
+  /**
    * Host error sentences, keyed by the stable `code` in the route envelope
    * (`packages/hardware-artifacts/src/routes.ts`). A code missing here is not a
    * bug in the UI: the host detail is then shown verbatim, which is the right
@@ -368,6 +422,8 @@ export const COPY = {
     get 'order-unreachable'(): string { return translateCopy('errors.order-unreachable') },
     get 'order-rejected'(): string { return translateCopy('errors.order-rejected') },
     get 'not-found'(): string { return translateCopy('errors.not-found') },
+    get 'method-not-allowed'(): string { return translateCopy('errors.method-not-allowed') },
+    get 'unknown-job'(): string { return translateCopy('errors.unknown-job') },
     get internal(): string { return translateCopy('errors.internal') },
   },
 }

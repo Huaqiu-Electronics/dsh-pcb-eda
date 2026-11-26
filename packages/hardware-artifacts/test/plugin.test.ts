@@ -51,15 +51,15 @@ describe('profile wiring', () => {
   it('registers the hardware tools through the agent tool registry', () => {
     const host = mount()
     expect(host.registered).toEqual(hardwareToolNames())
-    expect(host.provided).toEqual(['hardwareArtifacts'])
+    expect(host.provided).toEqual(['hardwareArtifacts', 'hardwareToolchains'])
     expect(host.effects).toContain('hardware-artifacts: hardware_fabricate')
   })
 
   it('mounts without a tool registry, losing only the agent surface', () => {
     const host = mount({ tools: false })
     expect(host.registered).toEqual([])
-    // The service the client half consumes is still provided.
-    expect(host.provided).toEqual(['hardwareArtifacts'])
+    // The services the client half consumes are still provided.
+    expect(host.provided).toEqual(['hardwareArtifacts', 'hardwareToolchains'])
   })
 
   it('registers the local routes and the tools together', () => {

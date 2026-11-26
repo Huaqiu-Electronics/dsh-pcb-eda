@@ -2,8 +2,12 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { readFileSync } from 'node:fs'
 import type { ArtifactKind, HardwareArtifactService, NativeApplication } from './service.js'
+import type { ToolchainId, ToolchainManager } from './toolchain/index.js'
 
 export const HARDWARE_ROUTE_PREFIX = '/api/v1/hardware'
+
+/** Prefix owned by the toolchain capability, beside the artifact routes. */
+export const TOOLCHAIN_ROUTE_PREFIX = `${HARDWARE_ROUTE_PREFIX}/toolchain`
 
 /**
  * Resolve the workspace root of one DSH session, host-side.
@@ -16,6 +20,8 @@ export type WorkspaceResolver = (sessionId: string) => Promise<string | undefine
 
 export interface HardwareHandlerOptions {
   readonly resolveWorkspace?: WorkspaceResolver
+  /** Toolchain status/validation/discovery/install surface, when mounted. */
+  readonly toolchain?: ToolchainManager
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -61,6 +67,120 @@ function sessionOf(url: URL, body?: unknown): string | undefined {
   return fromBody ?? asString(url.searchParams.get('session') ?? undefined)
 }
 
+/** Narrow one request field to a toolchain id. */
+function toolOf(value: unknown): ToolchainId | undefined {
+  return value === 'kicad' || value === 'solidcraft' ? value : undefined
+}
+
+/** The source vocabulary the save route accepts (`detected` is written by discovery). */
+function sourceOf(value: unknown): 'manual' | 'browse' | 'download' | 'detected' | undefined {
+  return value === 'manual' || value === 'browse' || value === 'download' || value === 'detected' ? value : undefined
+}
+
+/**
+ * The toolchain surface: status, validate, save, browse, install, cancel,
+ * discover, capabilities.
+ *
+ * Every handler answers a JSON envelope the client can render without guessing,
+ * and every failure keeps a stable `code` so the UI can localise it (the same
+ * vocabulary the installer uses, §7.2/§17). Nothing here starts work the caller
+ * did not ask for: discovery and install are explicit POSTs.
+ * @returns true when the request was answered.
+ */
+async function handleToolchain(
+  req: IncomingMessage,
+  res: ServerResponse,
+  url: URL,
+  manager: ToolchainManager,
+): Promise<boolean> {
+  const path = url.pathname
+  if (!path.startsWith(TOOLCHAIN_ROUTE_PREFIX)) return false
+  const route = path.slice(TOOLCHAIN_ROUTE_PREFIX.length)
+  const badRequest = (message: string): true => {
+    sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message } })
+    return true
+  }
+
+  if (req.method === 'GET' && route === '/status') {
+    const jobId = asString(url.searchParams.get('job') ?? undefined)
+    sendJson(res, 200, { ok: true, ...await manager.status(jobId) })
+    return true
+  }
+  if (req.method === 'GET' && route === '/capabilities') {
+    sendJson(res, 200, { ok: true, ...await manager.capabilities() })
+    return true
+  }
+  if (req.method === 'GET' && route === '/job') {
+    const id = asString(url.searchParams.get('id') ?? undefined)
+    const job = id === undefined ? undefined : manager.job(id)
+    if (job === undefined) {
+      sendJson(res, 404, { ok: false, error: { code: 'unknown-job', message: 'no such installation job' } })
+      return true
+    }
+    sendJson(res, 200, { ok: true, job })
+    return true
+  }
+
+  if (req.method !== 'POST') {
+    sendJson(res, 405, { ok: false, error: { code: 'method-not-allowed', message: 'method not allowed' } })
+    return true
+  }
+
+  const body = await readJson(req) as Record<string, unknown>
+  if (route === '/validate' || route === '/save') {
+    const tool = toolOf(body.tool)
+    const input = asString(body.path)
+    if (tool === undefined) return badRequest('tool must be kicad or solidcraft')
+    if (input === undefined) return badRequest('path is required')
+    const source = sourceOf(body.source) ?? 'manual'
+    const outcome = route === '/save'
+      ? await manager.save(tool, input, source)
+      : await manager.validate(tool, input)
+    sendJson(res, 200, { tool, ...outcome })
+    return true
+  }
+  if (route === '/browse') {
+    const tool = toolOf(body.tool)
+    if (tool === undefined) return badRequest('tool must be kicad or solidcraft')
+    const abort = new AbortController()
+    const timer = setTimeout(() => { abort.abort() }, 15 * 60_000)
+    timer.unref?.()
+    try {
+      const outcome = await manager.browse(tool, abort.signal)
+      sendJson(res, 200, { ok: true, tool, ...outcome })
+    } finally {
+      clearTimeout(timer)
+    }
+    return true
+  }
+  if (route === '/install') {
+    const tool = toolOf(body.tool)
+    if (tool === undefined) return badRequest('tool must be kicad or solidcraft')
+    const started = await manager.install(tool)
+    if (started.error !== undefined) {
+      // A manifest this host cannot install from is a state, not a crash: the
+      // UI falls back to manual configuration (§14.2).
+      sendJson(res, 200, { ok: false, tool, error: started.error })
+      return true
+    }
+    sendJson(res, 200, { ok: true, tool, job: started.snapshot })
+    return true
+  }
+  if (route === '/cancel') {
+    const id = asString(body.id)
+    if (id === undefined) return badRequest('id is required')
+    sendJson(res, 200, { ok: true, cancelled: manager.cancel(id) })
+    return true
+  }
+  if (route === '/discover') {
+    const tool = body.tool === undefined ? undefined : toolOf(body.tool)
+    if (body.tool !== undefined && tool === undefined) return badRequest('tool must be kicad or solidcraft')
+    sendJson(res, 200, { ok: true, ...manager.startDiscovery(tool) })
+    return true
+  }
+  badRequest(`unknown toolchain route ${route}`)
+  return true
+}
 
 export function createHardwareHandler(
   service: HardwareArtifactService,
@@ -75,6 +195,7 @@ export function createHardwareHandler(
       try {
         const url = new URL(req.url ?? '/', 'http://dsh.internal')
         const p = url.pathname
+        if (options.toolchain !== undefined && await handleToolchain(req, res, url, options.toolchain)) return
         if (req.method === 'GET' && p === `${HARDWARE_ROUTE_PREFIX}/projects`) {
           const sessionId = asString(url.searchParams.get('session') ?? undefined)
           let workspace = asString(url.searchParams.get('cwd') ?? undefined)

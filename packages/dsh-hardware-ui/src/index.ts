@@ -49,6 +49,10 @@ export const HARDWARE_UI_SLOTS = Object.freeze([
   'sidebar.right.pane.tab',
   'sidebar.right.tab.document',
   'settings.section',
+  // First-run toolchain step, its transient notices, and the quiet sidebar dot.
+  'settings.onboarding',
+  'shell.overlay',
+  'sidebar.footer.action',
 ] as const)
 
 /** Structural view of the Host route seat; declared locally to keep this half dependency-free. */

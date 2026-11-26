@@ -18,6 +18,9 @@
  * scope").
  */
 import { HardwareSettingsSection, HardwareViewerBody } from './components.js'
+import { ToolchainIndicator, ToolchainToastHost } from './toolchain-view.js'
+import { TOOLCHAIN_ONBOARDING_STEP, ToolchainOnboarding } from './wizard.js'
+import { ToolchainController } from './toolchain.js'
 import type {
   ConfigFormLike, HardwareController, HardwareDestination, HardwareInstallationConfig,
   ViewerNavigationParams,
@@ -211,6 +214,14 @@ export function apply(ctx: ClientContext): void {
     },
   }
 
+  // One toolchain controller for every seat (§10.5). Created here, not inside a
+  // component, so the wizard step, the Settings section, the notices and the
+  // sidebar dot share one poll and one idea of what is configured — and a
+  // download keeps running while the user navigates or closes the panel.
+  const toolchain = new ToolchainController()
+  const face = { ...controller, toolchain }
+  effect(() => { toolchain.start(); return () => { toolchain.stop() } }, 'hardware-ui: toolchain capability')
+
   effect(() => ctx.sidebarRightTabs?.register({
     id: ORDER_TAB_ID,
     kind: ORDER_TAB_KIND,
@@ -236,7 +247,7 @@ export function apply(ctx: ClientContext): void {
     key: HARDWARE_TAB_ID,
     locale: HARDWARE_UI_NS,
     store: viewerStore,
-    inject: () => controller,
+    inject: () => face,
   }, HardwareViewerBody)), 'hardware-ui: viewer body')
 
   effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register(
@@ -251,8 +262,42 @@ export function apply(ctx: ClientContext): void {
     label: () => COPY.product.name,
     locale: HARDWARE_UI_NS,
     store: rootStore,
-    inject: () => controller,
+    inject: () => face,
   }, HardwareSettingsSection)), 'hardware-ui: CAD installation settings')
+
+  // First run is a `settings.onboarding` step, not a panel drawer: the shell
+  // mounts it on a blank first session, and the step owns its own modal chrome.
+  // Registering here also makes `openOnboarding('hardware-engineering-toolchain')`
+  // work from the launcher when a user wants the wizard back.
+  effect(() => slots.inject('settings.onboarding', () => slots.register({
+    name: 'settings.onboarding',
+    id: TOOLCHAIN_ONBOARDING_STEP,
+    order: 12,
+    label: () => COPY.toolchain.onboardingTitle,
+    locale: HARDWARE_UI_NS,
+    inject: () => ({ toolchain, configForm: () => ctx.configForms?.get<HardwareInstallationConfig>(HARDWARE_CONFIG_ENTRY) }),
+  }, ToolchainOnboarding)), 'hardware-ui: toolchain onboarding step')
+
+  // Notices ride the shell overlay (§11): a download that finished while the
+  // user was reading a schematic must still reach them, and no failure here
+  // opens a modal.
+  effect(() => slots.inject('shell.overlay', () => slots.register({
+    name: 'shell.overlay',
+    id: 'hardware-ui-toolchain-toasts',
+    locale: HARDWARE_UI_NS,
+    inject: () => ({ controller: toolchain }),
+  }, ToolchainToastHost)), 'hardware-ui: toolchain notices')
+
+  // The quiet sidebar dot (§10.4): visible only while a tool is still missing,
+  // and never a second badge on the settings toggle (that seat is single and
+  // owned by the desktop-update indicator).
+  effect(() => slots.inject('sidebar.footer.action', () => slots.register({
+    name: 'sidebar.footer.action',
+    id: 'hardware-ui-toolchain-indicator',
+    order: 10,
+    locale: HARDWARE_UI_NS,
+    inject: () => ({ controller: toolchain }),
+  }, ToolchainIndicator)), 'hardware-ui: toolchain indicator')
 
   // An order page belongs in the panel beside its board, not in the OS browser.
   // `browser` is DSH's own tab kind; when this Host has no sidebar or no such

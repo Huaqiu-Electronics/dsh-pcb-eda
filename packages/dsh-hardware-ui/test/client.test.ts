@@ -35,7 +35,8 @@ import { missingState, selectedArtifact } from '../src/client/components.js'
 import { DESTINATIONS, DESTINATION_LABELS, applicationFor } from '../src/client/model.js'
 import { createHardwareStore } from '../src/client/store.js'
 import { COPY } from '../src/client/copy.js'
-import { wizardPhase } from '../src/client/wizard.js'
+import { onboardingPhase } from '../src/client/wizard.js'
+import type { ToolchainStatus } from '../src/client/toolchain.js'
 
 interface Registration {
   readonly name: string
@@ -80,6 +81,11 @@ describe('client slot registrations', () => {
       'sidebar.right.pane.tab',
       'sidebar.right.pane.tab',
       'settings.section',
+      // First run, its notices, and the quiet sidebar dot — all three read the
+      // one shared toolchain controller.
+      'settings.onboarding',
+      'shell.overlay',
+      'sidebar.footer.action',
       // Renders nothing: it only watches tool results for an order URL so the
       // page can open in a tab. It is not a conversation action.
       'conversation.session.header.actions',
@@ -276,46 +282,53 @@ describe('product store', () => {
 })
 
 /**
- * Regression: the wizard is a full-screen modal, and it used to mount on the
- * pre-hydration facts (`status: 'loading'`, no probe yet) and unmount the moment
- * the real answer arrived. That show-then-hide is the flash on first launch and
- * on every browser refresh.
+ * Regression: the onboarding step is a full-screen modal, and the panel-mounted
+ * wizard it replaced used to mount on pre-hydration facts (`status: 'loading'`,
+ * no probe yet) and unmount the moment the real answer arrived. That
+ * show-then-hide is the flash on first launch and on every browser refresh.
+ *
+ * The step also moved from the right panel to `settings.onboarding`, so its
+ * gate now reads the Host toolchain status instead of the config form.
  */
-describe('first-run wizard gating', () => {
-  const firstRun = {
-    hasForm: true, status: 'ready', onboardingComplete: false, kicadConfigured: false, dismissed: false,
-  }
+describe('first-run onboarding gating', () => {
+  const status = (
+    kicad: 'configured' | 'unconfigured',
+    solidcraft: 'configured' | 'unconfigured',
+  ): ToolchainStatus => ({
+    kicad: { tool: 'kicad', state: kicad, discovery: { tool: 'kicad', state: 'done', candidates: [] } },
+    solidcraft: { tool: 'solidcraft', state: solidcraft, discovery: { tool: 'solidcraft', state: 'done', candidates: [] } },
+    manifest: { state: 'ready', schemaVersion: 1, url: 'https://example.test/agent-toolchains.json' },
+    target: { platform: 'win32', arch: 'x64', downloadsSupported: true },
+    official: { kicad: 'https://www.kicad.org/download/', solidcraft: 'https://example.test/' },
+  })
+  const firstRun = { hasController: true, status: status('unconfigured', 'unconfigured'), loading: false }
 
   it('opens on a genuine first run', () => {
-    expect(wizardPhase(firstRun)).toBe('open')
+    expect(onboardingPhase(firstRun)).toBe('open')
   })
 
-  it('mounts nothing while the host config is still syncing', () => {
-    expect(wizardPhase({ ...firstRun, status: 'loading' })).toBe('waiting')
-    // The value is absent while loading, so "not completed yet" must not be read
-    // out of it.
-    expect(wizardPhase({ ...firstRun, status: 'loading', onboardingComplete: true })).toBe('waiting')
+  it('mounts nothing while the host status is still in flight', () => {
+    expect(onboardingPhase({ ...firstRun, status: undefined })).toBe('waiting')
+    expect(onboardingPhase({ ...firstRun, loading: true })).toBe('waiting')
   })
 
-  it('mounts nothing while the install probe is in flight', () => {
-    expect(wizardPhase({ ...firstRun, kicadConfigured: undefined })).toBe('waiting')
+  it('stays shut once the user completed or skipped it', () => {
+    expect(onboardingPhase({ ...firstRun, status: undefined, setup: 'complete' })).toBe('dismissed')
+    expect(onboardingPhase({ ...firstRun, status: undefined, setup: 'deferred' })).toBe('dismissed')
+    // Legacy configurations only carry the old boolean and must not re-interrupt.
+    expect(onboardingPhase({ ...firstRun, status: undefined, onboardingComplete: true })).toBe('dismissed')
   })
 
-  it('stays shut once the host recorded completion, with no probe needed', () => {
-    expect(wizardPhase({ ...firstRun, onboardingComplete: true, kicadConfigured: undefined })).toBe('completed')
+  it('never flashes on a machine whose toolchain already validates', () => {
+    expect(onboardingPhase({ ...firstRun, status: status('configured', 'configured') })).toBe('configured')
   })
 
-  it('never flashes on a machine whose KiCad already validates', () => {
-    expect(wizardPhase({ ...firstRun, kicadConfigured: true })).toBe('configured')
+  it('still asks when only one of the two tools is configured', () => {
+    expect(onboardingPhase({ ...firstRun, status: status('configured', 'unconfigured') })).toBe('open')
   })
 
-  it('honours a dismissal even when the config write has not landed', () => {
-    expect(wizardPhase({ ...firstRun, dismissed: true })).toBe('dismissed')
-    expect(wizardPhase({ ...firstRun, dismissed: true, status: 'loading' })).toBe('dismissed')
-  })
-
-  it('renders nowhere without a host config form', () => {
-    expect(wizardPhase({ ...firstRun, hasForm: false })).toBe('no-form')
+  it('renders nowhere without the shared controller', () => {
+    expect(onboardingPhase({ ...firstRun, hasController: false })).toBe('no-controller')
   })
 })
 

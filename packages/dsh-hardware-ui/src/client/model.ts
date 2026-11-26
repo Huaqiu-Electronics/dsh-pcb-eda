@@ -124,8 +124,16 @@ export interface ConfigFormLike<T> {
 export interface HardwareInstallationConfig {
   readonly kicadRoot?: string
   readonly solidcraftRoot?: string
-  /** Set once the first-run setup wizard has been completed or skipped. */
+  /**
+   * Legacy first-run flag: set once the user finished *or* skipped setup.
+   *
+   * Kept because older configurations only carry this; a `toolchainSetup` value
+   * now says which of the two happened, and that difference is what decides
+   * whether the sidebar keeps asking for a toolchain (§4.6).
+   */
   readonly onboardingComplete?: boolean
+  /** `deferred` = skipped but still missing, `complete` = configured (§4.6). */
+  readonly toolchainSetup?: 'deferred' | 'complete'
 }
 
 /** Parameters carried by one `sidebar.right.openTab` navigation. */

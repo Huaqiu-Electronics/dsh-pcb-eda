@@ -20,6 +20,7 @@ import {
   type BoardFacts,
 } from './order.js'
 import { validateFabricationPackage, validationSummary, type PackageValidation } from './package.js'
+import { resolveToolchain } from './toolchain/resolve.js'
 
 export type ArtifactKind = 'schematic' | 'pcb' | 'pcb-3d' | 'bom' | 'mechanical-3d'
 /** Native handoff is KiCad-only in this POC; SolidCraft stays agent context. */
@@ -251,7 +252,7 @@ export interface HardwareArtifactsOptions {
     readonly orderBaseUrl?: string
     readonly accessToken?: string
   }
-  readonly probeVersion?: (executable: string) => string | undefined
+  readonly probeVersion?: (executable: string, tool?: 'kicad' | 'solidcraft') => string | undefined
   readonly spawnProcess?: (
     command: string,
     args: readonly string[],
@@ -474,10 +475,22 @@ function artifact(kind: ArtifactKind, path: string, projectPath?: string, source
   }
 }
 
-function defaultVersionProbe(executable: string): string | undefined {
+/** Is this path an existing regular file? Small helper shared by resolution. */
+function isFile(path: string): boolean {
+  try {
+    return existsSync(path) && statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
+
+function defaultVersionProbe(executable: string, tool: 'kicad' | 'solidcraft' = 'kicad'): string | undefined {
   if (!existsSync(executable)) return undefined
   try {
-    return execFileSync(executable, ['version'], {
+    // The two tools do not share a version interface: KiCad answers its `version`
+    // subcommand, SolidCraft only its `--version` flag.
+    const args = tool === 'kicad' ? ['version'] : ['--version']
+    return execFileSync(executable, args, {
       encoding: 'utf8',
       timeout: 5_000,
       stdio: ['ignore', 'pipe', 'ignore'],
@@ -522,64 +535,6 @@ function defaultRunCommand(
   })
 }
 
-function existing(paths: readonly string[]): string | undefined {
-  return paths.find((candidate) => {
-    try {
-      return existsSync(candidate) && statSync(candidate).isFile()
-    } catch {
-      return false
-    }
-  })
-}
-
-function kicadCandidates(root: string): { cli: string[]; kicad: string[]; eeschema: string[]; pcbnew: string[] } {
-  const app = basename(root).toLowerCase().endsWith('.app')
-  if (app || process.platform === 'darwin') {
-    const base = app ? root : join(root, 'KiCad.app')
-    return {
-      cli: [join(base, 'Contents/MacOS/kicad-cli')],
-      kicad: [join(base, 'Contents/MacOS/kicad')],
-      eeschema: [join(base, 'Contents/Applications/eeschema.app/Contents/MacOS/eeschema')],
-      pcbnew: [join(base, 'Contents/Applications/pcbnew.app/Contents/MacOS/pcbnew')],
-    }
-  }
-  const exe = process.platform === 'win32' ? '.exe' : ''
-  const bin = app ? root : basename(root).toLowerCase() === 'bin' ? root : join(root, 'bin')
-  return {
-    cli: [join(bin, `kicad-cli${exe}`), join(root, `kicad-cli${exe}`)],
-    kicad: [join(bin, `kicad${exe}`)],
-    eeschema: [join(bin, `eeschema${exe}`)],
-    pcbnew: [join(bin, `pcbnew${exe}`)],
-  }
-}
-
-/** Install root that owns one resolved `kicad-cli`, per layout convention. */
-function installRootFromCli(cli: string): string {
-  const segments = cli.split(sep)
-  const macIndex = segments.indexOf('Contents')
-  if (macIndex > 0) return segments.slice(0, macIndex).join(sep) || sep
-  if (segments[segments.length - 2]?.toLowerCase() === 'bin') return segments.slice(0, -2).join(sep) || sep
-  return dirname(cli)
-}
-
-function solidcraftCandidates(root: string): string[] {
-  const exe = process.platform === 'win32' ? '.exe' : ''
-  const app = basename(root).toLowerCase().endsWith('.app')
-  if (app || process.platform === 'darwin') {
-    const base = app ? root : join(root, 'SolidCraft.app')
-    return [
-      join(base, `Contents/MacOS/SolidCraft`),
-      join(base, `Contents/MacOS/solidcraft`),
-    ]
-  }
-  return [
-    root,
-    join(root, `SolidCraft${exe}`),
-    join(root, `solidcraft${exe}`),
-    join(root, 'bin', `SolidCraft${exe}`),
-    join(root, 'bin', `solidcraft${exe}`),
-  ]
-}
 
 /** Small, immutable host capability implementation. */
 export class HardwareArtifactService {
@@ -635,43 +590,55 @@ export class HardwareArtifactService {
     }
   }
 
-  /** Resolve configured installations from validated absolute paths only. */
+  /**
+   * Resolve configured installations from validated absolute paths only.
+   *
+   * Resolution is delegated to the toolchain capability's one resolver
+   * (`./toolchain/resolve.ts`) so the settings panel, background discovery and
+   * the export path cannot disagree about what "configured" means.
+   */
   installations(): Installations {
     const roots = this.roots()
-    const kicadRoot = roots.kicadRoot ? canonical(roots.kicadRoot) : undefined
-    let kicadCli: string | undefined
-    if (kicadRoot !== undefined) {
-      const cliPaths = basename(kicadRoot).toLowerCase().startsWith('kicad-cli')
-        ? [kicadRoot]
-        : kicadCandidates(kicadRoot).cli
-      kicadCli = existing(cliPaths)
-    }
-    const candidates = kicadRoot === undefined
-      ? { cli: [], kicad: [], eeschema: [], pcbnew: [] }
-      : kicadCandidates(kicadCli === undefined ? kicadRoot : installRootFromCli(kicadCli))
-    const pcbEditor = existing(candidates.pcbnew)
-    const schematicEditor = existing(candidates.eeschema)
-    const projectManager = existing(candidates.kicad)
-    const version = kicadCli === undefined ? undefined : this.options.probeVersion(kicadCli)
-    const kicad: InstallationInfo = kicadCli === undefined
-      ? { configured: false, error: 'KiCad installation is not configured' }
-      : version === undefined
-        ? { configured: false, root: kicadRoot, cli: kicadCli, error: `${kicadCli} did not answer a version probe` }
-        : {
-            configured: true,
-            root: kicadRoot,
-            cli: kicadCli,
-            version,
-            ...(projectManager === undefined ? {} : { projectManager }),
-            ...(pcbEditor === undefined ? {} : { pcbEditor }),
-            ...(schematicEditor === undefined ? {} : { schematicEditor }),
-          }
+    const kicadResolution = resolveToolchain('kicad', roots.kicadRoot, {
+      exists: path => isFile(path),
+      probeVersion: executable => this.options.probeVersion(executable, 'kicad'),
+    })
+    const kicad: InstallationInfo = kicadResolution.configured
+      ? {
+          configured: true,
+          ...(roots.kicadRoot === undefined ? {} : { root: canonical(roots.kicadRoot) }),
+          ...(kicadResolution.cli === undefined ? {} : { cli: kicadResolution.cli }),
+          ...(kicadResolution.version === undefined ? {} : { version: kicadResolution.version }),
+          ...(kicadResolution.projectManager === undefined ? {} : { projectManager: kicadResolution.projectManager }),
+          ...(kicadResolution.pcbEditor === undefined ? {} : { pcbEditor: kicadResolution.pcbEditor }),
+          ...(kicadResolution.schematicEditor === undefined ? {} : { schematicEditor: kicadResolution.schematicEditor }),
+        }
+      : {
+          configured: false,
+          ...(roots.kicadRoot === undefined ? {} : { root: canonical(roots.kicadRoot) }),
+          ...(kicadResolution.cli === undefined ? {} : { cli: kicadResolution.cli }),
+          ...(kicadResolution.error === undefined ? {} : { error: kicadResolution.error }),
+        }
 
-    const solidRoot = roots.solidcraftRoot ? canonical(roots.solidcraftRoot) : undefined
-    const solidExecutable = solidRoot === undefined ? undefined : existing(solidcraftCandidates(solidRoot))
-    const solidcraft: InstallationInfo = solidExecutable === undefined
-      ? { configured: false, error: 'SolidCraft installation is not configured' }
-      : { configured: true, root: solidRoot, executable: solidExecutable }
+    const solidResolution = resolveToolchain('solidcraft', roots.solidcraftRoot, {
+      exists: path => isFile(path),
+      probeVersion: executable => this.options.probeVersion(executable, 'solidcraft'),
+    })
+    // The GUI executable keeps its historical field name (`executable`) so the
+    // launch path and the agent prompt are unchanged; the CLI is additive.
+    const solidcraft: InstallationInfo = solidResolution.configured
+      ? {
+          configured: true,
+          ...(roots.solidcraftRoot === undefined ? {} : { root: canonical(roots.solidcraftRoot) }),
+          ...(solidResolution.app === undefined ? {} : { executable: solidResolution.app }),
+          ...(solidResolution.cli === undefined ? {} : { cli: solidResolution.cli }),
+          ...(solidResolution.version === undefined ? {} : { version: solidResolution.version }),
+        }
+      : {
+          configured: false,
+          ...(roots.solidcraftRoot === undefined ? {} : { root: canonical(roots.solidcraftRoot) }),
+          ...(solidResolution.error === undefined ? {} : { error: solidResolution.error }),
+        }
     return { kicad, solidcraft }
   }
 
@@ -703,8 +670,20 @@ export class HardwareArtifactService {
     if (installed.kicad.error !== undefined) lines.push(`  error: ${installed.kicad.error}`)
     lines.push('SolidCraft:')
     lines.push(`  configured: ${String(installed.solidcraft.configured)}`)
-    if (installed.solidcraft.executable !== undefined) lines.push(`  executable: ${installed.solidcraft.executable}`)
+    for (const key of ['version', 'executable', 'cli'] as const) {
+      const value = installed.solidcraft[key]
+      if (value !== undefined) lines.push(`  ${key}: ${value}`)
+    }
     if (installed.solidcraft.error !== undefined) lines.push(`  error: ${installed.solidcraft.error}`)
+    // §12.2: an agent must be able to tell the user *what to do* about a missing
+    // toolchain without guessing at product navigation.
+    const missing = [!installed.kicad.configured ? 'KiCad' : undefined, !installed.solidcraft.configured ? 'SolidCraft' : undefined]
+      .filter((entry): entry is string => entry !== undefined)
+    if (missing.length > 0) {
+      lines.push('setup:')
+      lines.push(`  missing: ${missing.join(', ')}`)
+      lines.push('  remediation: Settings → Hardware Engineering (browse an existing installation, download the HuaQiu build, or skip)')
+    }
     if (scope?.selected !== undefined) {
       lines.push('Current project:')
       lines.push(`  root: ${scope.cwd}`)

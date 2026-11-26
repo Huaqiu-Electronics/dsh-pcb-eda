@@ -3,6 +3,9 @@ import { describeHostError } from './copy.js'
 import type {
   DiscoveryInfo, HardwareProjectInfo, InstallationsInfo, NativeApplication,
 } from './model.js'
+import type {
+  BrowseOutcome, InstallJob, ToolchainId, ToolchainStatus, ToolSource, ValidationOutcome,
+} from './toolchain.js'
 
 const PREFIX = '/api/v1/hardware'
 
@@ -294,3 +297,78 @@ export async function openOrderUrl(url: string): Promise<{ readonly launched: bo
     body: JSON.stringify({ url }),
   })
 }
+
+/**
+ * Toolchain capability calls (`/api/v1/hardware/toolchain`).
+ *
+ * Every read is a poll: the Host owns the truth, including whether a job is
+ * still running, so nothing here caches. `install` is the one call that answers
+ * a *state* rather than a failure when a download is impossible (no manifest
+ * entry for this platform) — that state is the UI's cue to offer the official
+ * page instead (§9.2/§14.2), which is why it resolves to `undefined`.
+ */
+export async function loadToolchainStatus(jobId?: string): Promise<ToolchainStatus> {
+  const suffix = jobId === undefined || jobId === '' ? '' : `?job=${encodeURIComponent(jobId)}`
+  return request<ToolchainStatus>(`/toolchain/status${suffix}`)
+}
+
+/** Validate one path without persisting it (the input's own verdict). */
+export async function validateToolchain(tool: ToolchainId, path: string): Promise<ValidationOutcome> {
+  return request<ValidationOutcome>('/toolchain/validate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool, path }),
+  })
+}
+
+/** Validate and persist one path; the Host settings service stays authoritative. */
+export async function saveToolchain(
+  tool: ToolchainId,
+  path: string,
+  source: ToolSource,
+): Promise<ValidationOutcome> {
+  return request<ValidationOutcome>('/toolchain/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool, path, source }),
+  })
+}
+
+/** Open the Host's native chooser for one tool; a cancellation is not an error. */
+export async function browseToolchain(tool: ToolchainId): Promise<BrowseOutcome> {
+  return request<BrowseOutcome>('/toolchain/browse', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool }),
+  })
+}
+
+/** Start the manifest download for one tool; `undefined` means "not offered here". */
+export async function installToolchain(tool: ToolchainId): Promise<InstallJob | undefined> {
+  const body = await request<{ readonly job?: InstallJob }>('/toolchain/install', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ tool }),
+  })
+  return body.job
+}
+
+/** Cancel one running job; the Host reports whether it was still cancellable. */
+export async function cancelToolchain(id: string): Promise<boolean> {
+  const body = await request<{ readonly cancelled?: boolean }>('/toolchain/cancel', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
+  return body.cancelled === true
+}
+
+/** Start background discovery (answers immediately, verdicts arrive by poll). */
+export async function startToolchainDiscovery(tool?: ToolchainId): Promise<void> {
+  await request('/toolchain/discover', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(tool === undefined ? {} : { tool }),
+  })
+}
+

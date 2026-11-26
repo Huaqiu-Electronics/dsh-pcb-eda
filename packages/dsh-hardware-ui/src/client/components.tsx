@@ -21,7 +21,8 @@ import {
   type ViewerNavigationParams,
 } from './model.js'
 import { HardwarePreview } from './preview.js'
-import { OnboardingWizard } from './wizard.js'
+import { ToolchainCard, useToolchain } from './toolchain-view.js'
+import type { ToolchainController } from './toolchain.js'
 import { COPY, issueText } from './copy.js'
 import { messageOf } from './transport.js'
 import {
@@ -58,7 +59,16 @@ export interface SlotProps {
 }
 
 /** Full component props: slot props plus the controller's verbatim members. */
-export type HardwareProps = SlotProps & HardwareController
+export type HardwareProps = SlotProps & HardwareController & {
+  /**
+   * The shared toolchain controller (§10.5).
+   *
+   * Delivered to every seat rather than created per surface: the wizard step,
+   * the Settings section, the notice overlay and the sidebar dot all read this
+   * one object, so none of them can hold a second, divergent idea of "configured".
+   */
+  readonly toolchain: ToolchainController
+}
 
 const EMPTY_TAB: TabInfo = { tab: { id: '', navigation: {} } }
 const useEmptyTab = (): TabInfo => EMPTY_TAB
@@ -434,144 +444,23 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
                 style: { ...MUTED, color: C.text2, fontSize: 10.5, lineHeight: 1.6, textAlign: 'center', maxWidth: 360 },
               }, missing.guidance)]))]),
     ),
-    // The first-run wizard rides the panel rather than the conversation header:
-    // this page is the product, and it is what the expand button opens.
-    createElement(OnboardingWizard, props),
   )
 }
 
-/** Settings section: the two CAD installation roots, host-validated. */
+/** Settings section: the two toolchain cards, read from the shared controller. */
 export function HardwareSettingsSection(props: HardwareProps): ReactNode {
-  const { useStore, actions, configForm, saveInstallation, installations } = props
-  const installed = useStore(state => state.installations)
-  const form = configForm()
-  const empty = useMemo<{ value?: HardwareInstallationConfig }>(() => ({}), [])
-  const snapshot = useSyncExternalStore<{ value?: HardwareInstallationConfig }>(
-    form === undefined ? () => () => {} : listener => form.subscribe(listener),
-    form === undefined ? () => empty : () => form.getSnapshot(),
-    form === undefined ? () => empty : () => form.getSnapshot(),
-  )
-  const [kicadRoot, setKicadRoot] = useState(snapshot.value?.kicadRoot ?? '')
-  const [solidcraftRoot, setSolidcraftRoot] = useState(snapshot.value?.solidcraftRoot ?? '')
-  const [message, setMessage] = useState('')
-  const [busy, setBusy] = useState<'kicad' | 'solidcraft' | undefined>()
-
-  useEffect(() => { setKicadRoot(snapshot.value?.kicadRoot ?? '') }, [snapshot.value?.kicadRoot])
-  useEffect(() => { setSolidcraftRoot(snapshot.value?.solidcraftRoot ?? '') }, [snapshot.value?.solidcraftRoot])
-
-  useEffect(() => {
-    let live = true
-    installations()
-      .then((result) => { if (live) actions.setInstallations(result) })
-      .catch(() => { /* the wizard and viewer surface the same failure */ })
-    return () => { live = false }
-  }, [actions, installations])
-
-  const save = async (application: 'kicad' | 'solidcraft', root: string): Promise<void> => {
-    setBusy(application)
-    try {
-      await saveInstallation(application, root)
-      const refreshed = await installations()
-      actions.setInstallations(refreshed)
-      const state = application === 'kicad' ? refreshed.kicad : refreshed.solidcraft
-      const applicationName = application === 'kicad' ? 'KiCad' : 'SolidCraft'
-      setMessage(state?.configured === true
-        ? COPY.settings.savedAndValidated(applicationName)
-        : COPY.settings.savedButInvalid(applicationName, state?.error ?? COPY.settings.notDetected))
-    } catch (error) {
-      setMessage(messageOf(error))
-    } finally {
-      setBusy(undefined)
-    }
-  }
-
-  const kicad = installed?.kicad
-  const solidcraft = installed?.solidcraft
-
-  const installationCard = (input: {
-    key: 'kicad' | 'solidcraft'
-    letter: string
-    color: string
-    title: string
-    blurb: string
-    value: string
-    placeholder: string
-    ok: boolean
-    status: string
-    detail?: string
-    onChange: (value: string) => void
-  }): ReactNode => createElement(
-    'div',
-    { key: input.key, style: cardStyle() },
-    createElement(
-      'div',
-      { style: { ...ROW, justifyContent: 'space-between', gap: 8 } },
-      createElement(
-        'div',
-        { style: { ...ROW, gap: 7 } },
-        createElement('span', {
-          style: {
-            width: 22, height: 22, borderRadius: R.sm, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', fontSize: 10, fontWeight: 700, fontFamily: MONO,
-            color: input.color, background: `color-mix(in srgb, ${input.color} 18%, transparent)`,
-            border: `1px solid color-mix(in srgb, ${input.color} 40%, transparent)`,
-          },
-        }, input.letter),
-        createElement('span', { style: { fontSize: 12, fontWeight: 600 } }, input.title),
-      ),
-      createElement('span', { style: pillStyle(input.ok ? 'ok' : 'warn') }, input.status),
-    ),
-    createElement('p', { style: MUTED }, input.blurb),
-    createElement('input', {
-      style: INPUT, value: input.value, placeholder: input.placeholder, spellCheck: false,
-      'aria-label': COPY.settings.pathField(input.title),
-      onChange: (event: ChangeEvent<HTMLInputElement>) => input.onChange(event.currentTarget.value),
-    }),
-    createElement(
-      'div',
-      { style: { ...ROW, justifyContent: 'space-between' } },
-      createElement('button', {
-        type: 'button', style: { ...buttonStyle('secondary'), ...disabled(busy !== undefined) },
-        disabled: busy !== undefined,
-        onClick: () => { void save(input.key, input.value) },
-      }, busy === input.key ? COPY.settings.validating : COPY.settings.validate),
-      input.detail === undefined
-        ? null
-        : createElement('span', { style: { ...MUTED, ...MONO_TEXT, fontSize: 10, maxWidth: 240, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, input.detail),
-    ),
-  )
-
+  const { toolchain } = props
+  const snapshot = useToolchain(toolchain)
+  useEffect(() => { toolchain.start() }, [toolchain])
   return createElement(
     'div',
     { style: { display: 'flex', flexDirection: 'column', gap: 10 }, 'data-hardware-settings': true },
     createElement('h2', { style: { margin: 0, fontSize: 15, fontWeight: 600 } }, COPY.settings.title),
     createElement('p', { style: MUTED }, COPY.settings.lead),
-    installationCard({
-      key: 'kicad',
-      letter: 'Ki',
-      color: C.info,
-      title: COPY.settings.kicadTitle,
-      blurb: COPY.settings.kicadBlurb,
-      value: kicadRoot,
-      placeholder: COPY.settings.kicadPlaceholder,
-      ok: kicad?.configured === true,
-      status: kicad?.configured ? `v${kicad.version ?? '?'}` : COPY.settings.notConfigured,
-      ...(kicad?.cli === undefined ? {} : { detail: kicad.cli }),
-      onChange: setKicadRoot,
-    }),
-    installationCard({
-      key: 'solidcraft',
-      letter: 'Sc',
-      color: C.warn,
-      title: COPY.settings.solidcraftTitle,
-      blurb: COPY.settings.solidcraftBlurb,
-      value: solidcraftRoot,
-      placeholder: COPY.settings.solidcraftPlaceholder,
-      ok: solidcraft?.configured === true,
-      status: solidcraft?.configured ? COPY.settings.configured : COPY.settings.notConfigured,
-      ...(solidcraft?.executable === undefined ? {} : { detail: solidcraft.executable }),
-      onChange: setSolidcraftRoot,
-    }),
-    ...(message === '' ? [] : [createElement('p', { role: 'status', style: { ...MUTED, color: C.text2 } }, message)]),
+    createElement(ToolchainCard, { tool: 'kicad', controller: toolchain, snapshot }),
+    createElement(ToolchainCard, { tool: 'solidcraft', controller: toolchain, snapshot }),
+    ...(snapshot.error === undefined ? [] : [
+      createElement('p', { key: 'error', role: 'status', style: { ...MUTED, color: C.accent } }, snapshot.error),
+    ]),
   )
 }
