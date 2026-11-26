@@ -307,8 +307,10 @@ export async function openOrderUrl(url: string): Promise<{ readonly launched: bo
  * entry for this platform) — that state is the UI's cue to offer the official
  * page instead (§9.2/§14.2), which is why it resolves to `undefined`.
  */
-export async function loadToolchainStatus(jobId?: string): Promise<ToolchainStatus> {
-  const suffix = jobId === undefined || jobId === '' ? '' : `?job=${encodeURIComponent(jobId)}`
+/** `?job=a,b` — the panel watches both tools' runs at once, so ids travel together. */
+export async function loadToolchainStatus(jobIds?: readonly string[]): Promise<ToolchainStatus> {
+  const ids = (jobIds ?? []).filter(id => id !== '')
+  const suffix = ids.length === 0 ? '' : `?job=${encodeURIComponent(ids.join(','))}`
   return request<ToolchainStatus>(`/toolchain/status${suffix}`)
 }
 

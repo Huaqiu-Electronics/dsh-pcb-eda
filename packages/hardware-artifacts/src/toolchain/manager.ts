@@ -81,7 +81,9 @@ export interface ToolchainStatus {
   readonly target: { readonly platform: string; readonly arch: string; readonly downloadsSupported: boolean }
   /** Official pages offered when the download flow cannot be used (§9.3). */
   readonly official: Readonly<Record<ToolchainId, string>>
-  /** The tool's running or last finished job, when the UI asked about one. */
+  /** The running or last finished jobs the caller asked about — one per tool. */
+  readonly jobs?: readonly InstallJobSnapshot[]
+  /** First of `jobs`, kept for callers that still ask about a single run. */
   readonly job?: InstallJobSnapshot
 }
 
@@ -282,13 +284,17 @@ export class ToolchainManager {
 
   /**
    * Full status for the settings/wizard surfaces.
-   * @param jobId - optional job whose progress the caller wants included.
+   * @param jobIds - optional jobs whose progress the caller wants included. Both
+   *   tools can be downloading at once, so this is a list: asking for one id at a
+   *   time is exactly how the second download used to erase the first one's bar.
    * @returns both tools plus the manifest and target facts.
    */
-  async status(jobId?: string): Promise<ToolchainStatus> {
+  async status(jobIds?: readonly string[]): Promise<ToolchainStatus> {
     const [kicad, solidcraft] = await Promise.all([this.toolStatus('kicad'), this.toolStatus('solidcraft')])
     const manifest = await this.manifestState()
-    const job = jobId === undefined ? undefined : this.installer.snapshot(jobId)
+    const jobs = (jobIds ?? [])
+      .map(id => this.installer.snapshot(id))
+      .filter((job): job is InstallJobSnapshot => job !== undefined)
     const downloadsSupported = this.platform === 'win32' || this.platform === 'darwin' || this.platform === 'linux'
     return {
       kicad,
@@ -296,7 +302,8 @@ export class ToolchainManager {
       manifest,
       target: { platform: this.platform, arch: this.arch, downloadsSupported },
       official: OFFICIAL_DOWNLOAD_PAGES,
-      ...(job === undefined ? {} : { job }),
+      ...(jobs.length === 0 ? {} : { jobs }),
+      ...(jobs.length === 0 ? {} : { job: jobs[0] }),
     }
   }
 

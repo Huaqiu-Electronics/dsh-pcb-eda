@@ -97,6 +97,9 @@ export interface ToolchainStatus {
     | { readonly state: 'unavailable'; readonly code: string; readonly message: string }
   readonly target: { readonly platform: string; readonly arch: string; readonly downloadsSupported: boolean }
   readonly official: Readonly<Record<ToolchainId, string>>
+  /** Jobs the poll asked about, one per tool (both tools may install at once). */
+  readonly jobs?: readonly InstallJob[]
+  /** First of `jobs`; kept for callers that only ever watch one run. */
   readonly job?: InstallJob
 }
 
@@ -151,6 +154,11 @@ export interface ToolchainSnapshot {
   readonly error?: string
   /** Tool whose save round trip is in flight, for per-card button state. */
   readonly saving?: ToolchainId
+  /**
+   * Install jobs by tool. Keyed by tool, not "the current job": both tools can
+   * download at the same time, and each card owns its own bar.
+   */
+  readonly jobs: Readonly<Partial<Record<ToolchainId, InstallJob>>>
   /** Path currently held in each card's input, kept here so both surfaces agree. */
   readonly drafts: Readonly<Record<ToolchainId, string>>
   readonly toasts: readonly ToastItem[]
@@ -160,7 +168,7 @@ export interface ToolchainSnapshot {
 
 /** The Host calls the controller needs; injectable so tests need no HTTP. */
 export interface ToolchainTransport {
-  status(jobId?: string): Promise<ToolchainStatus>
+  status(jobIds?: readonly string[]): Promise<ToolchainStatus>
   validate(tool: ToolchainId, path: string): Promise<ValidationOutcome>
   save(tool: ToolchainId, path: string, source: ToolSource): Promise<ValidationOutcome>
   browse(tool: ToolchainId): Promise<BrowseOutcome>
@@ -171,7 +179,7 @@ export interface ToolchainTransport {
 
 /** Real transport: the plugin's own route prefix, via `transport.ts`. */
 export const HOST_TRANSPORT: ToolchainTransport = {
-  status: jobId => loadToolchainStatus(jobId),
+  status: jobIds => loadToolchainStatus(jobIds),
   validate: (tool, path) => validateToolchain(tool, path),
   save: (tool, path, source) => saveToolchain(tool, path, source),
   browse: tool => browseToolchain(tool),
@@ -191,6 +199,24 @@ const EMPTY_DRAFTS: Readonly<Record<ToolchainId, string>> = { kicad: '', solidcr
 export function jobRunning(job: InstallJob | undefined): boolean {
   if (job === undefined) return false
   return job.phase !== 'done' && job.phase !== 'failed' && job.phase !== 'cancelled'
+}
+
+/**
+ * Merge the jobs a poll returned into the per-tool map.
+ *
+ * The Host answers only about the ids we asked for, so anything it omits is kept
+ * from the previous snapshot — a poll that races the end of a run must not blank
+ * the other card's bar. Incoming jobs win for their own tool.
+ */
+function collectJobs(
+  status: ToolchainStatus,
+  previous: Readonly<Partial<Record<ToolchainId, InstallJob>>>,
+): Readonly<Partial<Record<ToolchainId, InstallJob>>> {
+  const incoming = status.jobs ?? (status.job === undefined ? [] : [status.job])
+  if (incoming.length === 0) return previous
+  const next = { ...previous }
+  for (const job of incoming) next[job.tool] = job
+  return next
 }
 
 /** Whole-percent progress, derived when the Host has no reliable total. */
@@ -233,15 +259,17 @@ type Listener = () => void
  * nothing is running, which keeps an idle settings panel free of requests.
  */
 export class ToolchainController {
-  private snapshot: ToolchainSnapshot = { loading: true, drafts: EMPTY_DRAFTS, toasts: [] }
+  private snapshot: ToolchainSnapshot = { loading: true, jobs: {}, drafts: EMPTY_DRAFTS, toasts: [] }
   private readonly listeners = new Set<Listener>()
   private toastSeq = 0
   private timer?: ReturnType<typeof setTimeout>
   private readonly timers = new Map<number, ReturnType<typeof setTimeout>>()
   private stopped = false
   private started = false
-  private lastPhase?: string
-  private lastTool?: ToolchainId
+  /** §11 notices fire once per phase *per tool*, so two downloads cannot mute each other. */
+  private readonly phases = new Map<ToolchainId, InstallPhase>()
+  /** The job id each tool's card is watching; the poll asks for all of them at once. */
+  private readonly watched = new Map<ToolchainId, string>()
 
   constructor(
     private readonly transport: ToolchainTransport = HOST_TRANSPORT,
@@ -282,12 +310,12 @@ export class ToolchainController {
     this.listeners.clear()
   }
 
-  /** Read the Host status; the job id follows whatever is running. */
-  async refresh(jobId?: string): Promise<void> {
+  /** Read the Host status, asking about every job a card is watching. */
+  async refresh(jobIds?: readonly string[]): Promise<void> {
     if (this.stopped) return
-    const running = jobId ?? (jobRunning(this.snapshot.status?.job) ? this.snapshot.status?.job?.id : undefined)
+    const asked = jobIds ?? [...this.watched.values()]
     try {
-      const status = await this.transport.status(running)
+      const status = await this.transport.status(asked.length === 0 ? undefined : asked)
       if (this.stopped) return
       // Keep the drafts in step with authoritative paths, but never overwrite
       // text the user is typing: only a changed stored root moves the input.
@@ -296,8 +324,23 @@ export class ToolchainController {
       if (kicad !== undefined) drafts = { ...drafts, kicad }
       const solidcraft = this.syncDraft('solidcraft', status.solidcraft.installPath)
       if (solidcraft !== undefined) drafts = { ...drafts, solidcraft }
-      this.set({ status, loading: false, error: undefined, drafts })
-      if (status.job !== undefined) this.noteJob(status.job)
+      const jobs = collectJobs(status, this.snapshot.jobs)
+      this.set({ status, loading: false, error: undefined, drafts, jobs })
+      for (const job of Object.values(jobs)) {
+        if (job !== undefined) this.noteJob(job)
+      }
+      // Stop asking about runs that are over — but only when we actually know
+      // that. A poll that arrives before the Host reports a just-started job (or
+      // answers nothing about it) must not silently drop the bar it is drawing.
+      for (const [tool, id] of this.watched) {
+        const seen = jobs[tool]
+        if (seen !== undefined && seen.id === id && jobRunning(seen)) continue
+        if (seen !== undefined && seen.id !== id && jobRunning(seen)) {
+          this.watched.set(tool, seen.id)
+          continue
+        }
+        this.watched.delete(tool)
+      }
       this.scheduleIfBusy()
     } catch (error) {
       if (this.stopped) return
@@ -339,7 +382,8 @@ export class ToolchainController {
     if (this.stopped) return
     if (this.timer !== undefined) clearTimeout(this.timer)
     this.timer = undefined
-    const busy = jobRunning(this.snapshot.status?.job)
+    const busy = Object.values(this.snapshot.jobs).some(jobRunning)
+      || jobRunning(this.snapshot.status?.job)
       || this.snapshot.status?.kicad.discovery.state === 'running'
       || this.snapshot.status?.solidcraft.discovery.state === 'running'
     if (!busy) return
@@ -374,10 +418,9 @@ export class ToolchainController {
 
   /** Fire the transitions §11 allows; nothing else notifies. */
   private noteJob(job: InstallJob): void {
-    if (this.lastPhase === job.phase && this.lastTool === job.tool) return
-    const previous = this.lastPhase
-    this.lastPhase = job.phase
-    this.lastTool = job.tool
+    const previous = this.phases.get(job.tool)
+    if (previous === job.phase) return
+    this.phases.set(job.tool, job.phase)
     const name = job.tool === 'kicad' ? 'KiCad' : 'SolidCraft'
     if (job.phase === 'verify') this.toast('info', COPY.toolchain.toastDownloaded(name, job.version))
     else if (job.phase === 'extract' || job.phase === 'layout' || job.phase === 'promote') {
@@ -404,11 +447,20 @@ export class ToolchainController {
         this.toast('warn', COPY.toolchain.downloadUnavailable(name))
         return
       }
+      // Watch this tool's job; the other card keeps watching its own, so two
+      // simultaneous downloads both keep a live bar.
+      this.watched.set(tool, job.id)
+      this.phases.delete(tool)
+      // Record it locally even when no status is known yet: the bar has to exist
+      // between the `install` answer and the first poll that mentions the job.
       const current = this.snapshot.status
-      if (current !== undefined) this.set({ status: { ...current, job } })
+      this.set({
+        jobs: { ...this.snapshot.jobs, [tool]: job },
+        ...(current === undefined ? {} : { status: { ...current, job } }),
+      })
       this.toast('info', COPY.toolchain.toastStarted(name, job.version))
       this.scheduleIfBusy()
-      void this.refresh(job.id)
+      void this.refresh([...this.watched.values()])
     } catch (error) {
       this.toast('warn', COPY.toolchain.downloadUnavailableWith(name, messageOf(error)))
     }
@@ -420,6 +472,9 @@ export class ToolchainController {
       await this.transport.cancel(id)
     } catch (error) {
       this.toast('error', messageOf(error))
+    }
+    for (const [tool, jobId] of this.watched) {
+      if (jobId === id) this.watched.delete(tool)
     }
     await this.refresh()
   }

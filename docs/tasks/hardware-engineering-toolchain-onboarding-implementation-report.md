@@ -243,6 +243,37 @@ Verified live, on both surfaces:
 | Clean `DSH_HOME` → wizard → `Select Local File...` → row `C:\Program Files\KiCad\8.0` → `Open` | picker listed all 5 real candidates (3 invalid with reasons), input took the chosen path, picker closed (`.smoke/07`, `08`, `09`) |
 | Settings → Hardware Engineering → `Browse…` → row → `Open` | same, painted above the settings modal, input updated, verdict switched to `Not saved` (`.smoke/10`, `11`, `12`) |
 
+### 4.7 Two downloads at once — both progress bars must stay visible
+
+Reported from use: starting KiCad and SolidCraft downloads one after the other left only **one**
+progress bar in the UI, on both surfaces. Two independent defects, both found and fixed:
+
+1. **One-job mirror in the client.** `ToolchainStatus` carried a single `job` (with a single `jobId`
+   being polled). The second `/install` overwrote that field, so the first tool's bar disappeared even
+   though its download was still running on the Host. Worse, the client only wrote the job into state
+   when a status read already contained one, so the newly started job's own bar could be dropped.
+2. **Zero-height track.** `PROGRESS_TRACK` used `flex: 1` inside a column flex container, so the track
+   collapsed to 0 px — the percentage climbed with nothing visible behind it. The DOM agreed: the
+   `role="progressbar"` element measured 0 px tall. Fixed to `flex: '0 0 auto'` plus `minHeight: 6`
+   (the prototype's `w-1.5`), now a measured `530 × 6`.
+
+Shape of the fix — the Host remains the single owner of job state, the client now mirrors a **map**:
+
+| Layer | Change |
+|---|---|
+| Host `manager.status(jobIds?)` | returns `jobs: InstallJobSnapshot[]` (all requested jobs that exist) alongside `job` for older callers |
+| Host `GET /status` | parses a comma-separated `?job=a,b` (the previous single-string parse is gone) |
+| Client `transport` | `status(jobIds?)` → `?job=a,b` |
+| Client controller | `snapshot.jobs: Partial<Record<ToolchainId, InstallJob>>`; per-tool `watched: Map<tool, jobId>` and `phases: Map<tool, phase>` (a toast fires once per tool per phase); `collectJobs()` merges the answer and **keeps the previous entry for any tool the Host did not answer with**, so a poll cannot blank the other bar; `install()` now records the job unconditionally; a watcher is dropped only when the job is known finished or replaced |
+| Client view | each card reads `snapshot.jobs[id]` — no more "is this job mine" test, so both cards draw their own bar |
+
+Verified live, both tools downloading at the same time on the Settings page: one `GET
+/status?job=<kicad>,<solidcraft>` answered with both jobs (kicad `download 1 %`, solidcraft `done`), and
+the DOM held two `role="progressbar"` nodes — kicad `31 %` blue, solidcraft `58 %` amber, both
+`530 × 6` (`.smoke/14-both-downloads.png`, `.smoke/15-both-downloads-later.png`). Client suite grew two
+tests: bars for both tools survive concurrent starts (and the poll carries both ids), and the phase toast
+fires once per tool.
+
 ---
 
 ## 5. Acceptance matrix (§16)
@@ -287,7 +318,8 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
 | Criterion | State |
 |---|---|
 | Fetches and validates the manifest, selects Windows x64 | ✅ live `manifest.state = ready`, version shown on the card |
-| Real progress when measurable | ✅ byte counter + `percent`; inline bar (🟡 visual) |
+| Real progress when measurable | ✅ byte counter + `percent`; inline bar measured `530 × 6` on screen |
+| Two tools downloading at once both stay visible | ✅ per-tool job map; two bars observed side by side (§4.7) |
 | Cancellation | ✅ abort wired; controller cancel → status re-read |
 | SHA-256 verification | ✅ enforced (real archives verified end to end) |
 | Rejects invalid/corrupted archives | ✅ checksum-mismatch / invalid-zip paths; failed staging removed |
@@ -309,7 +341,7 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
 |---|---|
 | Available after dismissal | ✅ `settings.section` always registered |
 | Both cards show path + status | ✅ shared card body (`variant: 'settings'`, §4.6) |
-| Browse / download / inline progress / version badges | ✅ implemented; cards seen on screen (`06-settings-cards.png`), `Browse…` walk in `10…12` |
+| Browse / download / inline progress / version badges | ✅ implemented; cards seen on screen (`06-settings-cards.png`), `Browse…` walk in `10…12`, two concurrent bars in `14…15` |
 | Sidebar reflects real configuration | ✅ dot only while incomplete |
 | Wizard and Settings share state | ✅ one controller (unit-tested) |
 
@@ -352,10 +384,12 @@ visual pass · **⏸️** belongs to M9 (desktop packaging, user-run).
   from the client rule, from the wizard's writes and from the Host schema; `toolchainSetup` is the
   single source of truth. A profile that carries only the old boolean shows the wizard once, and
   the answer is recorded the new way.
-- **The download button was not pressed in the UI walk.** The transfer, checksum and promotion
-  paths are covered by real-archive tests (§4.2) and the archive the user already downloaded is
-  the one the manifest serves; what remains unobserved is the click-to-bar choreography on a
-  837 MB transfer.
+- **The download button was pressed, but never to the end of the chain.** Both cards' `Download` was
+  clicked on a real server against the real mirrors and the bars ran (§4.7); the observed job that
+  finished was short-circuited by the reuse rule (an identical managed copy already existed), so
+  "download → extract → promote" through the UI is still proven only by the real-archive tests
+  (§4.2). Cancel per card is wired; there is no "cancel all" button, which the prototype does not
+  have either.
 - **A dev loop artifact, not a defect:** the launcher opens the default browser each boot, and an
   older tab still pointing at `127.0.0.1:3080` reconnects to the new server and replays its own
   pending settings writes. That is how `toolchainSetup: complete` can reappear in
@@ -372,7 +406,7 @@ cd C:\code\dsh-pcb-eda
 
 # unit + integration
 pnpm --filter @huaqiu/hardware-artifacts exec vitest run     # 148 passed
-pnpm --filter @huaqiu/dsh-hardware-ui exec vitest run        # 133 passed
+pnpm --filter @huaqiu/dsh-hardware-ui exec vitest run        # 142 passed
 
 # real archives (opt-in, minutes)
 $env:HUAQIU_TOOLCHAIN_ZIP = "kicad=C:\hardware-toolchains\kicad-huaqiu-10.0.7-2-x86_64.zip,solidcraft=C:\hardware-toolchains\solidcraft-0.49.1-windows-x64-portable.zip"

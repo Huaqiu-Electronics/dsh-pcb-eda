@@ -102,8 +102,13 @@ async function handleToolchain(
   }
 
   if (req.method === 'GET' && route === '/status') {
-    const jobId = asString(url.searchParams.get('job') ?? undefined)
-    sendJson(res, 200, { ok: true, ...await manager.status(jobId) })
+    // `?job=a,b` — both tools can install at once, so the poll carries every id
+    // the caller is watching rather than a single "current" one.
+    const jobIds = (url.searchParams.get('job') ?? '')
+      .split(',')
+      .map(entry => entry.trim())
+      .filter(entry => entry !== '')
+    sendJson(res, 200, { ok: true, ...await manager.status(jobIds.length === 0 ? undefined : jobIds) })
     return true
   }
   if (req.method === 'GET' && route === '/capabilities') {

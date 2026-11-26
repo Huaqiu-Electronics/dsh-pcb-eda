@@ -30,14 +30,16 @@ function status(overrides: {
   kicad?: ToolchainStatus['kicad']
   solidcraft?: ToolchainStatus['solidcraft']
   job?: InstallJob
+  jobs?: readonly InstallJob[]
 } = {}): ToolchainStatus {
+  const jobs = overrides.jobs ?? (overrides.job === undefined ? [] : [overrides.job])
   return {
     kicad: overrides.kicad ?? tool('kicad', 'configured', { version: '10.0.7', installPath: '/opt/kicad' }),
     solidcraft: overrides.solidcraft ?? tool('solidcraft', 'configured', { version: '0.49.1', installPath: '/opt/sc' }),
     manifest: { state: 'ready', schemaVersion: 1, url: 'https://example.test/manifest.json' },
     target: { platform: 'win32', arch: 'x64', downloadsSupported: true },
     official: { kicad: 'https://www.kicad.org/download/', solidcraft: 'https://example.test/sc' },
-    ...(overrides.job === undefined ? {} : { job: overrides.job }),
+    ...(jobs.length === 0 ? {} : { job: jobs[0], jobs }),
   }
 }
 
@@ -58,7 +60,7 @@ function fakeTransport(script: {
   const answer = (): ToolchainStatus => (typeof script.status === 'function' ? script.status() : script.status ?? status())
   return {
     calls,
-    status: async () => { calls.push('status'); return answer() },
+    status: async ids => { calls.push(ids === undefined || ids.length === 0 ? 'status' : `status:${ids.join('|')}`); return answer() },
     validate: async (_tool, path) => { calls.push(`validate:${path}`); return { ok: true } },
     save: async (tool, path) => {
       calls.push(`save:${tool}:${path}`)
@@ -162,25 +164,25 @@ describe('toolchain controller', () => {
     const transport = fakeTransport({ status: () => current })
     transport.install = async () => { transport.calls.push('install'); return job('download') }
     controller = new ToolchainController(transport, 1_000_000)
-    await controller.refresh('job-1')
+    await controller.refresh(['job-1'])
     current = status({ job: job('verify') })
-    await controller.refresh('job-1')
+    await controller.refresh(['job-1'])
     const afterVerify = controller.getSnapshot().toasts.map(item => item.text)
     expect(afterVerify.some(text => text.includes('下载完成'))).toBe(true)
     // A repeat of the same phase is not news.
-    await controller.refresh('job-1')
+    await controller.refresh(['job-1'])
     expect(controller.getSnapshot().toasts.map(item => item.text)).toEqual(afterVerify)
     current = status({ job: job('done', { percent: undefined, received: 100 }) })
-    await controller.refresh('job-1')
+    await controller.refresh(['job-1'])
     expect(controller.getSnapshot().toasts.some(item => item.text.includes('已安装'))).toBe(true)
   })
 
   it('reports a checksum failure in its own words', async () => {
     let current = status({ job: job('download') })
     controller = new ToolchainController(fakeTransport({ status: () => current }), 1_000_000)
-    await controller.refresh('job-1')
+    await controller.refresh(['job-1'])
     current = status({ job: job('failed', { errorCode: 'checksum-mismatch', error: 'sha256 mismatch' }) })
-    await controller.refresh('job-1')
+    await controller.refresh(['job-1'])
     expect(controller.getSnapshot().toasts.at(-1)?.text).toContain('校验值不匹配')
   })
 
@@ -212,6 +214,57 @@ describe('toolchain controller', () => {
     controller = new ToolchainController(transport, 1_000_000)
     await controller.install('kicad')
     expect(controller.getSnapshot().toasts.at(-1)).toMatchObject({ tone: 'warn' })
+  })
+
+  it('keeps both bars alive when both tools download at the same time', async () => {
+    // The reported bug: start SolidCraft while KiCad is at 16% and KiCad's bar
+    // vanished, because the client mirrored a single "current job" id.
+    const kicadJob = job('download', { id: 'job-kicad', tool: 'kicad', percent: 16 })
+    const craftJob = job('download', { id: 'job-craft', tool: 'solidcraft', percent: 90, version: '0.49.1' })
+    const transport = fakeTransport()
+    transport.install = async tool => {
+      transport.calls.push(`install:${tool}`)
+      return tool === 'kicad' ? kicadJob : craftJob
+    }
+    controller = new ToolchainController(transport, 1_000_000)
+
+    await controller.install('kicad')
+    transport.calls.length = 0
+    // The Host now answers about both runs in one poll; before the fix only the
+    // second id survived, so one card had no job to draw.
+    transport.status = async ids => {
+      transport.calls.push(`status:${(ids ?? []).join('|')}`)
+      return status({ jobs: [kicadJob, craftJob] })
+    }
+    await controller.install('solidcraft')
+
+    const snapshot = controller.getSnapshot()
+    expect(snapshot.jobs.kicad).toMatchObject({ id: 'job-kicad', percent: 16 })
+    expect(snapshot.jobs.solidcraft).toMatchObject({ id: 'job-craft', percent: 90 })
+    expect(transport.calls).toContain('status:job-kicad|job-craft')
+  })
+
+  it('notifies once per phase per tool, so two runs do not mute each other', async () => {
+    let current = status({ jobs: [job('download', { id: 'job-kicad', tool: 'kicad' })] })
+    const transport = fakeTransport({ status: () => current })
+    controller = new ToolchainController(transport, 1_000_000)
+    await controller.refresh(['job-kicad'])
+    current = status({
+      jobs: [
+        job('verify', { id: 'job-kicad', tool: 'kicad' }),
+        job('download', { id: 'job-craft', tool: 'solidcraft' }),
+      ],
+    })
+    await controller.refresh(['job-kicad', 'job-craft'])
+    current = status({
+      jobs: [
+        job('verify', { id: 'job-kicad', tool: 'kicad' }),
+        job('verify', { id: 'job-craft', tool: 'solidcraft' }),
+      ],
+    })
+    await controller.refresh(['job-kicad', 'job-craft'])
+    // Both tools reached `verify`, so both get their own "download done" notice.
+    expect(controller.getSnapshot().toasts.filter(item => item.text.includes('下载完成'))).toHaveLength(2)
   })
 
   it('a picked path lands in the draft, never in the configuration', async () => {

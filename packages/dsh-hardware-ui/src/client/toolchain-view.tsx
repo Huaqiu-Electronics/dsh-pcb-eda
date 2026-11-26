@@ -151,8 +151,15 @@ export function discoveryLine(tool: ToolStatus): { readonly text: string; readon
   return undefined
 }
 
+/**
+ * The 6px track. `flex: 0 0 auto` matters: this sits in a column flex box whose
+ * height is content-driven, and a growing item there collapses to zero height —
+ * which is exactly how the bar was invisible while the percentage next to it kept
+ * counting up.
+ */
 const PROGRESS_TRACK: CSSProperties = {
-  position: 'relative', height: 6, borderRadius: 999, background: 'rgba(0,0,0,0.5)', overflow: 'hidden', flex: 1,
+  position: 'relative', height: 6, minHeight: 6, flex: '0 0 auto', borderRadius: 999,
+  background: 'rgba(0,0,0,0.5)', overflow: 'hidden',
 }
 
 /** Inline download progress: label + percent on one line, bar underneath (§7.4). */
@@ -201,11 +208,11 @@ export function ToolchainCard(props: {
   const { controller, snapshot, variant, tool: id } = props
   const meta = TOOL_META[id]
   const tool = snapshot.status?.[id]
-  const job = snapshot.status?.job
+  // Each tool owns its own job: two downloads in flight are two bars, not one.
+  const job = snapshot.jobs[id]
   const draft = snapshot.drafts[id]
   const saving = snapshot.saving === id
-  const ownJob = job !== undefined && job.tool === id ? job : undefined
-  const running = jobRunning(ownJob)
+  const running = jobRunning(job)
   const pill = tool === undefined
     ? { text: COPY.toolchain.statusValidating, tone: 'muted' as const }
     : statusPill(tool, job)
@@ -376,7 +383,7 @@ export function ToolchainCard(props: {
     pathRow,
     ...(actionRow === null ? [] : [actionRow]),
     ...(downloadBar === null ? [] : [downloadBar]),
-    ...(running && ownJob !== undefined ? [Progress({ job: ownJob, color: meta.bar })] : []),
+    ...(running && job !== undefined ? [Progress({ job, color: meta.bar })] : []),
   )
 
   const picker = snapshot.picker === undefined || snapshot.picker.tool !== id

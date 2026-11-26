@@ -190,7 +190,7 @@ function Glyph(props: { readonly path: string; readonly size?: number; readonly 
 }
 
 /** Stable empty snapshot for the no-controller case (identity must not churn). */
-const EMPTY: ToolchainSnapshot = { loading: true, drafts: { kicad: '', solidcraft: '' }, toasts: [] }
+const EMPTY: ToolchainSnapshot = { loading: true, jobs: {}, drafts: { kicad: '', solidcraft: '' }, toasts: [] }
 const emptySnapshot = (): ToolchainSnapshot => EMPTY
 
 /**

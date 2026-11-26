@@ -351,7 +351,7 @@ describe('wizard primary button readiness', () => {
     target: { platform: 'win32', arch: 'x64', downloadsSupported: true },
     official: { kicad: 'https://www.kicad.org/download/', solidcraft: 'https://example.test/' },
   })
-  const base = { loading: false, drafts: { kicad: '', solidcraft: '' }, toasts: [] } as const
+  const base = { loading: false, jobs: {}, drafts: { kicad: '', solidcraft: '' }, toasts: [] } as const
 
   it('is enabled as soon as one path is typed', () => {
     expect(saveReady({ ...base, drafts: { kicad: 'C:/KiCad/10.0', solidcraft: '' } })).toBe(true)
