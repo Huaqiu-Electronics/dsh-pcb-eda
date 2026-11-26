@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/hardware-engineering",
-  "version": "0.7.18",
+  "version": "0.7.19",
   "type": "module",
   "description": "Huaqiu Hardware Engineering product bundle: the DSH plugin set that ships with the installation and activates as one profile bundle.",
   "keywords": [
