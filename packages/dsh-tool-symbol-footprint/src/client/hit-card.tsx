@@ -27,6 +27,8 @@ import { placeSupportOf, type HqEdgePlaceLike } from './place.js'
 import { useLocale, useTheme } from './theme.js'
 import { buildLoginUrl, loginIframeBackground } from './login-url.js'
 import type { AuthClientLike, AuthStateLike, PromptSender } from './index.js'
+import { SvgFootprintEditor } from './svg-footprint-editor.jsx'
+import type { FormData } from './config/index.js'
 
 const TOOL_SYMBOL = 'generate_symbol_from_image'
 const TOOL_FOOTPRINT_IMAGE = 'generate_footprint_from_image'
@@ -811,6 +813,57 @@ export const GenHit = memo(function GenHit(props: GenHitProps): ReactElement {
     )
   }
 
+  /**
+   * Adapter: merge FormData → DimensionValues, forwarding the merged
+   * dimensions back to the agent via a prompt — same path the old
+   * HqEdaDimensionEditor used, but now the form is produced by the
+   * NextChat-style SVG-backed editor above.
+   */
+  function onSvgEditorConfirm(data: FormData): void {
+    if (busy) return
+    setBusy('confirm')
+    const dims: DimensionValues = {}
+    const edited: Record<string, boolean> = {}
+    for (const k of Object.keys(data)) {
+      const raw = data[k]
+      if (typeof raw === 'number' && Number.isFinite(raw)) {
+        dims[k] = raw
+        edited[k] = true
+      } else if (typeof raw === 'string') {
+        const n = parseDimension(raw)
+        if (n != null) { dims[k] = n; edited[k] = true }
+      }
+    }
+    const prompt = dimensionConfirmMessage(result?.pkgType ?? null, result?.fileName ?? null, dims, edited)
+    const p = props.sendPrompt
+      ? props.sendPrompt(props.sessionId, prompt)
+      : Promise.reject(new Error('no prompt sender'))
+    p.then(
+      () => { setBusy(null); setAnswer('confirmed') },
+      (err) => {
+        console.warn('[hq-genhit] svg-editor confirm send failed', err)
+        setBusy(null)
+      },
+    )
+  }
+
+  /** User clicked "Extract" with a different pkg type — ask the agent to re-run extraction. */
+  function onSvgEditorExtract(newPkgType: string): void {
+    if (busy) return
+    setBusy('extract')
+    const prompt = `The user re-picked the package family as "${newPkgType}" and clicked Extract. Call generate_footprint_from_image again with package_type="${newPkgType}" to get a fresh extraction.`
+    const p = props.sendPrompt
+      ? props.sendPrompt(props.sessionId, prompt)
+      : Promise.reject(new Error('no prompt sender'))
+    p.then(
+      () => setBusy(null),
+      (err) => {
+        console.warn('[hq-genhit] svg-editor extract send failed', err)
+        setBusy(null)
+      },
+    )
+  }
+
   function onDimsCancel(): void {
     if (busy) return
     setBusy('cancel')
@@ -882,14 +935,13 @@ export const GenHit = memo(function GenHit(props: GenHitProps): ReactElement {
         <div className="hq-genhit__note">{t('card.editor.hint')}</div>
         {result.dimensions && typeof result.dimensions === 'object'
           ? (
-            <HqEdaDimensionEditor
-              dimensions={result.dimensions as Record<string, unknown>}
+            <SvgFootprintEditor
               pkgType={result.pkgType}
-              fileName={result.fileName}
+              dimensions={result.dimensions as FormData}
+              canEdit={busy === null}
               t={t}
-              onConfirm={onDimsConfirm}
-              onCancel={onDimsCancel}
-              disabled={busy !== null}
+              onConfirm={onSvgEditorConfirm}
+              onExtract={onSvgEditorExtract}
             />
           )
           : null}
