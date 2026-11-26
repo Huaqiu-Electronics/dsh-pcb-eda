@@ -30,6 +30,7 @@ export const EN: DeepStrings<typeof ZH> = {
     replace: 'Replace image',
     uploading: 'Uploading…',
     hint: 'Hint',
+    sourceImage: 'Uploaded image',
   },
   symbol: {
     generate: 'Generate Symbol',
@@ -93,7 +94,7 @@ export const EN: DeepStrings<typeof ZH> = {
     submittingLabel: 'Submitting...',
     extractLabel: 'Extract',
     selectPlaceholder: 'Select',
-    backToEdit: 'Back to edit',
+    backToEdit: 'Re-edit',
   },
   field: {
     width: 'Width',

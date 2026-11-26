@@ -27,6 +27,7 @@ export const ZH = {
     replace: '更换图片',
     uploading: '上传中…',
     hint: '提示',
+    sourceImage: '上传的图片为',
   },
   symbol: {
     generate: '生成符号',
@@ -90,7 +91,7 @@ export const ZH = {
     submittingLabel: '提交中...',
     extractLabel: '提取',
     selectPlaceholder: '请选择',
-    backToEdit: '返回',
+    backToEdit: '重新编辑',
   },
   field: {
     width: '宽度',

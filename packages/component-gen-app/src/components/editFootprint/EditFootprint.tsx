@@ -12,6 +12,7 @@ import { Suspense, lazy, useCallback, useMemo, useState, type ReactElement } fro
 import { resolvePkgConfig, type DataPoint, type Divider, type FormData } from './config/index.js'
 import type { DimensionValues } from '../../utils/dims.js'
 import type { Translate } from '../../copy/index.js'
+import { SourceImage } from '../SourceImage.js'
 import {
   BGA as bgaSvg,
   DIP as dipSvg, DIP_SIDE as dipSideSvg,
@@ -34,6 +35,8 @@ export interface EditFootprintProps {
   onCancel: () => void
   /** Re-run extraction with a different package family (提取 button). */
   onExtract?: (pkgType: string) => void
+  /** 用户上传的原始图片，展示在侧栏字段上方。 */
+  sourceImage?: string | null
 }
 
 const SVG_URL: Record<string, string> = {
@@ -73,7 +76,7 @@ function toDimensionValues(data: FormData): DimensionValues {
 }
 
 export function EditFootprint(props: EditFootprintProps): ReactElement {
-  const { pkgType, dimensions, canEdit, t, onConfirm, onCancel, onExtract } = props
+  const { pkgType, dimensions, canEdit, t, onConfirm, onCancel, onExtract, sourceImage } = props
 
   const configKey = pkgType ?? ''
   const config = useMemo(() => resolvePkgConfig(configKey), [configKey])
@@ -290,6 +293,14 @@ export function EditFootprint(props: EditFootprintProps): ReactElement {
           </div>
         </div>
         <div className="cga-eip__sidepanel">
+          {sourceImage
+            ? (
+              <div className="cga-source">
+                <span className="cga-source__label">{t('upload.sourceImage')}</span>
+                <SourceImage src={sourceImage} t={t} />
+              </div>
+            )
+            : null}
           {extraFieldsNode}
           {canEdit
             ? (

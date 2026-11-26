@@ -117,6 +117,7 @@ export function FootprintGenPage({ ports, t, reopen = null }: FootprintGenPagePr
             result={runner.result}
             t={t}
             srcKey={resultKey}
+            sourceImage={imageDataUrl}
             leading={(
               <button type="button" className="cga-btn cga-btn--outline" onClick={runner.back}>
                 {t('editor.backToEdit')}
@@ -198,6 +199,7 @@ export function FootprintGenPage({ ports, t, reopen = null }: FootprintGenPagePr
                 <EditFootprint
                   dimensions={runner.dimensions}
                   pkgType={runner.pkgType}
+                  sourceImage={imageDataUrl}
                   canEdit={!busy}
                   t={t}
                   onConfirm={confirmDimensions}

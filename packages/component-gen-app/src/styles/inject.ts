@@ -56,7 +56,7 @@ const CSS = `
 /* ── app shell (cga-*) — tokens/geometry follow dsh's Modal + settings dialog
    (mask-1/mask-blur, layer-2 + elevation, r24 dialog, 28x28 r8 close, 13px/500
    labels, r8 inputs on bg-layer-3 with border-l4, capsule sm buttons) ─────── */
-.cga-app { display: flex; flex-direction: column; gap: 12px; width: 100%; box-sizing: border-box; padding: 0 16px 16px; font: var(--dsw-font-s-14, 14px/1.5 system-ui, sans-serif); color: var(--dsw-alias-label-primary, currentColor); }
+.cga-app { display: flex; flex-direction: column; gap: 12px; width: 100%; box-sizing: border-box; padding: 0 16px 4px; font: var(--dsw-font-s-14, 14px/1.5 system-ui, sans-serif); color: var(--dsw-alias-label-primary, currentColor); }
 .cga-app__body { display: flex; flex-direction: column; gap: 12px; }
 .cga-app__head { position: sticky; top: 0; z-index: 8; display: flex; align-items: center; gap: 8px; padding: 16px 0 12px; background: var(--dsw-alias-bg-layer-2, var(--dsw-alias-bg-layer-1, transparent)); border-bottom: 0.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.2));}
 .cga-app__head-title { font-size: 16px; line-height: 24px; font-weight: 500; color: var(--dsw-alias-label-primary, currentColor); }
@@ -96,6 +96,21 @@ const CSS = `
 .cga-eip__stage { flex: 0 0 auto; border: 0.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.2)); border-radius: 12px; background: #fff; padding: 18px; }
 .cga-eip__canvas { position: relative; width: 330px; margin: 0 auto; }
 .cga-eip__sidepanel { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+/* 上传原图：编辑器侧栏与结果/历史预览共用，图片随容器缩放不溢出。 */
+.cga-source { display: flex; flex-direction: column; gap: 6px; min-width: 0; max-width: 100%; overflow: hidden; }
+.cga-source__label { font-size: 12px; line-height: 1.5; color: var(--dsw-alias-label-secondary, currentColor); }
+.cga-source__img { display: block; width: 160px; max-width: 100%; height: 110px; box-sizing: border-box; object-fit: contain; border: 0.5px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.2)); border-radius: 8px; background: var(--dsw-alias-bg-layer-3, transparent); }
+.cga-source__thumb { display: inline-flex; align-self: flex-start; max-width: 100%; padding: 0; border: 0; border-radius: 8px; background: none; cursor: zoom-in; }
+.cga-source__thumb:focus-visible { outline: 2px solid var(--dsw-alias-brand-primary, currentColor); outline-offset: 2px; }
+/* 点击缩略图后的放大预览。 */
+.cga-lightbox { position: fixed; inset: 0; z-index: 1500; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; background: rgba(0, 0, 0, 0.72); cursor: zoom-out; }
+.cga-lightbox__img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 12px; background: #fff; cursor: default; }
+/* 结果页顶栏：左侧返回/下载，右侧上传原图，同一行。 */
+.cga-result__bar { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cga-result__bar-left { display: flex; flex-wrap: wrap; gap: 8px; }
+.cga-source--inline { flex-direction: row; align-items: self-start; gap: 8px; }
+.cga-source--inline .cga-source__img { width: 96px; height: 72px; }
+.cga-source--inline .cga-source__thumb { align-self: center; }
 .cga-eip__bg { display: block; width: 100%; height: auto; user-select: none; }
 .cga-eip__side { margin-top: 24px; }
 .cga-eip__point { position: absolute; z-index: 5; padding: 1px 5px; border-radius: 6px; border: 1px solid transparent; font-size: 12px; line-height: 18px; font-variant-numeric: tabular-nums; color: #1f2329; background: transparent; white-space: nowrap; }
@@ -173,6 +188,9 @@ const CSS = `
   .cga-eip__stage { align-self: center; max-width: 100%; box-sizing: border-box; padding: 0; }
   .cga-eip__canvas { zoom: 0.9; }
   .cga-eip__sidepanel { width: 100%; }
+  .cga-source__img { height: 90px; }
+  .cga-source--inline .cga-source__img { width: 84px; height: 62px; }
+  .cga-lightbox { padding: 12px; }
   .cga-eip__actions { flex-wrap: wrap; }
   .cga-toast { max-width: calc(100vw - 24px); box-sizing: border-box; }
   .cga-history-dialog { padding: 12px; }
@@ -182,7 +200,13 @@ const CSS = `
 
 export function injectAppStyles(): void {
   if (typeof document === 'undefined') return
-  if (document.getElementById(APP_STYLE_ID)) return
+  // 已有样式表时直接覆盖内容：插件热更新（不整页刷新）时旧规则不会残留，
+  // 避免新 DOM 配旧 CSS 造成布局错乱。
+  const existing = document.getElementById(APP_STYLE_ID)
+  if (existing) {
+    existing.textContent = CSS
+    return
+  }
   const style = document.createElement('style')
   style.id = APP_STYLE_ID
   style.setAttribute('data-plugin', APP_PLUGIN_ID)
