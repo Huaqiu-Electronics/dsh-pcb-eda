@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-pcb-initial-placement",
-  "version": "0.7.20",
+  "version": "0.7.21",
   "type": "module",
   "description": "Huaqiu PCB initial-placement skill for DeepSeek Harness, shipped as a standalone DSH skill plugin.",
   "keywords": [
