@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-plugin-release-manifest",
-  "version": "0.7.22",
+  "version": "0.7.23",
   "description": "Canonical release catalog for DSH plugins and HQ Edge headless distributions (data only).",
   "license": "MIT",
   "type": "module",
