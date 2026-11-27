@@ -106,6 +106,27 @@ Safety that survives the removal: the package is still prepared and listed *befo
 
 **Files:** `order.tsx`, `transport.ts`, `routes.ts`, `copy.ts`, `locales.ts`, plus tests (§7).
 
+### 3.5 The wizard on a light theme
+
+The first-run wizard was still carrying the prototype's dark palette as literals (dialog `#1C1C1E`, footer `#161618`, header gradient `#241B1C→#1C1C1E`, picker `#202022 / #2B2B2E / #18181A / #121212`, chip `rgba(255,255,255,.08)`, track `rgba(0,0,0,.5)`, callout ink `#BFDBFE`, blue/amber inks at their dark-theme lightness). On white those read as a dark dialog with dark rows inside a light application. Every one of them is now a theme-owned value:
+
+| Surface | Before | Now |
+|---|---|---|
+| Modal scrim / picker veil / shadows | `rgba(0,0,0,.75)`, `rgba(0,0,0,.32)`, `rgba(0,0,0,.5)` | `--dsw-alias-bg-mask-3` (0.48 both), `--dsw-alias-bg-mask-1` (0.24 light / 0.5 dark) |
+| Dialog + border | `#1C1C1E`, `rgba(255,255,255,.15)` | `--dsw-alias-bg-layer-1` (white / rgb(35,35,36)), `--dsw-alias-border-l2` |
+| Header | warm dark gradient | same warm wash as an accent tint **over** `layer-1`: `linear-gradient(rgba(225,37,27,.12) → 0), layer-1` |
+| Footer | `#161618` | `--dsw-alias-bg-base` (darker step in dark, white in light) |
+| Cards / picker bars / chips | layer-2 (white in light) and `rgba(255,255,255,.08)` | `C.inset` = `color-mix(label-primary 5%, layer-1)` and `rgba(127,127,127,.16)` |
+| Progress track | `rgba(0,0,0,.5)` | `rgba(127,127,127,.28)` |
+| Callout ink / icons / links | `#BFDBFE`, `#60A5FA`, `#FBBF24`, `--dsw-alias-info` | `label-secondary` for prose, `--dsw-alias-link` (rgb(65,118,230) light / rgb(122,170,255) dark), `--dsw-alias-state-warn-label` |
+| Picker surfaces | `#202022 / #2B2B2E / #18181A / #121212` | `layer-1` body, `C.inset` bars, `bg-base` for the selected-path field |
+
+The one non-obvious piece is `C.inset`. In the light theme `--dsw-alias-bg-layer-1/2/3` are *all* white (`design-platform.css:181-183`), so a card on a dialog has no step to show; in the dark theme layer-2 is the visible step. Deriving the surface from the theme's own ink — 5% of `label-primary` over `layer-1` — yields rgb(243,244,244) on white and rgb(46,46,47) on rgb(35,35,36): a step in both themes from one expression, with the old dark values as `var()` fallbacks for a host without theme tokens. Because every card in the product uses `cardStyle`, the same fix reaches the Settings section, the Place Order list and the order panel without touching each of them.
+
+Verified against the product's own CSS in Chromium (Electron 44.7): tokens resolve as light `layer-1` white / `label-secondary` rgb(97,102,107) / `link` rgb(65,118,230) and dark `layer-1` rgb(35,35,36) / `label-secondary` rgb(207,211,214) / `link` rgb(122,170,255); the derived card surface measures `rgb(243,243,243)` and `rgb(46,46,47)` respectively, i.e. a visible step on both.
+
+**Files:** `theme.ts` (`inset`/`neutral`/`track`/`scrim`/`veil`/`shadow`/`link`/`warnLabel`, `cardStyle` on `inset`), `wizard.tsx` (backdrop, header, callout, footer, dialog), `toolchain-view.tsx` (badge inks, chip, track, picker surfaces), `test/toolchain-view.test.tsx` (the scrim test now asserts the theme token instead of a literal alpha).
+
 **Files:** `place-order.tsx` (new), `model.ts` (`HardwareProjectInfo.order`, `ViewerNavigationParams.orderKind/schematicPath`, `placeOrder(): boolean`, `orderProject()`), `store.ts` (`applyNavigation` honours `schematicPath`), `components.tsx` + `preview.tsx` (`orderKind` down to `OrderPanel.focus`), `order.tsx` (`focus` prop, `autoPlaced` ref, places the chosen kind once), `copy.ts` + `locales.ts` (zh/en strings), `index.ts` (tab type, slot body, handle, constants).
 
 ---

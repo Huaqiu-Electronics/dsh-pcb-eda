@@ -38,7 +38,7 @@ const TOOL_META = {
     short: 'KiCad',
     letter: 'Ki',
     color: '#2563EB',
-    accent: '#60A5FA',
+    accent: C.link,
     bar: '#3B82F6',
     /** The prototype shows the CLI name beside the title for KiCad only. */
     code: 'kicad-cli' as string | undefined,
@@ -48,7 +48,7 @@ const TOOL_META = {
     short: 'SolidCraft',
     letter: 'Sc',
     color: '#B45309',
-    accent: '#FBBF24',
+    accent: C.warnLabel,
     bar: '#F59E0B',
     code: undefined as string | undefined,
   },
@@ -102,7 +102,7 @@ function LetterBadge(props: { readonly letter: string; readonly color: string; r
 function Chip(props: { readonly text: string }): ReactNode {
   return createElement('span', {
     style: {
-      fontSize: 10, padding: '2px 6px', borderRadius: 4, background: 'rgba(255,255,255,0.08)',
+      fontSize: 10, padding: '2px 6px', borderRadius: 4, background: C.neutral,
       color: C.text2, whiteSpace: 'nowrap',
     },
   }, props.text)
@@ -205,7 +205,7 @@ export function discoveryLine(tool: ToolStatus): { readonly text: string; readon
  */
 const PROGRESS_TRACK: CSSProperties = {
   position: 'relative', height: 6, minHeight: 6, flex: '0 0 auto', borderRadius: 999,
-  background: 'rgba(0,0,0,0.5)', overflow: 'hidden',
+  background: C.track, overflow: 'hidden',
 }
 
 /** Inline download progress: label + percent on one line, bar underneath (§7.4). */
@@ -326,7 +326,7 @@ export function ToolchainCard(props: {
       title: COPY.toolchain.browseTitle,
       onClick: () => { controller.openPicker(id) },
     },
-    createElement(Icon, { path: TOOLCHAIN_ICONS.folder, color: '#FBBF24' }),
+    createElement(Icon, { path: TOOLCHAIN_ICONS.folder, color: C.warnLabel }),
     variant === 'wizard' ? COPY.wizard.selectFile : COPY.toolchain.browse),
   )
 
@@ -466,7 +466,7 @@ function officialFallback(tool: ToolchainId, snapshot: ToolchainSnapshot): React
     href: snapshot.status?.official?.[tool] ?? '#',
     target: '_blank',
     rel: 'noreferrer noopener',
-    style: { fontSize: 11, color: C.info, textDecoration: 'none', whiteSpace: 'nowrap' },
+    style: { fontSize: 11, color: C.link, textDecoration: 'none', whiteSpace: 'nowrap' },
   }, COPY.toolchain.official)
 }
 
@@ -593,11 +593,11 @@ function ExecutablePicker(props: {
       style: {
         position: 'fixed', inset: 0, zIndex: 2200, display: 'flex', alignItems: 'center',
         justifyContent: 'center', padding: 16,
-        // The picker opens *inside* a modal that already dims the page (`rgba(0,0,0,0.75)`).
-        // Two stacked 0.75 scrims multiply to ~0.94 black, which reads as "the lights
-        // went out" rather than "a dialog is on top" — so this layer only adds a light
-        // veil, enough to separate the panel from the settings card behind it.
-        background: 'rgba(0,0,0,0.32)',
+        // The picker opens *inside* a modal that already dims the page (`C.scrim`).
+        // Two stacked scrims multiply into "the lights went out" rather than "a
+        // dialog is on top" — so this layer only adds the theme's lighter veil,
+        // enough to separate the panel from the card behind it.
+        background: C.veil,
         pointerEvents: 'auto',
       },
       role: 'dialog',
@@ -613,8 +613,8 @@ function ExecutablePicker(props: {
       {
         style: {
           display: 'flex', flexDirection: 'column', width: 512, maxWidth: '100%', maxHeight: '85vh',
-          background: '#202022', border: '1px solid rgba(255,255,255,0.15)', borderRadius: R.md,
-          boxShadow: '0 24px 64px rgba(0,0,0,0.5)', overflow: 'hidden',
+          background: C.panel, border: `1px solid ${C.border}`, borderRadius: R.md,
+          boxShadow: `0 24px 64px ${C.shadow}`, overflow: 'hidden',
         },
       },
       // OS-style title bar.
@@ -623,13 +623,13 @@ function ExecutablePicker(props: {
         {
           style: {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-            padding: '12px 16px', background: '#2B2B2E', borderBottom: `1px solid ${C.borderSoft}`,
+            padding: '12px 16px', background: C.inset, borderBottom: `1px solid ${C.borderSoft}`,
           },
         },
         createElement(
           'div',
           { style: { display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, fontSize: 12, fontWeight: 500, color: C.text2 } },
-          createElement(Icon, { path: TOOLCHAIN_ICONS.folder, color: '#FBBF24', size: 16 }),
+          createElement(Icon, { path: TOOLCHAIN_ICONS.folder, color: C.warnLabel, size: 16 }),
           createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
             COPY.toolchain.pickerTitle(executable)),
         ),
@@ -648,7 +648,7 @@ function ExecutablePicker(props: {
         {
           style: {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
-            padding: '8px 16px', background: '#18181A', borderBottom: `1px solid ${C.borderSoft}`,
+            padding: '8px 16px', background: C.inset, borderBottom: `1px solid ${C.borderSoft}`,
             ...MONO_TEXT, fontSize: 11, color: C.text3,
           },
         },
@@ -660,7 +660,7 @@ function ExecutablePicker(props: {
           type: 'button',
           style: {
             ...buttonStyle('quiet', { padding: 0, flex: '0 0 auto' }),
-            color: C.info, fontWeight: 500, textDecoration: 'underline', fontSize: 11,
+            color: C.link, fontWeight: 500, textDecoration: 'underline', fontSize: 11,
           },
           onClick: () => { void controller.nativePick() },
         }, picker.nativePending ? COPY.toolchain.pickerNativeWaiting : COPY.toolchain.pickerNative),
@@ -683,14 +683,14 @@ function ExecutablePicker(props: {
         {
           style: {
             display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10,
-            padding: '12px 16px', background: '#18181A', borderTop: `1px solid ${C.borderSoft}`,
+            padding: '12px 16px', background: C.inset, borderTop: `1px solid ${C.borderSoft}`,
           },
         },
         createElement('div', {
           title: picker.chosen ?? '',
           style: {
             ...MONO_TEXT, flex: 1, minWidth: 0, fontSize: 11, color: picker.chosen === undefined ? C.text3 : C.text2,
-            background: '#121212', border: `1px solid ${C.borderSoft}`, borderRadius: 4, padding: '6px 10px',
+            background: C.base, border: `1px solid ${C.borderSoft}`, borderRadius: 4, padding: '6px 10px',
             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           },
         }, picker.chosen ?? COPY.toolchain.pickerNoSelection),

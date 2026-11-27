@@ -140,7 +140,7 @@ describe('wizard badge says Ready once a tool is usable', () => {
 })
 
 describe('executable picker scrim', () => {
-  it('stays a light veil, because the settings modal behind it is already dimmed', () => {
+  it('leaves the veil to the theme and keeps it lighter than the page scrim', () => {
     const el = card({
       picker: {
         tool: 'kicad',
@@ -151,8 +151,13 @@ describe('executable picker scrim', () => {
     } as unknown as Partial<ToolchainSnapshot>)
     const dialog = el.querySelector('[data-hardware-toolchain-picker="kicad"]') as HTMLElement | null
     expect(dialog).not.toBeNull()
-    const alpha = Number(/rgba\(0,\s*0,\s*0,\s*([0-9.]+)\)/.exec(dialog!.style.background)?.[1] ?? '1')
-    expect(alpha).toBeLessThan(0.4)
+    // Light and dark need different dimming, so the mask is a theme token rather
+    // than a fixed alpha; the theme is what decides, the fallback only covers a
+    // page without the token set.
+    const background = dialog!.style.background
+    expect(background).toContain('--dsw-alias-bg-mask-1')
+    const alpha = Number(/rgba\(0,\s*0,\s*0,\s*([0-9.]+)\)/.exec(background)?.[1] ?? '0')
+    expect(alpha).toBeLessThan(0.48)
   })
 })
 

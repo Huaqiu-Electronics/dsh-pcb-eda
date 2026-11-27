@@ -15,11 +15,36 @@ export const C = {
   panel: 'var(--dsw-alias-bg-layer-1, #1d1d20)',
   card: 'var(--dsw-alias-bg-layer-2, #202024)',
   raised: 'var(--dsw-alias-bg-layer-3, #2a2a2e)',
+  /**
+   * Nested surface inside a panel (cards, bars, chips).
+   *
+   * The theme's layer stack collapses to one white in the light theme, so layer-2
+   * there is indistinguishable from the panel behind it, while in the dark theme
+   * it is the visibly raised step. Deriving the surface from the theme's own ink
+   * instead — 5% of `label-primary` over `layer-1` — gives rgb(243 244 244) on
+   * white and rgb(46 46 47) on near-black: a step in both themes, from one
+   * expression. The fallbacks keep a token-less host on the old dark surface.
+   */
+  inset: 'color-mix(in srgb, var(--dsw-alias-label-primary, #ececee) 5%, var(--dsw-alias-bg-layer-1, #1d1d20))',
+  /** Theme-independent neutral wash for chips and tracks (alpha of mid grey). */
+  neutral: 'rgba(127,127,127,0.16)',
+  /** The 6px progress track, a touch stronger than a chip. */
+  track: 'rgba(127,127,127,0.28)',
+  /** Modal scrim: the theme decides how far a mask dims what is behind it. */
+  scrim: 'var(--dsw-alias-bg-mask-3, rgba(0,0,0,0.48))',
+  /** Lighter veil for a dialog stacked on an already dimmed page. */
+  veil: 'var(--dsw-alias-bg-mask-1, rgba(0,0,0,0.4))',
+  /** Shadow colour for raised surfaces (softer in the light theme). */
+  shadow: 'var(--dsw-alias-bg-mask-1, rgba(0,0,0,0.4))',
   border: 'var(--dsw-alias-border-l2, rgba(127,127,127,0.24))',
   borderSoft: 'var(--dsw-alias-border-l1, rgba(127,127,127,0.14))',
   text: 'var(--dsw-alias-label-primary, #ececee)',
   text2: 'var(--dsw-alias-label-secondary, #a1a1aa)',
   text3: 'var(--dsw-alias-label-tertiary, #71717a)',
+  /** Link/accent ink that stays legible on white and on near-black. */
+  link: 'var(--dsw-alias-link, #4176e6)',
+  /** Amber ink for the optional tool, readable on both themes. */
+  warnLabel: 'var(--dsw-alias-state-warn-label, #dd8629)',
   accent: '#e1251b',
   accentHover: '#c41e15',
   accentSoft: 'rgba(225, 37, 27, 0.15)',
@@ -47,7 +72,7 @@ export function cardStyle(extra?: CSSProperties): CSSProperties {
   return {
     border: `1px solid ${C.border}`,
     borderRadius: R.lg,
-    background: C.card,
+    background: C.inset,
     padding: 12,
     display: 'flex',
     flexDirection: 'column',

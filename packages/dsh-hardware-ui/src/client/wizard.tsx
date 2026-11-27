@@ -152,24 +152,30 @@ function useFormValue(form: ConfigFormLike<HardwareInstallationConfig> | undefin
 
 const BACKDROP: CSSProperties = {
   position: 'fixed', inset: 0, zIndex: 2000, display: 'flex', alignItems: 'center',
-  justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(2px)',
+  justifyContent: 'center', padding: 16, background: C.scrim, backdropFilter: 'blur(2px)',
 }
 
 const HEADER: CSSProperties = {
   display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16,
   padding: '20px 22px 14px', borderBottom: `1px solid ${C.borderSoft}`,
-  background: 'linear-gradient(90deg, #241B1C 0%, #1C1C1E 100%)', borderRadius: `${R.lg}px ${R.lg}px 0 0`,
+  // The prototype's warm wash is an accent tint *over* the theme surface, not a
+  // dark gradient: on white it reads as the same pale red, on near-black as the
+  // same warm charcoal.
+  background: `linear-gradient(90deg, rgba(225,37,27,0.12) 0%, rgba(225,37,27,0.04) 55%, rgba(225,37,27,0) 100%), ${C.panel}`,
+  borderRadius: `${R.lg}px ${R.lg}px 0 0`,
 }
 
 const CALLOUT: CSSProperties = {
   display: 'flex', alignItems: 'flex-start', gap: 10, padding: 12, borderRadius: R.md,
-  background: 'rgba(59,130,246,0.10)', border: '1px solid rgba(59,130,246,0.22)',
-  color: '#BFDBFE', fontSize: 11, lineHeight: 1.6,
+  background: 'rgba(59,130,246,0.10)', border: '1px solid rgba(59,130,246,0.28)',
+  // Blue tint only; the text stays the theme's own ink so it is readable on a
+  // white card as well as on a dark one.
+  color: C.text2, fontSize: 11, lineHeight: 1.6,
 }
 
 const FOOTER: CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-  padding: '14px 22px', borderTop: `1px solid ${C.borderSoft}`, background: '#161618',
+  padding: '14px 22px', borderTop: `1px solid ${C.borderSoft}`, background: C.base,
   borderRadius: `0 0 ${R.lg}px ${R.lg}px`,
 }
 
@@ -282,8 +288,8 @@ export function ToolchainOnboarding(props: OnboardingProps): ReactNode {
       {
         style: {
           display: 'flex', flexDirection: 'column', width: 672, maxWidth: '100%', maxHeight: '92vh',
-          background: '#1C1C1E', border: '1px solid rgba(255,255,255,0.15)', borderRadius: R.lg,
-          boxShadow: '0 24px 64px rgba(0,0,0,0.5)', overflow: 'hidden',
+          background: C.panel, border: `1px solid ${C.border}`, borderRadius: R.lg,
+          boxShadow: `0 24px 64px ${C.shadow}`, overflow: 'hidden',
         },
       },
       // Header: the HuaQiu mark (`assets/huaqiu.svg`, inlined in `brand.ts`), title,
@@ -339,7 +345,7 @@ export function ToolchainOnboarding(props: OnboardingProps): ReactNode {
           'div',
           { style: CALLOUT },
           createElement(Glyph, {
-            path: TOOLCHAIN_ICONS.info, size: 16, color: '#60A5FA', extra: 'M12 3a9 9 0 1018 0 9 9 0 00-18 0z',
+            path: TOOLCHAIN_ICONS.info, size: 16, color: C.link, extra: 'M12 3a9 9 0 1018 0 9 9 0 00-18 0z',
           }),
           createElement('div', { style: { minWidth: 0 } }, COPY.wizard.callout),
         ),
