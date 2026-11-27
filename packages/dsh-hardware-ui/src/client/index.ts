@@ -18,6 +18,7 @@
  * scope").
  */
 import { HardwareSettingsSection, HardwareViewerBody } from './components.js'
+import { PlaceOrderBody } from './place-order.js'
 import { ToolchainIndicator, ToolchainToastHost } from './toolchain-view.js'
 import { TOOLCHAIN_ONBOARDING_STEP, ToolchainOnboarding } from './wizard.js'
 import { ToolchainController } from './toolchain.js'
@@ -41,8 +42,23 @@ export const inject = ['slots', 'locale', 'sidebarRight', 'sidebarRightTabs', 'c
 export const HARDWARE_SETTINGS_ID = 'hardware-engineering'
 export const HARDWARE_TAB_ID = '@huaqiu/dsh-hardware-ui'
 export const HARDWARE_TAB_KIND = 'hardware-engineering'
+/** The project-selection view that fronts the order destination. */
+export const PLACE_ORDER_TAB_ID = '@huaqiu/dsh-hardware-ui/place-order'
+export const PLACE_ORDER_TAB_KIND = 'hardware-place-order'
 /** Host plugin row id whose volatile config backs the product settings page. */
 export const HARDWARE_CONFIG_ENTRY = 'hardware-artifacts'
+
+declare global {
+  interface Window {
+    /**
+     * The one-method handle the desktop shell's Place Order menu calls (PO-02).
+     *
+     * A handle rather than a shell-side URL or IPC: the shell stays unable to
+     * name a project, but can still ask the workflow to start.
+     */
+    huaqiu?: { placeOrder?: () => boolean }
+  }
+}
 
 interface SlotSpec {
   name: string
@@ -205,6 +221,35 @@ export function apply(ctx: ClientContext): void {
         revealIfOpened: true,
       })
     },
+    // One tab, not one per click: a menu that is pressed twice must reveal what
+    // the first press opened rather than stack two project lists.
+    placeOrder() {
+      const tabs = ctx.sidebarRight
+      if (tabs === undefined) return false
+      tabs.openTab(PLACE_ORDER_TAB_KIND, { revealIfOpened: true })
+      return true
+    },
+    /**
+     * Hand the chosen project to the existing order destination. The path and
+     * the project travel in the navigation params, so the viewer discovers that
+     * project and the order panel packages the board — no second packaging path.
+     */
+    orderProject(request) {
+      navigation += 1
+      const params: ViewerNavigationParams = {
+        destination: 'order',
+        path: request.boardPath,
+        kind: 'pcb',
+        projectPath: request.projectPath,
+        ...(request.schematicPath === undefined ? {} : { schematicPath: request.schematicPath }),
+        orderKind: request.kind,
+        navigationRevision: navigation,
+      }
+      ctx.sidebarRight?.openTab(HARDWARE_TAB_KIND, {
+        params: params as unknown as Readonly<Record<string, unknown>>,
+        revealIfOpened: true,
+      })
+    },
     async openNative(request) {
       await openArtifact({
         application: request.application,
@@ -239,6 +284,26 @@ export function apply(ctx: ClientContext): void {
     title: () => COPY.product.name,
   }) ?? (() => {}), 'hardware-ui: right-panel tab type')
 
+  // The Place Order view is its own tab: reachable with no engineering document
+  // open, and a single instance so a second menu click only brings it forward.
+  effect(() => ctx.sidebarRightTabs?.register({
+    id: PLACE_ORDER_TAB_ID,
+    kind: PLACE_ORDER_TAB_KIND,
+    title: () => COPY.order.placeOrder.title,
+  }) ?? (() => {}), 'hardware-ui: place order tab type')
+
+  // The desktop shell's Place Order menu (PO-02) needs one thing from this
+  // plugin: a way to ask for the workflow. It is a single handle with a single
+  // method, installed while the plugin is active and removed with it, so the
+  // menu never reaches into business logic and a reload keeps working.
+  if (typeof window !== 'undefined') {
+    effect(() => {
+      const handle = { placeOrder: (): boolean => controller.placeOrder() }
+      window.huaqiu = handle
+      return () => { if (window.huaqiu === handle) delete window.huaqiu }
+    }, 'hardware-ui: place order handle')
+  }
+
   const slots = ctx.slots
   if (slots === undefined) return
 
@@ -254,6 +319,18 @@ export function apply(ctx: ClientContext): void {
     orderTabRegistration() as never,
     OrderTabBody,
   )), 'hardware-ui: order page body')
+
+  // Project selection for the Place Order workflow: same panel seat, its own tab.
+  effect(() => slots.inject('sidebar.right.pane.tab', () => slots.register({
+    name: 'sidebar.right.pane.tab',
+    key: PLACE_ORDER_TAB_ID,
+    locale: HARDWARE_UI_NS,
+    inject: () => ({
+      discover: controller.discover,
+      installations: controller.installations,
+      orderProject: controller.orderProject,
+    }),
+  }, PlaceOrderBody)), 'hardware-ui: place order body')
 
   effect(() => slots.inject('settings.section', () => slots.register({
     name: 'settings.section',

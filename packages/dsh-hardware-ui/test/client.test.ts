@@ -29,7 +29,7 @@ vi.mock('three', () => {
 })
 vi.mock('three/addons/loaders/GLTFLoader.js', () => ({ GLTFLoader: class { async loadAsync() { return { scene: { traverse() {} }, scenes: [] } } } }))
 
-import { apply, HARDWARE_TAB_ID, HARDWARE_TAB_KIND, kindForPath } from '../src/client/index.js'
+import { apply, HARDWARE_TAB_ID, HARDWARE_TAB_KIND, PLACE_ORDER_TAB_ID, PLACE_ORDER_TAB_KIND, kindForPath } from '../src/client/index.js'
 import { openOrderPage } from '../src/client/order-page.js'
 import { missingState, selectedArtifact } from '../src/client/components.js'
 import { DESTINATIONS, DESTINATION_LABELS, applicationFor } from '../src/client/model.js'
@@ -49,10 +49,12 @@ interface Registration {
 function fakeContext(): {
   registrations: Registration[]
   tabTypes: unknown[]
+  opens: { kind: string; options?: { params?: Record<string, unknown>; revealIfOpened?: boolean } }[]
   context: Parameters<typeof apply>[0]
 } {
   const registrations: Registration[] = []
   const tabTypes: unknown[] = []
+  const opens: { kind: string; options?: { params?: Record<string, unknown>; revealIfOpened?: boolean } }[] = []
   const context = {
     slots: {
       inject: (_key: string, callback: () => () => void) => callback(),
@@ -67,9 +69,16 @@ function fakeContext(): {
         return () => {}
       },
     },
+    sidebarRight: {
+      // Same option shape the real service takes, so the recorded calls read
+      // like the panel's own behaviour.
+      openTab: (kind: string, options?: { params?: Record<string, unknown>; revealIfOpened?: boolean }) => {
+        opens.push({ kind, options })
+      },
+    },
     effect: (fn: () => (() => void) | void) => { fn() },
   }
-  return { registrations, tabTypes, context }
+  return { registrations, tabTypes, opens, context }
 }
 
 describe('client slot registrations', () => {
@@ -77,7 +86,8 @@ describe('client slot registrations', () => {
     const { registrations, tabTypes, context } = fakeContext()
     apply(context)
     expect(registrations.map(entry => entry.name)).toEqual([
-      // The product page, then the order-page tab body.
+      // The product page, the order page tab body, and the Place Order view.
+      'sidebar.right.pane.tab',
       'sidebar.right.pane.tab',
       'sidebar.right.pane.tab',
       'settings.section',
@@ -95,7 +105,8 @@ describe('client slot registrations', () => {
     // conversation would be a duplicate, so the seat is gone.
     expect(registrations.map(entry => entry.name)).not.toContain('conversation.header.leading')
     expect(registrations[0]?.key).toBe(HARDWARE_TAB_ID)
-    expect(tabTypes).toHaveLength(2)
+    expect(registrations[2]?.key).toBe(PLACE_ORDER_TAB_ID)
+    expect(tabTypes).toHaveLength(3)
     // The order page is its own tab type so one order never replaces another.
     expect(tabTypes[0]).toMatchObject({ kind: 'hardware-order', multiple: true })
     expect(tabTypes[1]).toEqual({
@@ -103,6 +114,12 @@ describe('client slot registrations', () => {
       kind: HARDWARE_TAB_KIND,
       keepMounted: true,
       default: true,
+      title: expect.any(Function),
+    })
+    // One Place Order view: a second menu press reveals it, never a duplicate.
+    expect(tabTypes[2]).toEqual({
+      id: PLACE_ORDER_TAB_ID,
+      kind: PLACE_ORDER_TAB_KIND,
       title: expect.any(Function),
     })
   })

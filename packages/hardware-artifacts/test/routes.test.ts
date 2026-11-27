@@ -7,7 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createHardwareHandler, type WorkspaceResolver } from '../src/routes.js'
 import { HardwareArtifactService } from '../src/service.js'
 
@@ -136,5 +136,48 @@ describe('session workspace as a base, not a boundary', () => {
       body: { path: sch, session: 'session-b' },
     })
     expect(crossed.status).toBe(412)
+  })
+})
+
+describe('placing an order is one request', () => {
+  const stubOrder = {
+    kind: 'pcb',
+    status: 'ready',
+    orderUrl: 'https://www.hqpcb.com/quote?type=PCB&id=7',
+    message: 'order created',
+    archive: { zipName: 'board.zip', zipBytes: 10, files: [] },
+    launched: false,
+  }
+
+  function ordered(): { handler: Handler; placeOrder: ReturnType<typeof vi.fn> } {
+    const service = new HardwareArtifactService({ kicadRoot: join(workspaceA, 'missing-kicad') })
+    const placeOrder = vi.fn(async () => stubOrder)
+    ;(service as unknown as { placeOrder: typeof placeOrder }).placeOrder = placeOrder
+    return { handler: createHardwareHandler(service, { resolveWorkspace: () => workspaceA }), placeOrder }
+  }
+
+  it('uploads without requiring a confirmation flag from the client', async () => {
+    const { handler, placeOrder } = ordered()
+    for (const kind of ['pcb', 'smt']) {
+      const reply = await call(handler, `/api/v1/hardware/order/${kind}`, {
+        method: 'POST',
+        // No `confirm`: the click is the request now.
+        body: { path: join(workspaceA, 'board.kicad_pcb'), quantity: 20 },
+      })
+      expect(reply.status).toBe(200)
+      expect(reply.body.orderUrl).toBe(stubOrder.orderUrl)
+      expect(reply.body.error).toBeUndefined()
+    }
+    expect(placeOrder).toHaveBeenCalledTimes(2)
+    // Nothing confirmation-shaped reaches the service either.
+    for (const args of placeOrder.mock.calls) expect(args[0]).not.toHaveProperty('confirm')
+  })
+
+  it('still refuses a request that names no board', async () => {
+    const { handler, placeOrder } = ordered()
+    const reply = await call(handler, '/api/v1/hardware/order/pcb', { method: 'POST', body: {} })
+    expect(reply.status).toBe(400)
+    expect(reply.body.error).toMatchObject({ code: 'invalid-request' })
+    expect(placeOrder).not.toHaveBeenCalled()
   })
 })

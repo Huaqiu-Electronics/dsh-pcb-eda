@@ -101,6 +101,30 @@ describe('deterministic discovery', () => {
     ])
   })
 
+  it('states order readiness from the files it found, and never from that it did not check', () => {
+    // One directory per case: discovery also assigns a unique schematic or board
+    // from the scanned tree, so a shared root would blur what is being asserted.
+    write('both/board.kicad_pro', '{}')
+    write('both/board.kicad_sch', schematic([]))
+    write('both/board.kicad_pcb')
+    write('nosch/board.kicad_pro', '{}')
+    write('nosch/board.kicad_pcb')
+    write('noboard/sch.kicad_pro', '{}')
+    write('noboard/sch.kicad_sch', schematic([]))
+    const service = new HardwareArtifactService()
+    const orderOf = (dir: string): unknown => service.discover(join(root, dir)).selected?.order
+
+    // A board and a schematic: both operations can be packaged.
+    expect(orderOf('both')).toEqual({ pcb: { ready: true }, pcba: { ready: true } })
+    // A board but no schematic: PCBA has no BOM or positions to export.
+    expect(orderOf('nosch')).toEqual({ pcb: { ready: true }, pcba: { ready: false, reason: 'no-schematic' } })
+    // A schematic but no board: neither operation has anything to manufacture.
+    expect(orderOf('noboard')).toEqual({
+      pcb: { ready: false, reason: 'no-board' },
+      pcba: { ready: false, reason: 'no-board' },
+    })
+  })
+
   it('requires explicit selection for multiple projects', () => {
     write('a.kicad_pro', '{}')
     write('b.kicad_pro', '{}')

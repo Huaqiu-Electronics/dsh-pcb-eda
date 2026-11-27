@@ -291,17 +291,11 @@ export function createHardwareHandler(
           return
         }
         if (req.method === 'POST' && p === `${HARDWARE_ROUTE_PREFIX}/order/pcb`) {
+          // No confirmation flag: the user's click on the order card is the
+          // request, and the panel shows the package before it appears. The
+          // agent's own tools keep their `confirm` argument; that is a model
+          // guard, not a second upload dialog.
           const body = await readJson(req) as Record<string, unknown>
-          if (body.confirm !== true) {
-            sendJson(res, 400, {
-              ok: false,
-              error: {
-                code: 'confirmation-required',
-                message: 'placing an order uploads the board files and requires explicit confirmation',
-              },
-            })
-            return
-          }
           const artifactPath = asString(body.path)
           if (artifactPath === undefined) {
             sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })
@@ -326,17 +320,8 @@ export function createHardwareHandler(
           return
         }
         if (req.method === 'POST' && p === `${HARDWARE_ROUTE_PREFIX}/order/smt`) {
+          // Same one-click contract as PCB: no confirmation-required gate.
           const body = await readJson(req) as Record<string, unknown>
-          if (body.confirm !== true) {
-            sendJson(res, 400, {
-              ok: false,
-              error: {
-                code: 'confirmation-required',
-                message: 'placing an assembly order uploads the board, BOM and positions and requires explicit confirmation',
-              },
-            })
-            return
-          }
           const artifactPath = asString(body.path)
           if (artifactPath === undefined) {
             sendJson(res, 400, { ok: false, error: { code: 'invalid-request', message: 'path is required' } })

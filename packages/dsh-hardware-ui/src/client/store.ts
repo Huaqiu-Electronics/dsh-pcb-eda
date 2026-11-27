@@ -96,6 +96,9 @@ const mutators = {
   applyNavigation(draft: Mutable<HardwareState>, params: ViewerNavigationParams): void {
     draft.activeDestination = params.destination
     if (params.projectPath !== undefined) draft.projectPath = params.projectPath
+    // An explicit schematic wins over whatever the tab was showing: an order
+    // carries the project it belongs to, not the previous artifact.
+    if (params.schematicPath !== undefined) draft.schematicPath = params.schematicPath
     if (params.path !== undefined) {
       if (params.destination === 'schematic' || params.destination === 'bom') {
         draft.schematicPath = params.path

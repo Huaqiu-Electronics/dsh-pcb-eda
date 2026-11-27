@@ -261,22 +261,52 @@ export const COPY = {
     get copyUrl(): string { return translateCopy('order.copyUrl') },
     get copied(): string { return translateCopy('order.copied') },
 
-    get confirmAria(): string { return translateCopy('order.confirmAria') },
-    get confirmTitlePcb(): string { return translateCopy('order.confirmTitlePcb') },
-    get confirmTitleSmt(): string { return translateCopy('order.confirmTitleSmt') },
-    get confirmBody(): string { return translateCopy('order.confirmBody') },
-    confirmZip: (zip: string, size: string): string => translateCopy('order.confirmZip', { zip, size }),
-    confirmPositions: (size: string): string => translateCopy('order.confirmPositions', { size }),
-    confirmBom: (size: string): string => translateCopy('order.confirmBom', { size }),
-    confirmHost: (baseUrl: string | undefined): string =>
-      baseUrl ?? translateCopy('order.confirmHostFallback'),
-    get confirmAck(): string { return translateCopy('order.confirmAck') },
-    get cancel(): string { return translateCopy('order.cancel') },
-    get uploadAndOpen(): string { return translateCopy('order.uploadAndOpen') },
-    get uploading(): string { return translateCopy('order.uploading') },
+    /**
+     * The one-click contract, stated once where the click happens.
+     *
+     * There is no confirmation dialog: the button uploads, so the panel says
+     * that plainly instead of asking afterwards.
+     */
+    get uploadHint(): string { return translateCopy('order.uploadHint') },
 
     get batch(): string { return translateCopy('order.batch') },
     batchUnits: (count: number): string => translateCopy('order.batchUnits', { count }),
+
+    /**
+     * The project-selection view in front of this destination.
+     *
+     * It only chooses *what* to order; the package, the price, the token and the
+     * page stay where they already were, so this block is deliberately short.
+     */
+    placeOrder: {
+      get title(): string { return translateCopy('order.placeOrder.title') },
+      get lead(): string { return translateCopy('order.placeOrder.lead') },
+      get workspace(): string { return translateCopy('order.placeOrder.workspace') },
+      get workspaceUnknown(): string { return translateCopy('order.placeOrder.workspaceUnknown') },
+      get refresh(): string { return translateCopy('order.placeOrder.refresh') },
+      get refreshing(): string { return translateCopy('order.placeOrder.refreshing') },
+      get loading(): string { return translateCopy('order.placeOrder.loading') },
+      get noProjects(): string { return translateCopy('order.placeOrder.noProjects') },
+      get noProjectsHint(): string { return translateCopy('order.placeOrder.noProjectsHint') },
+      discoveryFailed: (detail: string): string =>
+        translateCopy('order.placeOrder.discoveryFailed', { detail }),
+      get colProject(): string { return translateCopy('order.placeOrder.colProject') },
+      get colArtifacts(): string { return translateCopy('order.placeOrder.colArtifacts') },
+      get colActions(): string { return translateCopy('order.placeOrder.colActions') },
+      get pcbAction(): string { return translateCopy('order.placeOrder.pcbAction') },
+      get pcbaAction(): string { return translateCopy('order.placeOrder.pcbaAction') },
+      boardCount: (count: number): string => translateCopy('order.placeOrder.boardCount', { count }),
+      get noSchematic(): string { return translateCopy('order.placeOrder.noSchematic') },
+      get noBoard(): string { return translateCopy('order.placeOrder.noBoard') },
+      get needsKicad(): string { return translateCopy('order.placeOrder.needsKicad') },
+      get kicadReady(): string { return translateCopy('order.placeOrder.kicadReady') },
+      /** Emitted while the readiness probes are still in flight, never as a claim. */
+      get checking(): string { return translateCopy('order.placeOrder.checking') },
+      get needsSignIn(): string { return translateCopy('order.placeOrder.needsSignIn') },
+      get signInReady(): string { return translateCopy('order.placeOrder.signInReady') },
+      get selectedProject(): string { return translateCopy('order.placeOrder.selectedProject') },
+      get multipleProjects(): string { return translateCopy('order.placeOrder.multipleProjects') },
+    },
     quoteBasis: (count: number): string => translateCopy('order.quoteBasis', { count }),
   },
 

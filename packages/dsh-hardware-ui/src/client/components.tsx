@@ -261,6 +261,8 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
   const artifact = useStore(state => selectedArtifact(state, active))
   const missing = useStore(state => missingState(state, active))
   const workspaceRoot = useStore(state => state.workspaceRoot)
+  /** Operation the Place Order view picked, if this navigation came from it. */
+  const orderKind = params?.orderKind
   const cwd = useSessions?.(state => {
     if (sessionId === undefined) return undefined
     return state.byId[sessionId]?.cwd
@@ -425,6 +427,7 @@ export function HardwareViewerBody(props: HardwareProps): ReactNode {
             ...(sessionId === undefined ? {} : { session: sessionId }),
             revision: navRevision,
             configured: kicadConfigured,
+            ...(orderKind === undefined ? {} : { orderKind }),
           })]
         : [createElement('div', {
             key: 'missing',

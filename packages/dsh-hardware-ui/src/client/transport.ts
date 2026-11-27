@@ -264,9 +264,10 @@ export interface PlacedOrder {
 }
 
 /**
- * Submit one order. `confirm` is what the host requires; the panel sets it only
- * after the user confirms the upload in the dialog. The host never opens the
- * page by itself — the client shows `orderUrl` in its own Browser tab.
+ * Submit one order. The upload is the user's click on the order card, so there
+ * is no confirmation flag to pass and no second dialog to satisfy: the panel
+ * shows the exact package first, then posts it. The host never opens the page
+ * by itself — the client shows `orderUrl` in its own Browser tab.
  */
 export async function placeOrder(
   kind: 'pcb' | 'smt',
@@ -277,7 +278,6 @@ export async function placeOrder(
     cwd?: string
     session?: string
     quantity?: number
-    confirm: boolean
   },
   signal?: AbortSignal,
 ): Promise<PlacedOrder> {

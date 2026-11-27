@@ -61,6 +61,11 @@ export interface HardwareProjectInfo {
   readonly boards?: readonly HardwareArtifactInfo[]
   readonly defaultBoard?: string
   readonly selectionRequired?: boolean
+  /** Static order readiness the Host derives from the project's own files. */
+  readonly order?: {
+    readonly pcb: { readonly ready: boolean; readonly reason?: string }
+    readonly pcba: { readonly ready: boolean; readonly reason?: string }
+  }
 }
 
 export interface InstallationsInfo {
@@ -146,6 +151,22 @@ export interface ViewerNavigationParams {
   /** Source revision of the artifact at navigation time, when known. */
   readonly revision?: string
   readonly projectPath?: string
+  /**
+   * The manufacturing operation the user picked in the Place Order view.
+   *
+   * The order destination serves both; this only decides which workflow card's
+   * confirmation opens first, so the choice between PCB and PCBA is carried
+   * instead of being lost on the way.
+   */
+  readonly orderKind?: 'pcb' | 'smt'
+  /**
+   * Root schematic of the project being ordered.
+   *
+   * Discovery also assigns a unique schematic from the scanned tree, so a tab
+   * that already had another project selected would otherwise package the new
+   * board's PCBA with the old project's BOM and positions.
+   */
+  readonly schematicPath?: string
   /** Monotonic navigation counter: increments even when params are unchanged. */
   readonly navigationRevision: number
 }
@@ -175,6 +196,25 @@ export interface HardwareController {
   configForm(): ConfigFormLike<HardwareInstallationConfig> | undefined
   /** Open or retarget the product viewer tab. */
   openDestination(destination: HardwareDestination, path?: string): void
+  /**
+   * Open the plugin-owned Place Order view (project selection) in the panel.
+   *
+   * Idempotent by design: the view is one tab, so a second click from the
+   * desktop menu reveals the tab that is already there instead of opening a
+   * second copy. Returns whether a panel was asked to open it.
+   */
+  placeOrder(): boolean
+  /**
+   * Send one discovered project to the order destination, carrying the
+   * operation the user picked there.
+   */
+  orderProject(request: {
+    readonly projectPath: string
+    readonly boardPath: string
+    /** The project's root schematic, so PCBA orders this project, not the last one. */
+    readonly schematicPath?: string
+    readonly kind: 'pcb' | 'smt'
+  }): void
   /** Launch the exact artifact in its configured native application. */
   openNative(request: {
     application: NativeApplication

@@ -3,8 +3,9 @@
  *
  * The panel never prices anything and never keeps its own order backend. It
  * prepares the fabrication package with `kicad-cli` through the host, shows
- * exactly what would be uploaded, and submits only after the user confirms in
- * a dialog. The URL shown afterwards is the backend's own URL, passed through.
+ * exactly which files and which board facts the upload carries, and then
+ * uploads on the click itself — one click, one real order. The URL shown
+ * afterwards is the backend's own URL, passed through.
  */
 import { createElement, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { isAbortError } from './ecad.js'
@@ -27,6 +28,14 @@ export interface OrderPanelProps {
   /** DSH session the panel belongs to, used to scope host-side discovery. */
   readonly session?: string
   readonly configured: boolean
+  /**
+   * Operation the user already chose (Place Order view).
+   *
+   * It places that order as soon as the package and the account are ready,
+   * because choosing the operation *is* the click there. The card stays visible
+   * and its button reads busy while the upload runs.
+   */
+  readonly focus?: 'pcb' | 'smt'
 }
 
 const QUANTITIES = [5, 20, 100] as const
@@ -67,15 +76,6 @@ const LINK: CSSProperties = {
   color: C.info, fontSize: 11, fontFamily: MONO, wordBreak: 'break-all', textDecoration: 'underline',
   textUnderlineOffset: 2,
 }
-const DIALOG_BACKDROP: CSSProperties = {
-  position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(2px)',
-  display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 14, zIndex: 20,
-}
-const DIALOG: CSSProperties = {
-  width: '100%', maxWidth: 420, maxHeight: '90%', overflow: 'auto', background: C.card,
-  border: `1px solid ${C.border}`, borderRadius: R.lg, boxShadow: '0 24px 60px rgba(0,0,0,0.45)',
-  padding: 14, display: 'flex', flexDirection: 'column', gap: 10,
-}
 
 /** One workflow card: what it will do, what it needs, and its action. */
 function workflowCard(input: {
@@ -87,9 +87,12 @@ function workflowCard(input: {
   readonly action: string
   readonly onAction: () => void
   readonly busy: boolean
+  /** Another order is in flight: both cards wait, not just the pressed one. */
+  readonly locked?: boolean
   readonly blocked?: string
 }): ReactNode {
   const blocked = input.blocked !== undefined
+  const off = blocked || input.busy || input.locked === true
   return createElement(
     'div',
     { style: cardStyle({ gap: 9 }), 'data-hardware-order-card': input.tag.toLowerCase() },
@@ -116,8 +119,8 @@ function workflowCard(input: {
     createElement(
       'button',
       {
-        type: 'button', style: { ...buttonStyle('primary'), width: '100%', ...disabled(blocked || input.busy) },
-        disabled: blocked || input.busy,
+        type: 'button', style: { ...buttonStyle('primary'), width: '100%', ...disabled(off) },
+        disabled: off,
         'data-hardware-order-action': input.tag.toLowerCase(),
         onClick: input.onAction,
       },
@@ -127,24 +130,65 @@ function workflowCard(input: {
 }
 
 export function OrderPanel(props: OrderPanelProps): ReactNode {
-  const { boardPath, boardTitle, schematicPath, workspaceRoot, session, configured } = props
+  const { boardPath, boardTitle, schematicPath, workspaceRoot, session, configured, focus } = props
   const [config, setConfig] = useState<OrderConfigInfo>()
   const [prepared, setPrepared] = useState<FabricationProjection>()
   const [preparing, setPreparing] = useState(false)
   const [message, setMessage] = useState<string>()
   const [quantity, setQuantity] = useState<number>(20)
-  const [confirming, setConfirming] = useState<'pcb' | 'smt'>()
-  const [acknowledged, setAcknowledged] = useState(false)
   const [placing, setPlacing] = useState<'pcb' | 'smt'>()
   const [placed, setPlaced] = useState<PlacedOrder>()
   const [copied, setCopied] = useState(false)
   const [reopening, setReopening] = useState(false)
   const live = useRef(true)
+  /** One in-flight upload at a time, checked before React can re-render. */
+  const uploading = useRef(false)
+  /** `${boardPath}:${kind}` already auto-placed, so a requote cannot upload twice. */
+  const autoPlaced = useRef<string>()
 
   useEffect(() => {
     live.current = true
     return () => { live.current = false }
   }, [])
+
+  const submit = async (kind: 'pcb' | 'smt'): Promise<void> => {
+    // One upload at a time: a double click must not create two orders, and the
+    // guard is a ref so it holds before React re-renders the disabled card.
+    if (uploading.current) return
+    uploading.current = true
+    setPlacing(kind)
+    setMessage(undefined)
+    try {
+      const result = await placeOrder(kind, {
+        path: boardPath,
+        ...(schematicPath === undefined ? {} : { schematic: schematicPath }),
+        ...(workspaceRoot === undefined ? {} : { cwd: workspaceRoot }),
+        ...(session === undefined ? {} : { session }),
+        quantity,
+      }, undefined)
+      setPlaced(result)
+      // The order exists from here on; show it where the user is working.
+      openOrderPage(result.orderUrl)
+    } catch (error) {
+      setMessage(messageOf(error))
+    } finally {
+      uploading.current = false
+      setPlacing(undefined)
+    }
+  }
+
+  // A user who picked PCBA in the Place Order view has already made the choice:
+  // the order is placed as soon as the package and the account are ready, with
+  // the same single upload path the card uses. The key keeps a second render
+  // (or a requote) from uploading twice for one visit.
+  useEffect(() => {
+    if (focus === undefined || prepared === undefined || !live.current) return
+    if (config?.hasToken !== true || placing !== undefined) return
+    const key = `${boardPath}:${focus}`
+    if (autoPlaced.current === key) return
+    autoPlaced.current = key
+    void submit(focus)
+  }, [focus, prepared, config, boardPath, placing])
 
   useEffect(() => {
     loadOrderConfig()
@@ -153,7 +197,7 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
   }, [])
 
   // Preparing the package is local: gerbers, drill files and CSVs come from the
-  // saved board. Nothing leaves the machine until the user confirms an order.
+  // saved board. Nothing leaves the machine until the user clicks an order card.
   useEffect(() => {
     if (!configured) {
       setPrepared(undefined)
@@ -175,30 +219,6 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
 
   const facts = prepared?.facts
   const specs = useMemo(() => (facts === undefined ? [] : specRows(facts)), [facts])
-
-  const submit = async (kind: 'pcb' | 'smt'): Promise<void> => {
-    setPlacing(kind)
-    setMessage(undefined)
-    try {
-      const result = await placeOrder(kind, {
-        path: boardPath,
-        ...(schematicPath === undefined ? {} : { schematic: schematicPath }),
-        ...(workspaceRoot === undefined ? {} : { cwd: workspaceRoot }),
-        ...(session === undefined ? {} : { session }),
-        quantity,
-        confirm: true,
-      }, undefined)
-      setPlaced(result)
-      setConfirming(undefined)
-      setAcknowledged(false)
-      // The order exists from here on; show it where the user is working.
-      openOrderPage(result.orderUrl)
-    } catch (error) {
-      setMessage(messageOf(error))
-    } finally {
-      setPlacing(undefined)
-    }
-  }
 
   const copy = async (): Promise<void> => {
     if (placed === undefined) return
@@ -289,8 +309,9 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       ? [{ label: COPY.order.boardFile, value: boardTitle }]
       : specs,
     action: COPY.order.pcbAction,
-    onAction: () => { setAcknowledged(false); setConfirming('pcb') },
+    onAction: () => { void submit('pcb') },
     busy: placing === 'pcb',
+    locked: placing !== undefined && placing !== 'pcb',
     ...(configured && prepared !== undefined
       ? tokenReady ? {} : { blocked: COPY.order.signInToOrder }
       : { blocked: configured ? COPY.order.waitingForPackage : COPY.order.configureToPackage }),
@@ -309,8 +330,9 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
       { label: COPY.order.credential, value: tokenReady ? COPY.order.signedIn : COPY.order.signedOut },
     ],
     action: COPY.order.smtAction,
-    onAction: () => { setAcknowledged(false); setConfirming('smt') },
+    onAction: () => { void submit('smt') },
     busy: placing === 'smt',
+    locked: placing !== undefined && placing !== 'smt',
     ...(assembly === undefined
       ? { blocked: COPY.order.selectRootSchematic }
       : tokenReady
@@ -363,59 +385,6 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     ),
   )
 
-  const dialog = confirming === undefined ? null : createElement(
-    'div',
-    { style: DIALOG_BACKDROP, role: 'dialog', 'aria-modal': true, 'aria-label': COPY.order.confirmAria, 'data-hardware-order-confirm': confirming },
-    createElement(
-      'div',
-      { style: DIALOG },
-      createElement(
-        'div',
-        { style: { display: 'flex', flexDirection: 'column', gap: 3 } },
-        createElement('h4', { style: { margin: 0, fontSize: 13, fontWeight: 600 } },
-          confirming === 'pcb' ? COPY.order.confirmTitlePcb : COPY.order.confirmTitleSmt),
-        createElement('p', { style: MUTED }, COPY.order.confirmBody),
-      ),
-      createElement(
-        'ul',
-        { style: { margin: 0, paddingLeft: 16, fontSize: 11, color: C.text2, lineHeight: 1.7 } },
-        createElement('li', null, COPY.order.confirmZip(prepared?.archive.zipName ?? 'board.zip', zipSize ?? '—')),
-        ...(confirming === 'smt'
-          ? [
-              createElement('li', { key: 'pos' }, COPY.order.confirmPositions(assembly === undefined ? '—' : formatBytes(assembly.positionsBytes))),
-              createElement('li', { key: 'bom' }, COPY.order.confirmBom(assembly === undefined ? '—' : formatBytes(assembly.bomBytes))),
-            ]
-          : []),
-        createElement('li', { key: 'host' }, createElement('span', { style: MONO_TEXT }, COPY.order.confirmHost(config?.baseUrl))),
-      ),
-      createElement(
-        'label',
-        { style: { ...ROW, alignItems: 'flex-start', fontSize: 11, color: C.text2, cursor: 'pointer' } },
-        createElement('input', {
-          type: 'checkbox', checked: acknowledged,
-          style: { marginTop: 2, accentColor: C.accent },
-          onChange: (event: { currentTarget: HTMLInputElement }) => { setAcknowledged(event.currentTarget.checked) },
-          'data-hardware-order-ack': true,
-        }),
-        COPY.order.confirmAck,
-      ),
-      createElement(
-        'div',
-        { style: { ...ROW, justifyContent: 'flex-end' } },
-        createElement('button', {
-          type: 'button', style: buttonStyle('quiet'),
-          onClick: () => { setConfirming(undefined); setAcknowledged(false) },
-        }, COPY.order.cancel),
-        createElement('button', {
-          type: 'button',
-          style: { ...buttonStyle('primary'), ...disabled(!acknowledged || placing !== undefined) },
-          disabled: !acknowledged || placing !== undefined,
-          'data-hardware-order-confirm-submit': true,
-          onClick: () => { void submit(confirming) },
-        }, placing === undefined ? COPY.order.uploadAndOpen : COPY.order.uploading),
-      ),
-    ),
-  )
 
   return createElement(
     'div',
@@ -447,7 +416,8 @@ export function OrderPanel(props: OrderPanelProps): ReactNode {
     ),
     packageCard,
     resultCard,
+    // One click uploads: say so where the click happens, not in a dialog after it.
+    createElement('p', { style: { ...MUTED, fontSize: 10 }, 'data-hardware-order-hint': true }, COPY.order.uploadHint),
     agentHint,
-    dialog,
   )
 }

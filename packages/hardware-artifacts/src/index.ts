@@ -26,6 +26,7 @@ export type {
   OpenArtifactRequest,
   OpenArtifactResult,
   OrderConfigInfo,
+  OrderReadiness,
   PlaceOrderRequest,
   PlaceOrderResult,
 } from './service.js'

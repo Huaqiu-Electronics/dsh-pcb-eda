@@ -405,11 +405,13 @@ export interface HardwarePreviewProps {
   readonly revision: number
   /** Whether a validated KiCad installation exists. */
   readonly configured?: boolean
+  /** Operation the user picked in the Place Order view, if any. */
+  readonly orderKind?: 'pcb' | 'smt'
 }
 
 /** Destination → preview dispatcher. */
 export function HardwarePreview({
-  destination, artifact, schematicPath, workspaceRoot, session, revision, configured = false,
+  destination, artifact, schematicPath, workspaceRoot, session, revision, configured = false, orderKind,
 }: HardwarePreviewProps): ReactNode {
   if (artifact === undefined) return null
   const key = `${destination}:${artifact.path}:${String(revision)}`
@@ -446,5 +448,6 @@ export function HardwarePreview({
     ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
     ...(session === undefined ? {} : { session }),
     configured,
+    ...(orderKind === undefined ? {} : { focus: orderKind }),
   })
 }

@@ -39,6 +39,13 @@ export interface HardwareArtifact {
   readonly revision?: string
 }
 
+/** What one manufacturing operation needs from a project, and whether it has it. */
+export interface OrderReadiness {
+  readonly ready: boolean
+  /** Why the operation is unavailable; absent when `ready`. */
+  readonly reason?: string
+}
+
 export interface HardwareProject {
   readonly path: string
   readonly name: string
@@ -54,6 +61,19 @@ export interface HardwareProject {
   readonly boards: readonly HardwareArtifact[]
   readonly mechanical: readonly HardwareArtifact[]
   readonly selectionRequired: boolean
+  /**
+   * Static order readiness, derived from the artifacts the project already has.
+   *
+   * Deliberately conservative: PCB needs a saved board; assembly needs a board
+   * *and* the project schematic, because the positions and the BOM are exported
+   * from it. Neither says anything about KiCad being installed or the user being
+   * signed in — those live in the order config, and the panel asks the Host for
+   * them separately rather than guessing here.
+   */
+  readonly order: {
+    readonly pcb: OrderReadiness
+    readonly pcba: OrderReadiness
+  }
 }
 
 export interface DiscoveryResult {
@@ -849,6 +869,17 @@ export class HardwareArtifactService {
 
     const sourceSchematic = schematicPath === undefined ? undefined : artifact('schematic', schematicPath, projectPath)
     const sourceBoard = ownershipAmbiguous ? undefined : owned
+    // Order readiness is a statement about the files, not about the toolchain:
+    // a board can be packaged whatever KiCad's state is, and assembly additionally
+    // needs the schematic the positions and BOM are exported from.
+    const order = {
+      pcb: boards.length === 0 ? { ready: false, reason: 'no-board' } : { ready: true },
+      pcba: boards.length === 0
+        ? { ready: false, reason: 'no-board' }
+        : sourceSchematic === undefined
+          ? { ready: false, reason: 'no-schematic' }
+          : { ready: true },
+    } as const
     return {
       path: projectPath,
       name,
@@ -864,6 +895,7 @@ export class HardwareArtifactService {
       boards,
       mechanical,
       selectionRequired: boards.length > 1 && ownershipAmbiguous,
+      order,
     }
   }
 
