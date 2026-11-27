@@ -34,7 +34,7 @@ import { COPY } from './copy.js'
 import type { ConfigFormLike, HardwareInstallationConfig } from './model.js'
 import { ToolchainCard, TOOLCHAIN_ICONS } from './toolchain-view.js'
 import {
-  setupComplete, type ToolchainController, type ToolchainId, type ToolchainSnapshot, type ToolchainStatus,
+  jobRunning, setupComplete, type ToolchainController, type ToolchainId, type ToolchainSnapshot, type ToolchainStatus,
 } from './toolchain.js'
 import { buttonStyle, C, disabled, MUTED, R } from './theme.js'
 
@@ -100,18 +100,21 @@ export function onboardingPhase(input: {
 /**
  * May the footer's primary button submit?
  *
- * The prototype's wizard card carries no per-card validate control, so this
- * button is the step's *only* way to persist a typed path. Gating it on "both
- * tools already configured" made a clean first launch a dead end: nothing could
- * be configured because the button that configures was disabled. Readiness is
- * therefore "there is something to save".
+ * Two gates, both asked for after the first-run walk:
+ *   - **No run in flight.** While a toolchain is downloading or extracting, the
+ *     step must not hand itself back: the install owns the profile, and
+ *     "Get Started" would dismiss the modal out from under the bar it shows.
+ *   - **Something usable.** At least one tool is already configured, or the text
+ *     in an input has been verified against the Host (`checks`). A merely
+ *     non-empty input is not enough: the button used to be pressed with garbage
+ *     paths and then reported the Host's rejection, which is a worse first run
+ *     than a disabled button that lights up the moment a path checks out.
  */
 export function saveReady(snapshot: ToolchainSnapshot): boolean {
   if (snapshot.saving !== undefined) return false
-  if (TOOLCHAIN_IDS.some(id => (snapshot.drafts[id] ?? '').trim() !== '')) return true
-  return snapshot.status === undefined
-    ? false
-    : TOOLCHAIN_IDS.some(id => snapshot.status![id].state === 'configured')
+  if (TOOLCHAIN_IDS.some(id => jobRunning(snapshot.jobs[id]))) return false
+  if (TOOLCHAIN_IDS.some(id => snapshot.status?.[id].state === 'configured')) return true
+  return TOOLCHAIN_IDS.some(id => snapshot.checks[id]?.state === 'valid')
 }
 
 /** Fields of the stored configuration this step reacts to. */function sameConfig(left: HardwareInstallationConfig | undefined, right: HardwareInstallationConfig | undefined): boolean {
@@ -190,7 +193,9 @@ function Glyph(props: { readonly path: string; readonly size?: number; readonly 
 }
 
 /** Stable empty snapshot for the no-controller case (identity must not churn). */
-const EMPTY: ToolchainSnapshot = { loading: true, jobs: {}, drafts: { kicad: '', solidcraft: '' }, toasts: [] }
+const EMPTY: ToolchainSnapshot = {
+  loading: true, jobs: {}, drafts: { kicad: '', solidcraft: '' }, checks: {}, confirmed: {}, toasts: [],
+}
 const emptySnapshot = (): ToolchainSnapshot => EMPTY
 
 /**

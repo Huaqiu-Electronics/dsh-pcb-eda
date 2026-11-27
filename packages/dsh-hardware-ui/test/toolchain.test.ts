@@ -54,14 +54,18 @@ function job(phase: InstallJob['phase'], extra: Partial<InstallJob> = {}): Insta
 /** A transport that answers from a script, and records what was asked. */
 function fakeTransport(script: {
   status?: ToolchainStatus | (() => ToolchainStatus)
-  save?: (tool: string, path: string) => { ok: boolean; error?: string; version?: string }
+  save?: (tool: string, path: string) => { ok: boolean; error?: string; version?: string; installPath?: string }
+  validate?: (tool: string, path: string) => { ok: boolean; error?: string; version?: string; installPath?: string }
 } = {}): ToolchainTransport & { readonly calls: string[] } {
   const calls: string[] = []
   const answer = (): ToolchainStatus => (typeof script.status === 'function' ? script.status() : script.status ?? status())
   return {
     calls,
     status: async ids => { calls.push(ids === undefined || ids.length === 0 ? 'status' : `status:${ids.join('|')}`); return answer() },
-    validate: async (_tool, path) => { calls.push(`validate:${path}`); return { ok: true } },
+    validate: async (tool, path) => {
+      calls.push(`validate:${path}`)
+      return script.validate?.(tool, path) ?? { ok: true, version: '10.0.7', installPath: path }
+    },
     save: async (tool, path) => {
       calls.push(`save:${tool}:${path}`)
       return script.save?.(tool, path) ?? { ok: true, version: '10.0.7', installPath: path }
@@ -206,6 +210,83 @@ describe('toolchain controller', () => {
     expect(outcome.ok).toBe(false)
     expect(controller.getSnapshot().toasts.at(-1)?.tone).toBe('warn')
     expect(controller.getSnapshot().saving).toBeUndefined()
+  })
+
+  it('a save adopts the stored root, so the card stops saying "not saved"', async () => {
+    // Reported: the user picked a validated executable, the Host accepted it, the
+    // toast said so, and the card still read "Not saved · click Validate and save"
+    // because the input kept the executable path while the Host stored the root.
+    const transport = fakeTransport({
+      status: () => status({ kicad: tool('kicad', 'configured', { version: '10.0.7', installPath: 'C:\\KiCad\\10.0' }) }),
+      save: () => ({ ok: true, version: '10.0.7', installPath: 'C:\\KiCad\\10.0' }),
+    })
+    controller = new ToolchainController(transport, 1_000_000)
+    controller.setDraft('kicad', 'C:\\KiCad\\10.0\\bin\\kicad-cli.exe')
+
+    const outcome = await controller.save('kicad', 'C:\\KiCad\\10.0\\bin\\kicad-cli.exe')
+
+    expect(outcome.ok).toBe(true)
+    const snapshot = controller.getSnapshot()
+    // The input now shows what is stored, so the "unsaved" verdict cannot survive.
+    expect(snapshot.drafts.kicad).toBe('C:\\KiCad\\10.0')
+    expect(snapshot.checks.kicad).toMatchObject({ state: 'valid', version: '10.0.7' })
+    // …and the card carries a success badge instead of a path line.
+    expect(snapshot.confirmed.kicad).toMatchObject({ version: '10.0.7' })
+  })
+
+  it('the success badge retracts itself after a while', async () => {
+    vi.useFakeTimers()
+    try {
+      controller = new ToolchainController(fakeTransport(), 1_000_000)
+      await controller.save('kicad', '/opt/kicad')
+      expect(controller.getSnapshot().confirmed.kicad).toBeDefined()
+      vi.advanceTimersByTime(6_500)
+      expect(controller.getSnapshot().confirmed.kicad).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('typing a path asks the Host for its verdict instead of trusting the text', async () => {
+    vi.useFakeTimers()
+    try {
+      const transport = fakeTransport({
+        validate: (_tool, path) => path === 'C:\\Good' ? { ok: true, version: '10.0.7' } : { ok: false, error: 'no kicad-cli' },
+      })
+      controller = new ToolchainController(transport, 1_000_000)
+
+      controller.setDraft('kicad', 'C:\\Good')
+      expect(controller.getSnapshot().checks.kicad?.state).toBe('pending')
+      await vi.advanceTimersByTimeAsync(600)
+      expect(controller.getSnapshot().checks.kicad).toMatchObject({ state: 'valid', version: '10.0.7' })
+
+      controller.setDraft('kicad', 'C:\\Bad')
+      await vi.advanceTimersByTimeAsync(600)
+      expect(controller.getSnapshot().checks.kicad).toMatchObject({ state: 'invalid', error: 'no kicad-cli' })
+
+      // Emptying the field drops the verdict instead of keeping a stale one.
+      controller.setDraft('kicad', '  ')
+      expect(controller.getSnapshot().checks.kicad).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('a late answer cannot overwrite a newer verdict', async () => {
+    vi.useFakeTimers()
+    try {
+      const transport = fakeTransport({
+        validate: (_tool, path) => path === 'C:\\Slow' ? { ok: false, error: 'stale' } : { ok: true, version: '10.0.7' },
+      })
+      controller = new ToolchainController(transport, 1_000_000)
+      controller.setDraft('kicad', 'C:\\Slow')
+      await vi.advanceTimersByTimeAsync(600)
+      controller.setDraft('kicad', 'C:\\Fast')
+      await vi.advanceTimersByTimeAsync(600)
+      expect(controller.getSnapshot().checks.kicad?.state).toBe('valid')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('an install the host cannot offer degrades to a warning, not an error', async () => {

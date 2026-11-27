@@ -158,9 +158,11 @@ async function defaultVersionProbe(executable: string, tool: ToolchainId): Promi
   })
 }
 
-/** The per-user toolchain root, following the DSH home convention (§8.1). */
+/** The per-user toolchain root, following the harness-home convention (§8.1). */
 export function defaultManagedRoot(env: Readonly<Record<string, string | undefined>> = process.env): string {
-  const home = env.DSH_HOME !== undefined && env.DSH_HOME !== '' ? resolve(env.DSH_HOME) : join(homedir(), '.dsh')
+  // `$DSH_HOME` wins; the fallback is this product's own root (`~/.huaqiu-eda`),
+  // not the upstream `~/.dsh` — a machine that runs both must not mix them.
+  const home = env.DSH_HOME !== undefined && env.DSH_HOME !== '' ? resolve(env.DSH_HOME) : join(homedir(), '.huaqiu-eda')
   return join(home, 'toolchains')
 }
 

@@ -351,11 +351,20 @@ describe('wizard primary button readiness', () => {
     target: { platform: 'win32', arch: 'x64', downloadsSupported: true },
     official: { kicad: 'https://www.kicad.org/download/', solidcraft: 'https://example.test/' },
   })
-  const base = { loading: false, jobs: {}, drafts: { kicad: '', solidcraft: '' }, toasts: [] } as const
+  const base = {
+    loading: false, jobs: {}, checks: {}, confirmed: {},
+    drafts: { kicad: '', solidcraft: '' }, toasts: [],
+  } as const
 
-  it('is enabled as soon as one path is typed', () => {
-    expect(saveReady({ ...base, drafts: { kicad: 'C:/KiCad/10.0', solidcraft: '' } })).toBe(true)
-    expect(saveReady({ ...base, drafts: { kicad: '   ', solidcraft: 'C:/SolidCraft' } })).toBe(true)
+  it('lights up only for a path the Host has verified', () => {
+    // A typed-but-unverified path is not usable: the button stays grey until the
+    // check comes back valid (the input's own verdict, not the text's shape).
+    expect(saveReady({ ...base, drafts: { kicad: 'C:/KiCad/10.0', solidcraft: '' } })).toBe(false)
+    expect(saveReady({ ...base, drafts: { kicad: 'C:/KiCad/10.0', solidcraft: '' }, checks: { kicad: { state: 'pending' } } })).toBe(false)
+    expect(saveReady({
+      ...base, drafts: { kicad: 'C:/KiCad/10.0', solidcraft: '' }, checks: { kicad: { state: 'valid', version: '10.0.7' } },
+    })).toBe(true)
+    expect(saveReady({ ...base, drafts: { kicad: '', solidcraft: 'C:/SolidCraft' }, checks: { solidcraft: { state: 'invalid' } } })).toBe(false)
   })
 
   it('is enabled when a tool is already configured, so the step can simply end', () => {
@@ -368,7 +377,21 @@ describe('wizard primary button readiness', () => {
   })
 
   it('stays disabled while a write is in flight', () => {
-    expect(saveReady({ ...base, saving: 'kicad', drafts: { kicad: 'C:/KiCad/10.0', solidcraft: '' } })).toBe(false)
+    expect(saveReady({ ...base, saving: 'kicad', checks: { kicad: { state: 'valid' } } })).toBe(false)
+  })
+
+  it('stays disabled while either toolchain is downloading or extracting', () => {
+    for (const phase of ['download', 'verify', 'extract', 'layout', 'promote'] as const) {
+      expect(saveReady({
+        ...base, status: status('configured'),
+        jobs: { kicad: { id: 'j1', tool: 'kicad', version: '10.0.7', phase, received: 1, total: 2, message: '', startedAt: 1 } },
+      })).toBe(false)
+    }
+    // A finished run no longer holds the step back.
+    expect(saveReady({
+      ...base, checks: { kicad: { state: 'valid' } },
+      jobs: { kicad: { id: 'j1', tool: 'kicad', version: '10.0.7', phase: 'done', received: 1, total: 1, message: '', startedAt: 1 } },
+    })).toBe(true)
   })
 })
 

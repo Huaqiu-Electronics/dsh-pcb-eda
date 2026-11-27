@@ -276,6 +276,97 @@ fires once per tool.
 
 ---
 
+### 4.8 Follow-up round: own home, quiet save badge, toast layer, gated wizard, Windows command manager
+
+Five items reported after the first pass, all fixed in this round.
+
+**1. The fork got its own home directory.** `~/.huaqiu-eda` instead of `~/.dsh`. Changing the library
+constant (`DSH_HOME_DIR_NAME`) turned out to be the wrong seam: the harness's own
+`agent-instructions` specs embed display-path byte budgets (`~/.dsh/AGENTS.md` is 14 chars, the new name
+is 23), so eight context-rendering tests started failing for a reason that has nothing to do with
+hardware. Reverted, and the product now injects the home at its entrance instead:
+`@deepseek-ai/dsh-home-paths` exports `HUAQIU_HOME_DIR_NAME` and `applyProductHome(env, home)` (explicit
+`DSH_HOME` wins, blank counts as unset, result is `resolve()`d back into the env so children inherit it),
+called from `apps/desktop/src/main.ts::main()` and `apps/desktop-host/src/cli.ts::runDesktopCli()` — which
+covers both the Electron shell and the `dsh` command on `PATH`. The dev launcher
+(`scripts/launch-dsh-standalone.mjs`) and the managed-download fallback default to `~/.huaqiu-eda` as
+well. Verified in `home-paths.spec.ts` (18 passed, one new case covering explicit-override, blank
+override, `~` expansion and the write-back). Existing `~/.dsh` data is left untouched — nothing migrates
+it automatically.
+
+**2. The settings card no longer lies after a successful save.** Root cause: `save()` stored the *root*
+the Host resolved while the input still held the *executable path* the user pasted, so the draft never
+matched and the verdict stayed on `Not saved · click Validate and save` forever — with the raw
+`cliPath` printed in place of the verdict. Now the controller adopts the resolved root into both
+`roots[tool]` and the input, patches the check state to `valid`, and raises a time-boxed confirmation
+(`CONFIRM_MS = 6 s`): the card renders a green badge (`Saved v10.0.7`, or plain `Saved` when the Host
+reports no version) with `role="status"` and `data-hardware-toolchain-confirmed`, and it disappears on
+its own. Configured-and-in-sync cards show *nothing* — the resolved path is never printed. Typing into
+the field now debounces a Host `validate` call (`CHECK_MS = 500`) with a sequence guard so a late answer
+cannot overwrite a newer verdict (`pending` / `valid` / `invalid`, plus the error line).
+
+**3. Toasts paint above the dimming overlay.** `ToolchainToastHost` was at `zIndex: 2100`, below the
+settings overlay. Now `2400`. Covered by a jsdom test, not by eye (see the note below).
+
+**4. The wizard cannot be entered without a validated tool.** `saveReady()` was "something is
+configured"; it is now: not while saving, not while any tool's job is running (download, verify, extract,
+layout, promote all count as busy), and only when at least one tool is `configured` or carries a
+`valid` check. So with both downloads in flight, or with a blank/unchecked path, `Save & Get Started` is
+greyed out. Unit-tested for each state; discovery pre-filling a found executable counts as valid, so the
+button lights up without the user retyping anything.
+
+**5. `Application → Manage dsh Command` failed on this PC.** The packaged worker was shipped as
+`resources/runtime/cli/command-manager.js` in a directory with **no `package.json`**, so Node loaded the
+ESM bundle as CommonJS and died on `Unexpected token 'export'`; the desktop side only saw an empty
+stdout and reported `Command-manager process failed.` Reproduced by running the installed
+`command-manager.js` with the bundled node (`v24.21.0`) and fixed by packaging it as
+`command-manager.mjs` (`prepare-runtime.ts`, entry name in `command-management.ts`). Proven on the real
+install: `node command-manager.mjs inspect` returned `{"state":{...ok:true}}` where the `.js` threw. The
+worker's `EIO` message now also carries the first three stderr lines, so the next packaging mistake is
+diagnosable instead of silent. **The installed app still contains the old build** — this needs a repack
+(M9).
+
+Verification for this round: client **156 passed** (147 from the first pass plus 9 DOM-level tests in
+`toolchain-view.test.tsx`, which assert the save badge, the absent path, the
+`data-hardware-toolchain-check` attribute, the wizard `Ready` badge states, the picker scrim's alpha
+and the toast layer height in jsdom);
+host `148` passed; harness `home-paths` 18 passed and the five desktop specs 29 passed/3 skipped; both
+`tsc --noEmit` runs clean; `agent-instructions.spec.ts` back to its baseline (3 failed — Windows
+symlink `EPERM`, environmental). One thing could not be shown live: the dev web server on `:3080`
+kept serving a **frozen** 21 MB client bundle (byte-identical after injecting a `throw` into
+`lib/client.js`, no `data-hardware-toolchain-check`, toast host still computing `2100`), so the badge,
+the toast layer and the gated button were verified at the DOM level in jsdom rather than in a browser
+session. The runtime source it serves from was not identified; a fresh install into a clean home,
+cache clearing and cache-busted requests all returned the same bytes.
+
+### 4.9 Wizard badge says "Ready", and the picker scrim is no longer a blackout
+
+Two more points from use, both small and both about what the screen *says*.
+
+**The wizard card's badge now reports readiness, not configuration.** The prototype reads
+`✓ Ready (v10.0.7)` (`docs/prototype/…ux_prototype.html:721`); the card was reusing the Settings
+pill, whose `configured` branch prints a bare version and whose default branch is `Not configured` —
+so a machine with a perfectly usable KiCad could sit on `Not configured` for as long as the root was
+not written. `wizardPill()` now lights up when **any** of three things hold: the Host reports
+`configured` (version from it), the draft check says `valid` (a path the Host just accepted, saved or
+not — version from the check), or discovery already validated an executable. A saved root that
+already carries a resolved version also counts, even if the Host is momentarily reporting
+`validating` or a stale `missing` — the case the report came from. Only then does the prototype's
+amber `Not configured` remain, and an in-flight download or a failure still wins over `Ready`, so the
+badge never claims readiness while a job is running. `statusPill()` is untouched for Settings.
+
+**The executable picker's mask.** It was `rgba(0,0,0,0.75)` on top of the Settings modal's own
+`rgba(0,0,0,0.75)`, i.e. ≈0.94 black behind a dialog that the prototype draws over the *page*, not
+over another scrim. Reduced to `rgba(0,0,0,0.32)`: enough veil to separate the OS-style panel, without
+turning the whole surface into a blackout in the dark theme. The wizard/settings backdrops keep the
+prototype's 0.75 because nothing stacks on them.
+
+DOM tests grew to 9 (four for the wizard badge: configured, check-valid-before-save, saved root with a
+version while the Host is mid-flight, nothing usable; one for the picker scrim's alpha). Client suite:
+**156 passed**; `tsc` clean; `lib/` rebuilt.
+
+---
+
 ## 5. Acceptance matrix (§16)
 
 Legend: **✅** verified in this pass (test or live route) · **🟡** implemented, needs a human

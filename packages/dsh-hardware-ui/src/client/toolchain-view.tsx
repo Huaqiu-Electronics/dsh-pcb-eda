@@ -19,7 +19,7 @@ import { createElement, Fragment, useSyncExternalStore, type CSSProperties, type
 import { COPY } from './copy.js'
 import {
   jobPercent, jobRunning, setupIncomplete, setupSummary,
-  type InstallJob, type ToolStatus, type ToolchainController, type ToolchainId,
+  type DraftCheck, type InstallJob, type ToolStatus, type ToolchainController, type ToolchainId,
   type ToolchainSnapshot,
 } from './toolchain.js'
 import {
@@ -136,6 +136,52 @@ export function statusPill(
   }
 }
 
+/**
+ * The wizard's badge, which is about **readiness**, not configuration.
+ *
+ * The prototype reads `✓ Ready (v10.0.7)`. The wizard is the first-run surface,
+ * so it must light up as soon as the user has a tool it can actually use —
+ * whether that came from a saved root, a path the Host just validated, or an
+ * executable discovery already checked. Only when none of those hold does it fall
+ * back to the state pill (`Not configured`, a running download, a failure), which
+ * is also what it shows while a job is in flight.
+ */
+export function wizardPill(
+  tool: ToolStatus,
+  job: InstallJob | undefined,
+  check: DraftCheck | undefined,
+): { readonly text: string; readonly tone: 'ok' | 'warn' | 'info' | 'muted' | 'accent' } {
+  const statePill = statusPill(tool, job)
+  if (job !== undefined && job.tool === tool.tool && (jobRunning(job) || job.phase === 'failed')) return statePill
+  const detected = tool.discovery?.selected
+  // A saved root *with* a resolved version is a usable tool, whatever transitory
+  // state the Host happens to report (`validating`, a stale `missing`): the wizard
+  // must not tell a user with a working KiCad that it is unconfigured.
+  const saved = tool.installPath !== undefined && tool.version !== undefined && tool.state !== 'invalid'
+  const ready = tool.state === 'configured' || saved || check?.state === 'valid' || detected?.valid === true
+  if (!ready) return statePill
+  const version = tool.state === 'configured' || saved
+    ? tool.version
+    : check?.state === 'valid'
+      ? check.version
+      : detected?.version
+  return {
+    text: version === undefined ? COPY.wizard.readyDetected : COPY.wizard.ready(version),
+    tone: 'ok',
+  }
+}
+
+/** One line of verdict text beside the validate button; never a filesystem path. */
+function textVerdict(text: string, color: string): ReactNode {
+  return createElement('span', {
+    style: {
+      ...MONO_TEXT, fontSize: 11, color, maxWidth: 260,
+      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+    },
+    title: text,
+  }, text)
+}
+
 /** One line describing what discovery found, or that it is still looking. */
 export function discoveryLine(tool: ToolStatus): { readonly text: string; readonly tone: 'muted' | 'ok' | 'warn' } | undefined {
   const discovery = tool.discovery
@@ -213,9 +259,10 @@ export function ToolchainCard(props: {
   const draft = snapshot.drafts[id]
   const saving = snapshot.saving === id
   const running = jobRunning(job)
+  const check = snapshot.checks[id]
   const pill = tool === undefined
     ? { text: COPY.toolchain.statusValidating, tone: 'muted' as const }
-    : statusPill(tool, job)
+    : variant === 'wizard' ? wizardPill(tool, job, check) : statusPill(tool, job)
   const entry = tool?.download
   const busy = running || saving
 
@@ -249,7 +296,7 @@ export function ToolchainCard(props: {
           : null,
       ),
     ),
-    createElement('span', { style: pillStyle(pill.tone) }, pill.text),
+    createElement('span', { style: pillStyle(pill.tone), 'data-hardware-toolchain-pill': id }, pill.text),
   )
 
   const description = variant === 'settings'
@@ -288,13 +335,36 @@ export function ToolchainCard(props: {
   // It reports what the Host knows — except while the field holds an edit the Host
   // has never seen, where saying "awaiting executable path" beside a filled input
   // would be plainly false.
+  //
+  // The *path* is never printed here. A card that just wrote its configuration
+  // says so with a success badge that fades by itself; the full executable path
+  // (which the Host resolves, not the user) is the one thing nobody asked to read,
+  // and it used to sit in place of the verdict and read as a permanent "saved"
+  // even before anything was saved.
   const savedRoot = tool?.installPath ?? ''
   const dirty = draft.trim() !== '' && draft.trim() !== savedRoot
-  const statusText = dirty
-    ? COPY.settings.statusUnsaved
-    : tool?.state === 'configured'
-      ? (tool.cliPath ?? COPY.settings.statusVerified)
-      : tool?.error ?? COPY.settings.statusAwaiting
+  const confirmation = snapshot.confirmed[id]
+
+  const verdict = (() => {
+    if (confirmation !== undefined) {
+      return createElement('span', {
+        style: { ...pillStyle('ok'), display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' },
+        role: 'status',
+        'data-hardware-toolchain-confirmed': id,
+      },
+      createElement('span', { style: dotStyle(C.ok, 6) }),
+      confirmation.version === undefined
+        ? COPY.settings.statusSavedPlain
+        : COPY.settings.statusSavedBadge(confirmation.version))
+    }
+    if (dirty && check?.state === 'invalid') {
+      return textVerdict(check.error ?? COPY.toolchain.statusInvalid, C.warn)
+    }
+    if (dirty && check?.state === 'pending') return textVerdict(COPY.toolchain.statusValidating, C.text3)
+    if (dirty) return textVerdict(COPY.settings.statusUnsaved, C.text3)
+    if (tool?.state === 'configured') return null
+    return textVerdict(tool?.error ?? COPY.settings.statusAwaiting, tool?.error === undefined ? C.text3 : C.warn)
+  })()
 
   const validateRow = createElement(
     'div',
@@ -305,12 +375,7 @@ export function ToolchainCard(props: {
       disabled: busy,
       onClick: onSave,
     }, saving ? COPY.settings.validating : COPY.settings.validate),
-    variant === 'settings'
-      ? createElement('span', {
-          style: { ...MONO_TEXT, fontSize: 11, maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-          title: statusText,
-        }, statusText)
-      : null,
+    variant === 'settings' ? verdict : null,
   )
 
   /** Download affordance: a plugin job first, the vendor page as the honest fallback. */
@@ -377,6 +442,9 @@ export function ToolchainCard(props: {
       style: cardStyle({ gap: variant === 'wizard' ? 10 : 12, padding: variant === 'wizard' ? 14 : 16 }),
       'data-hardware-toolchain-card': id,
       'data-variant': variant,
+      // The input's own verdict, exposed for support and for the UI walk that has
+      // to prove the wizard only lights up for a path the Host accepted.
+      'data-hardware-toolchain-check': check?.state ?? 'none',
     },
     header,
     ...(description === null ? [] : [description]),
@@ -395,7 +463,7 @@ export function ToolchainCard(props: {
 /** §9.2: no in-app build for this platform means the vendor page, never a fake button. */
 function officialFallback(tool: ToolchainId, snapshot: ToolchainSnapshot): ReactNode {
   return createElement('a', {
-    href: snapshot.status?.official[tool] ?? '#',
+    href: snapshot.status?.official?.[tool] ?? '#',
     target: '_blank',
     rel: 'noreferrer noopener',
     style: { fontSize: 11, color: C.info, textDecoration: 'none', whiteSpace: 'nowrap' },
@@ -524,7 +592,12 @@ function ExecutablePicker(props: {
     {
       style: {
         position: 'fixed', inset: 0, zIndex: 2200, display: 'flex', alignItems: 'center',
-        justifyContent: 'center', padding: 16, background: 'rgba(0,0,0,0.75)',
+        justifyContent: 'center', padding: 16,
+        // The picker opens *inside* a modal that already dims the page (`rgba(0,0,0,0.75)`).
+        // Two stacked 0.75 scrims multiply to ~0.94 black, which reads as "the lights
+        // went out" rather than "a dialog is on top" — so this layer only adds a light
+        // veil, enough to separate the panel from the settings card behind it.
+        background: 'rgba(0,0,0,0.32)',
         pointerEvents: 'auto',
       },
       role: 'dialog',
@@ -659,7 +732,7 @@ export function ToolchainToastHost(props: { readonly controller: ToolchainContro
   if (snapshot.toasts.length === 0) return null
   return createElement(
     'div',
-    { style: { position: 'fixed', inset: 0, zIndex: 2100, pointerEvents: 'none' }, 'data-hardware-toolchain-toasts': true },
+    { style: { position: 'fixed', inset: 0, zIndex: 2400, pointerEvents: 'none' }, 'data-hardware-toolchain-toasts': true },
     createElement(
       'div',
       {

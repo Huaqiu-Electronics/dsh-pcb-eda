@@ -300,6 +300,13 @@ export const COPY = {
     get solidcraftChip(): string { return translateCopy('wizard.solidcraftChip') },
     get solidcraftBlurb(): string { return translateCopy('wizard.solidcraftBlurb') },
     get selectFile(): string { return translateCopy('wizard.selectFile') },
+    /**
+     * The prototype's wizard badge once a tool is usable: `✓ Ready (v10.0.7)`.
+     * It says "ready", not "configured", because the wizard is about what the user
+     * can start using now — a path the Host just validated counts, saved or not.
+     */
+    ready: (label: string): string => translateCopy('wizard.ready', { label }),
+    get readyDetected(): string { return translateCopy('wizard.readyDetected') },
     dontHave: (name: string): string => translateCopy('wizard.dontHave', { name }),
     get serverDownload(): string { return translateCopy('wizard.serverDownload') },
     get footer(): string { return translateCopy('wizard.footer') },
@@ -332,6 +339,9 @@ export const COPY = {
     get statusVerified(): string { return translateCopy('settings.statusVerified') },
     get statusAwaiting(): string { return translateCopy('settings.statusAwaiting') },
     get statusUnsaved(): string { return translateCopy('settings.statusUnsaved') },
+    /** The fading success badge that replaces the (no longer printed) path line. */
+    statusSavedBadge: (version: string): string => translateCopy('settings.statusSavedBadge', { version }),
+    get statusSavedPlain(): string { return translateCopy('settings.statusSavedPlain') },
     download: (tool: 'kicad' | 'solidcraft', version: string): string => (tool === 'kicad'
       ? translateCopy('settings.downloadKicad', { version })
       : translateCopy('settings.downloadSolidCraft', { version })),

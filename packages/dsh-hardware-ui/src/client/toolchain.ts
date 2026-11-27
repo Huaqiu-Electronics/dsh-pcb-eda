@@ -120,6 +120,28 @@ export interface InstallJob {
   readonly finishedAt?: number
 }
 
+/**
+ * Verdict for the text currently in one card's input.
+ *
+ * The wizard's primary button must not pretend a typed path is usable, and the
+ * Settings verdict must not claim "not saved" about a path the Host just
+ * accepted, so the input's own validity is checked against the Host whenever the
+ * text settles ({@link ToolchainController.setDraft} debounces it).
+ */
+export interface DraftCheck {
+  readonly state: 'pending' | 'valid' | 'invalid'
+  /** Root the Host normalised the text to; present when known. */
+  readonly installPath?: string
+  readonly version?: string
+  readonly error?: string
+}
+
+/** A save the Host just accepted, shown as the card's success badge until it fades. */
+export interface SaveConfirmation {
+  readonly at: number
+  readonly version?: string
+}
+
 /** Verdict of a validate / save round trip. */
 export interface ValidationOutcome {
   readonly ok: boolean
@@ -161,6 +183,10 @@ export interface ToolchainSnapshot {
   readonly jobs: Readonly<Partial<Record<ToolchainId, InstallJob>>>
   /** Path currently held in each card's input, kept here so both surfaces agree. */
   readonly drafts: Readonly<Record<ToolchainId, string>>
+  /** Live verdict of each card's text, from the Host's own validation. */
+  readonly checks: Readonly<Partial<Record<ToolchainId, DraftCheck>>>
+  /** Saves the Host accepted recently; the card shows a badge, then it fades. */
+  readonly confirmed: Readonly<Partial<Record<ToolchainId, SaveConfirmation>>>
   readonly toasts: readonly ToastItem[]
   /** Open executable picker (Browse), if any. */
   readonly picker?: ToolchainPicker
@@ -192,6 +218,10 @@ export const HOST_TRANSPORT: ToolchainTransport = {
 const TOAST_MS = 7000
 /** Poll cadence while a job or a discovery run is live. */
 const POLL_MS = 700
+/** How long a typed path must settle before its validity is asked of the Host. */
+const CHECK_MS = 500
+/** How long the "saved" badge stays on a card after the Host accepted the write. */
+const CONFIRM_MS = 6000
 
 const EMPTY_DRAFTS: Readonly<Record<ToolchainId, string>> = { kicad: '', solidcraft: '' }
 
@@ -259,7 +289,9 @@ type Listener = () => void
  * nothing is running, which keeps an idle settings panel free of requests.
  */
 export class ToolchainController {
-  private snapshot: ToolchainSnapshot = { loading: true, jobs: {}, drafts: EMPTY_DRAFTS, toasts: [] }
+  private snapshot: ToolchainSnapshot = {
+    loading: true, jobs: {}, drafts: EMPTY_DRAFTS, checks: {}, confirmed: {}, toasts: [],
+  }
   private readonly listeners = new Set<Listener>()
   private toastSeq = 0
   private timer?: ReturnType<typeof setTimeout>
@@ -270,6 +302,12 @@ export class ToolchainController {
   private readonly phases = new Map<ToolchainId, InstallPhase>()
   /** The job id each tool's card is watching; the poll asks for all of them at once. */
   private readonly watched = new Map<ToolchainId, string>()
+  /** Debounce timers for the input's own validity check, one per tool. */
+  private readonly checkTimers = new Map<ToolchainId, ReturnType<typeof setTimeout>>()
+  /** Per-tool sequence so a late answer cannot overwrite a newer verdict. */
+  private readonly checkSeq = new Map<ToolchainId, number>()
+  /** Timers that retract the "saved" badge after {@link CONFIRM_MS}. */
+  private readonly confirmTimers = new Map<ToolchainId, ReturnType<typeof setTimeout>>()
 
   constructor(
     private readonly transport: ToolchainTransport = HOST_TRANSPORT,
@@ -307,6 +345,10 @@ export class ToolchainController {
     this.timer = undefined
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear()
+    for (const timer of this.checkTimers.values()) clearTimeout(timer)
+    this.checkTimers.clear()
+    for (const timer of this.confirmTimers.values()) clearTimeout(timer)
+    this.confirmTimers.clear()
     this.listeners.clear()
   }
 
@@ -325,7 +367,14 @@ export class ToolchainController {
       const solidcraft = this.syncDraft('solidcraft', status.solidcraft.installPath)
       if (solidcraft !== undefined) drafts = { ...drafts, solidcraft }
       const jobs = collectJobs(status, this.snapshot.jobs)
-      this.set({ status, loading: false, error: undefined, drafts, jobs })
+      // A stored root the Host itself resolved is valid by definition; adopt its
+      // verdict so a configured tool needs no round trip to light up the button.
+      const checks = { ...this.snapshot.checks }
+      if ((kicad ?? solidcraft) !== undefined) {
+        if (kicad !== undefined) checks.kicad = { state: 'valid', installPath: kicad }
+        if (solidcraft !== undefined) checks.solidcraft = { state: 'valid', installPath: solidcraft }
+      }
+      this.set({ status, loading: false, error: undefined, drafts, jobs, checks })
       for (const job of Object.values(jobs)) {
         if (job !== undefined) this.noteJob(job)
       }
@@ -568,20 +617,141 @@ export class ToolchainController {
     this.set({ picker: picked === undefined ? { ...current, nativePending: false } : undefined })
   }
 
-  /** Type a path without persisting it. */
+  /**
+   * Type a path without persisting it, and ask the Host whether it is usable.
+   *
+   * The verdict is not cosmetic: the wizard's primary button is enabled only
+   * when a tool is configured or one input has been verified, so this check is
+   * what keeps "greyed out" honest instead of guessing from the text.
+   */
   setDraft(tool: ToolchainId, value: string): void {
     this.set({ drafts: this.withDraft(tool, value) })
+    this.scheduleCheck(tool, value)
+  }
+
+  /** Debounce a validity check for the text that just changed. */
+  private scheduleCheck(tool: ToolchainId, value: string): void {
+    const pending = this.checkTimers.get(tool)
+    if (pending !== undefined) {
+      clearTimeout(pending)
+      this.checkTimers.delete(tool)
+    }
+    const text = value.trim()
+    if (text === '') {
+      this.patchCheck(tool, undefined)
+      return
+    }
+    // Text that still spells the stored root needs no round trip: the Host has
+    // already validated it, and a poll may not have landed yet.
+    const root = this.roots[tool]
+    if (root !== '' && text === root) {
+      this.patchCheck(tool, { state: 'valid', installPath: root })
+      return
+    }
+    const known = this.knownVersion(tool, text)
+    if (known !== undefined) {
+      this.patchCheck(tool, { state: 'valid', version: known })
+      return
+    }
+    this.patchCheck(tool, { state: 'pending' })
+    const timer = setTimeout(() => {
+      this.checkTimers.delete(tool)
+      void this.runCheck(tool, text)
+    }, CHECK_MS)
+    this.checkTimers.set(tool, timer)
+  }
+
+  /** A discovered, already-validated executable: no process needs to run again. */
+  private knownVersion(tool: ToolchainId, text: string): string | undefined {
+    const candidates = this.snapshot.status?.[tool].discovery.candidates ?? []
+    const match = candidates.find(candidate => candidate.valid && candidate.path === text)
+    return match?.version ?? (match === undefined ? undefined : '?')
+  }
+
+  /** Ask the Host about one path and record the verdict if it is still current. */
+  private async runCheck(tool: ToolchainId, text: string): Promise<void> {
+    if (this.stopped) return
+    const seq = (this.checkSeq.get(tool) ?? 0) + 1
+    this.checkSeq.set(tool, seq)
+    let outcome: ValidationOutcome
+    try {
+      outcome = await this.transport.validate(tool, text)
+    } catch (error) {
+      outcome = { ok: false, error: messageOf(error) }
+    }
+    if (this.stopped || this.checkSeq.get(tool) !== seq) return
+    // The input moved on while the answer was in flight: this verdict is stale.
+    if (this.snapshot.drafts[tool].trim() !== text) return
+    this.patchCheck(tool, outcome.ok
+      ? { state: 'valid', ...(outcome.installPath === undefined ? {} : { installPath: outcome.installPath }), ...(outcome.version === undefined ? {} : { version: outcome.version }) }
+      : { state: 'invalid', ...(outcome.error === undefined ? {} : { error: outcome.error }) })
+  }
+
+  /** Replace (or drop, with `undefined`) one tool's verdict. */
+  private patchCheck(tool: ToolchainId, check: DraftCheck | undefined): void {
+    const next = { ...this.snapshot.checks }
+    if (check === undefined) delete next[tool]
+    else next[tool] = check
+    this.set({ checks: next })
+  }
+
+  /**
+   * Show the success badge for a write the Host accepted, then retract it.
+   *
+   * The badge replaces the verdict line, so the card stops shouting the full
+   * executable path (or "not saved") about a path that is in fact saved.
+   */
+  private confirm(tool: ToolchainId, version: string | undefined): void {
+    this.clearConfirm(tool)
+    this.set({
+      confirmed: {
+        ...this.snapshot.confirmed,
+        [tool]: { at: Date.now(), ...(version === undefined ? {} : { version }) },
+      },
+    })
+    const timer = setTimeout(() => {
+      this.confirmTimers.delete(tool)
+      this.clearConfirm(tool)
+    }, CONFIRM_MS)
+    this.confirmTimers.set(tool, timer)
+  }
+
+  private clearConfirm(tool: ToolchainId): void {
+    const timer = this.confirmTimers.get(tool)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      this.confirmTimers.delete(tool)
+    }
+    if (this.snapshot.confirmed[tool] === undefined) return
+    const next = { ...this.snapshot.confirmed }
+    delete next[tool]
+    this.set({ confirmed: next })
   }
 
   /** Validate and persist one path through the Host (§6.3). */
   async save(tool: ToolchainId, path: string, source: ToolSource = 'manual'): Promise<ValidationOutcome> {
     const name = tool === 'kicad' ? 'KiCad' : 'SolidCraft'
     this.set({ saving: tool })
+    this.clearConfirm(tool)
     try {
       const outcome = await this.transport.save(tool, path, source)
       if (outcome.ok) {
+        // The Host stores the *root* it resolved, which is rarely what the user
+        // typed (an executable path, a `bin` directory). Adopting that root here
+        // is what ends the "not saved" state: the input then shows what is saved,
+        // and the verdict stops being a false alarm.
+        const accepted = outcome.installPath ?? path.trim()
+        this.roots[tool] = accepted
+        const draft = this.snapshot.drafts[tool]
+        if (draft.trim() !== accepted) this.set({ drafts: this.withDraft(tool, accepted) })
+        this.patchCheck(tool, {
+          state: 'valid', installPath: accepted,
+          ...(outcome.version === undefined ? {} : { version: outcome.version }),
+        })
+        this.confirm(tool, outcome.version)
         this.toast('ok', COPY.toolchain.toastSaved(name, outcome.version ?? '?'))
       } else {
+        this.patchCheck(tool, { state: 'invalid', ...(outcome.error === undefined ? {} : { error: outcome.error }) })
         this.toast('warn', COPY.toolchain.toastInvalid(name, outcome.error ?? COPY.toolchain.notDetected))
       }
       await this.refresh()
