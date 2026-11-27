@@ -35,7 +35,7 @@ import {
   HUAQIU_AI_DISPLAY_NAME,
   HUAQIU_AI_INPUT_MODALITIES,
   HUAQIU_AI_MAX_TOKENS,
-  HUAQIU_AI_MODEL_ID,
+  HUAQIU_WORKBENCH_AUTO_MODEL_ID,
   HUAQIU_AI_PROVIDER_ID,
   managedGatewayBaseUrls,
   hostOf as hostOfUrl,
@@ -98,8 +98,8 @@ export function huaqiuProviderEntry(endpoints: AiEndpoints): Record<string, unkn
     baseURL: endpoints.gatewayBaseUrl,
     models: [
       {
-        id: HUAQIU_AI_MODEL_ID,
-        name: HUAQIU_AI_MODEL_ID,
+        id: HUAQIU_WORKBENCH_AUTO_MODEL_ID,
+        name: HUAQIU_WORKBENCH_AUTO_MODEL_ID,
         contextWindow: HUAQIU_AI_CONTEXT_WINDOW,
         maxTokens: HUAQIU_AI_MAX_TOKENS,
         input: [...HUAQIU_AI_INPUT_MODALITIES],
@@ -146,7 +146,7 @@ export async function ensureHuaqiuGatewayProvider(
       ns: PROVIDER_SETTINGS_NS,
       environment: endpoints.environment,
       gatewayHost: hostOfUrl(endpoints.gatewayBaseUrl),
-      model: HUAQIU_AI_MODEL_ID,
+      model: HUAQIU_WORKBENCH_AUTO_MODEL_ID,
     })
   } else {
     // Re-point ONLY a value this module wrote earlier. A user-authored baseURL
@@ -179,12 +179,12 @@ export async function ensureHuaqiuGatewayProvider(
   }
   await settings.update(DEFAULT_MODEL_SETTINGS_NS, {
     provider: HUAQIU_AI_PROVIDER_ID,
-    model: HUAQIU_AI_MODEL_ID,
+    model: HUAQIU_WORKBENCH_AUTO_MODEL_ID,
   })
   log.info('seeded Huaqiu AI as the default model selection', {
     ns: DEFAULT_MODEL_SETTINGS_NS,
     provider: HUAQIU_AI_PROVIDER_ID,
-    model: HUAQIU_AI_MODEL_ID,
+    model: HUAQIU_WORKBENCH_AUTO_MODEL_ID,
   })
   return action === 'seeded-provider' ? 'seeded-provider-and-default' : action
 }

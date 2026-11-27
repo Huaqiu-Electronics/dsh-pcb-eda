@@ -50,7 +50,7 @@ export { HuaqiuStandaloneCredentialBridge } from './standaloneCredentials.js'
 export {
   AI_ENV_KEYS,
   HUAQIU_AI_API_KEY_REF,
-  HUAQIU_AI_MODEL_ID,
+  HUAQIU_WORKBENCH_AUTO_MODEL_ID,
   HUAQIU_AI_PROVIDER_ID,
   joinEndpointUrl,
   managedGatewayBaseUrls,

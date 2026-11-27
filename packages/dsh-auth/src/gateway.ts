@@ -1,6 +1,6 @@
 /**
  * Huaqiu AI gateway endpoints for STANDALONE DSH (no HQ Edge).
- *
+ * NOTE: While HQ Edge use "auto-model" , the standalone DSH product build will use another "workbench-auto-model"
  * Under HQ Edge the central config (`hq-edge/apps/server/src/config/aiEndpoints.ts`)
  * resolves every AI endpoint from one selector — `HQ_AI_ENV` — and passes the
  * results down as CONCRETE strings (host overlay → `dsh-auth` config, profile
@@ -57,12 +57,13 @@ const AI_PRESETS: Record<AiEnvironment, AiEndpointPreset> = {
 
 /** The gateway provider / model / credential reference the product ships. */
 export const HUAQIU_AI_PROVIDER_ID = 'huaqiu'
-export const HUAQIU_AI_MODEL_ID = 'auto-model'
+// NOTE: The standalone DSH use a different DSH HOME ,while the auto-model used by HQ EDGE is inject by the supervisor
+export const HUAQIU_WORKBENCH_AUTO_MODEL_ID = 'workbench-auto-model'
 export const HUAQIU_AI_API_KEY_REF = 'HUAQIU_API_KEY'
 export const HUAQIU_AI_DISPLAY_NAME = '华秋 AI'
 
 /**
- * Declared capacity and capability of {@link HUAQIU_AI_MODEL_ID}.
+ * Declared capacity and capability of {@link HUAQIU_WORKBENCH_AUTO_MODEL_ID}.
  *
  * The gateway is a private OpenAI-compatible route pi-ai's catalog has never
  * heard of, so nothing supplies these: the adapter would fall back to
