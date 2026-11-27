@@ -187,7 +187,8 @@ The desktop shell's total contribution is one button and one handle call.
 | Host tests | `… exec vitest run --reporter=dot` | **151 passed** (was 148; +1 readiness, +2 order routes) |
 | Client build | `pnpm --filter ./packages/dsh-hardware-ui build` | `lib/client.js` 5.52 MB, contains `hardware-place-order`, `data-hardware-order-hint`, the `huaqiu` handle; no `data-hardware-order-confirm` / `data-hardware-order-ack` |
 | Host build | `pnpm --filter ./packages/hardware-artifacts build` | ok |
-| Desktop typecheck | `pnpm --filter @deepseek-ai/dsh-desktop exec tsc --noEmit -p tsconfig.json` | clean |
+| Desktop typecheck | `pnpm exec tsc -b tsconfig.host.json tsconfig.client.json` (the build's own project-reference gates) | clean |
+| Desktop full build | `pnpm build` in `C:\code\deepseek-harness` | **10 passed, 0 failed** (112 s) |
 | Desktop menu + locale | `npx vitest run apps/desktop/tests/preload-menu.client.spec.ts apps/desktop/tests/locale.spec.ts` | **29 passed** (menu spec 12, snapshots updated) |
 
 New/updated test cases worth naming:
@@ -206,5 +207,6 @@ New/updated test cases worth naming:
 2. **One click is real.** There is no undo inside the shell: pressing the order card uploads and creates the order at Huaqiu. The compensating affordances are informational, not blocking — the package (file names, zip name and size) is prepared and listed before the button enables, the button label says it orders, and `uploadHint` says the click uploads. The host route no longer refuses an unconfirmed request, so any client that posts one is believed. If a later product decision wants a consent step back, it belongs in `OrderPanel` (and optionally a route flag), not in the agent tools.
 3. **macOS menu not touched.** PO-02 targets the Windows caption bar, which is the menu this machine shows. The macOS build uses a separate native app menu; adding the same entry there is a second, independent change.
 4. **`window.huaqiu` is a renderer global.** It is the thinnest contract available (no IPC, no framework), but it is only present while the plugin is active; the menu degrades to the `placeOrderUnavailable` notice, which is the PO-02 "plugin unavailable" requirement rather than a silent no-op.
+   Its arrow-key navigation indexes a `buttons` array, and the desktop build compiles that file with `noUncheckedIndexedAccess` — so the neighbour is guarded (`if (next === undefined) return`) instead of asserted. `tsc -p apps/desktop/tsconfig.json` does not see this; `tsc -b tsconfig.host.json` (what `pnpm build` runs) does.
 5. **PCBA readiness is file-based only.** It checks board + root schematic; a schematic with no components still reports ready and fails later during packaging, with the packaging error shown by the existing order panel.
 6. **`builder`/`agent-instructions.spec.ts` baseline** in the harness still has 3 environment-level failures (Windows symlink `EPERM`), unrelated to this work.
