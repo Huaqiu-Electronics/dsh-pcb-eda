@@ -116,11 +116,9 @@ function assertHarness() {
 }
 
 function dshHome() {
-  // Same default as the fork's resolver (`@deepseek-ai/dsh-home-paths`): the
-  // product owns `~/.huaqiu-eda`, so the dev loop and the packaged app agree.
   return process.env.DSH_HOME && process.env.DSH_HOME !== ''
     ? path.resolve(process.env.DSH_HOME)
-    : path.join(os.homedir(), '.huaqiu-eda')
+    : path.join(os.homedir(), '.dsh')
 }
 
 function profileDir() {
