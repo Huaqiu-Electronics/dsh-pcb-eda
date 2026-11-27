@@ -1,6 +1,6 @@
 {
   "name": "@huaqiu/dsh-hardware-ui",
-  "version": "0.7.21",
+  "version": "0.7.22",
   "type": "module",
   "description": "Hardware Engineering product UI for DSH: five-destination engineering navigation, right-panel artifact viewer, CAD installation settings and contextual native-application actions.",
   "license": "MIT",
