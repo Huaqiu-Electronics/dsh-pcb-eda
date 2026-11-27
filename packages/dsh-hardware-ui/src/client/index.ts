@@ -51,12 +51,16 @@ export const HARDWARE_CONFIG_ENTRY = 'hardware-artifacts'
 declare global {
   interface Window {
     /**
-     * The one-method handle the desktop shell's Place Order menu calls (PO-02).
+     * Desktop's preload surface, reached through `contextBridge` (PO-02).
      *
-     * A handle rather than a shell-side URL or IPC: the shell stays unable to
-     * name a project, but can still ask the workflow to start.
+     * Only the member this plugin needs is declared: Desktop windows run with
+     * `contextIsolation: true`, so the plugin cannot publish a callback by
+     * assigning a window global — it must hand the callback to preload, which
+     * the caption menu then runs.
      */
-    huaqiu?: { placeOrder?: () => boolean }
+    dshDesktop?: {
+      registerPlaceOrder?: (handler: () => boolean) => () => void
+    }
   }
 }
 
@@ -293,14 +297,14 @@ export function apply(ctx: ClientContext): void {
   }) ?? (() => {}), 'hardware-ui: place order tab type')
 
   // The desktop shell's Place Order menu (PO-02) needs one thing from this
-  // plugin: a way to ask for the workflow. It is a single handle with a single
-  // method, installed while the plugin is active and removed with it, so the
-  // menu never reaches into business logic and a reload keeps working.
+  // plugin: a way to ask for the workflow. Desktop preload owns the registry
+  // (`dshDesktop.registerPlaceOrder`) and the caption entry runs whatever is
+  // registered, so the menu never reaches into business logic. Leaving the
+  // registration behind when the plugin unloads keeps "not loaded" honest.
   if (typeof window !== 'undefined') {
     effect(() => {
-      const handle = { placeOrder: (): boolean => controller.placeOrder() }
-      window.huaqiu = handle
-      return () => { if (window.huaqiu === handle) delete window.huaqiu }
+      const unregister = window.dshDesktop?.registerPlaceOrder?.(() => controller.placeOrder())
+      return () => { unregister?.() }
     }, 'hardware-ui: place order handle')
   }
 

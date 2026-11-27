@@ -246,6 +246,22 @@ describe('desktop shell handle', () => {
     readonly options?: { readonly revealIfOpened?: boolean }
   }
 
+  /**
+   * Stand-in for Desktop preload's registry. A page global would not cross
+   * `contextIsolation`, so the plugin hands its callback to this bridge instead
+   * and the caption menu runs whatever is currently registered.
+   */
+  function stubDesktop(): { run: () => boolean; registered: () => boolean } {
+    let handler: (() => boolean) | undefined
+    vi.stubGlobal('dshDesktop', {
+      registerPlaceOrder: (next: () => boolean): (() => void) => {
+        handler = next
+        return () => { if (handler === next) handler = undefined }
+      },
+    })
+    return { run: () => handler?.() ?? false, registered: () => handler !== undefined }
+  }
+
   function applyWithPanel(panel: boolean): { opens: Open[]; dispose: () => void } {
     const opens: Open[] = []
     const disposers: (() => void)[] = []
@@ -273,22 +289,25 @@ describe('desktop shell handle', () => {
   }
 
   it('installs one handle the menu calls, revealing the same view on every press', () => {
+    const desktop = stubDesktop()
     const plugin = applyWithPanel(true)
-    expect(window.huaqiu?.placeOrder?.()).toBe(true)
-    expect(window.huaqiu?.placeOrder?.()).toBe(true)
+    expect(desktop.run()).toBe(true)
+    expect(desktop.run()).toBe(true)
     // Two presses, one view: the second only brings the first forward.
     expect(plugin.opens).toEqual([
       { kind: 'hardware-place-order', options: { revealIfOpened: true } },
       { kind: 'hardware-place-order', options: { revealIfOpened: true } },
     ])
     plugin.dispose()
-    // Unloaded plugin, unusable menu: the handle is removed with the plugin.
-    expect(window.huaqiu).toBeUndefined()
+    // Unloaded plugin, unusable menu: the registration is withdrawn with it.
+    expect(desktop.registered()).toBe(false)
+    expect(desktop.run()).toBe(false)
   })
 
   it('reports failure instead of pretending a view opened when the panel is absent', () => {
+    const desktop = stubDesktop()
     const plugin = applyWithPanel(false)
-    expect(window.huaqiu?.placeOrder?.()).toBe(false)
+    expect(desktop.run()).toBe(false)
     expect(plugin.opens).toEqual([])
     plugin.dispose()
   })

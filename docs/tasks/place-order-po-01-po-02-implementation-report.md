@@ -81,12 +81,14 @@ From there the existing `OrderPanel` runs the whole known pipeline: package → 
 
 | Entry | Path |
 |---|---|
-| Desktop menu (PO-02) | `preload-menu.ts` → `window.huaqiu.placeOrder()` → `controller.placeOrder()` → `sidebarRight.openTab('hardware-place-order', { revealIfOpened: true })` |
+| Desktop menu (PO-02) | `preload-menu.ts` → `runPlaceOrderHandler()` → the callback the plugin registered through `dshDesktop.registerPlaceOrder` → `controller.placeOrder()` → `sidebarRight.openTab('hardware-place-order', { revealIfOpened: true })` |
 | Agent (unchanged) | `hardware_place_pcb_order` etc. → `service.placeOrder()` → `order-watcher` opens the page |
 
 `placeOrder()` is idempotent for the same reason the tab type is single-instance: a second press reveals the first view instead of stacking a second one. It returns `false` when the panel is absent, so the menu can say so rather than pretend.
 
-The handle is installed inside an `effect()` and removed on dispose (and only when it is still its own object), so a plugin reload leaves no stale global behind.
+The plugin registers inside an `effect()` and withdraws the registration on dispose, so a plugin reload leaves no stale callback behind.
+
+**Why not a window global.** Desktop windows run with `contextIsolation: true` and `sandbox: true` (`apps/desktop/src/main.ts`). A property the page sets on `window` lives in the renderer main world; the preload sees a different `window` object, so a global handle is never visible to the caption menu — that is exactly the installed-build symptom "the Huaqiu EDA plugin is not loaded yet" while the plugin was loaded. The contract therefore crosses the boundary the supported way: preload owns a registry (`preload-place-order.ts`) and publishes `registerPlaceOrder` on the existing `dshDesktop` product API through `contextBridge`; the plugin hands its callback in and removes it on unload.
 
 ### 3.4 One click, not two (follow-up on the confirmation)
 
@@ -116,7 +118,7 @@ Application    Edit    🛒 Place Order
 
 - Third button in `preload-menu.ts`, cart glyph inlined as SVG, label from the locale dictionary, `aria-label`/`title` set so the entry is discoverable without the glyph.
 - It is **not** a popup: pressing it *is* the command (`role=menuitem`, no `aria-haspopup`). No new IPC channel, no main-process code.
-- One thing is asked of the plugin, `window.huaqiu.placeOrder()`. The shell never names a project, an order type or a URL.
+- One thing is asked of the plugin: it registers `dshDesktop.registerPlaceOrder(handler)` while active. The shell never names a project, an order type or a URL, and it does not see any of the plugin's business logic.
 - Keyboard parity: ArrowLeft/Right now cycle over three entries (previously a two-entry pair), Enter/Space run the workflow.
 - Feedback: a small shadow-DOM notice under the title bar, auto-hidden after 4 s, shown when the plugin is absent (`placeOrderUnavailable`) or the call throws (`placeOrderFailed`, also `console.error('Desktop place order menu failed', …)`). `Application` and `Edit` are untouched by any failure.
 - Localization: `placeOrder`, `placeOrderUnavailable`, `placeOrderFailed` added to **all eight** dictionaries (`en zh ja es fr de ru pt`).
@@ -172,7 +174,7 @@ The desktop shell's total contribution is one button and one handle call.
 | 6 | User can continue to hqpcb | §3 hand-off tests + existing order path |
 | 7 | Repeat clicks: no duplicate views | single-instance tab kind + `revealIfOpened`; test calls the handle twice and asserts the same tab kind |
 | 8 | Plugin failure does not affect DSH | menu catches, logs, shows a notice; `Application`/`Edit` untouched; absent-plugin test |
-| 9 | No business logic in the shell | menu imports nothing from the plugin; only `window.huaqiu.placeOrder()` |
+| 9 | No business logic in the shell | menu imports nothing from the plugin; it runs only the callback the plugin registered through `dshDesktop.registerPlaceOrder` |
 | 10 | Agent compatibility | §5 |
 
 ---
@@ -182,14 +184,14 @@ The desktop shell's total contribution is one button and one handle call.
 | Suite | Command | Result |
 |---|---|---|
 | Client typecheck | `pnpm --filter @huaqiu/dsh-hardware-ui exec tsc --noEmit -p tsconfig.json` | clean |
-| Client tests | `… exec vitest run --reporter=dot` | **177 passed** (17 files; was 156) — incl. new `test/place-order.test.tsx` (15) and `test/order-panel.test.tsx` (6) |
+| Client tests | `… exec vitest run --reporter=dot` | **177 passed** (17 files) — incl. new `test/place-order.test.tsx` (15) and `test/order-panel.test.tsx` (6) |
 | Host typecheck | `pnpm --filter @huaqiu/hardware-artifacts exec tsc --noEmit -p tsconfig.json` | clean |
 | Host tests | `… exec vitest run --reporter=dot` | **151 passed** (was 148; +1 readiness, +2 order routes) |
-| Client build | `pnpm --filter ./packages/dsh-hardware-ui build` | `lib/client.js` 5.52 MB, contains `hardware-place-order`, `data-hardware-order-hint`, the `huaqiu` handle; no `data-hardware-order-confirm` / `data-hardware-order-ack` |
+| Client build | `pnpm --filter ./packages/dsh-hardware-ui build` | `lib/client.js` 5.52 MB, contains `hardware-place-order`, `data-hardware-order-hint`, `registerPlaceOrder`; no `data-hardware-order-confirm` / `data-hardware-order-ack` |
 | Host build | `pnpm --filter ./packages/hardware-artifacts build` | ok |
 | Desktop typecheck | `pnpm exec tsc -b tsconfig.host.json tsconfig.client.json` (the build's own project-reference gates) | clean |
-| Desktop full build | `pnpm build` in `C:\code\deepseek-harness` | **10 passed, 0 failed** (112 s) |
-| Desktop menu + locale | `npx vitest run apps/desktop/tests/preload-menu.client.spec.ts apps/desktop/tests/locale.spec.ts` | **29 passed** (menu spec 12, snapshots updated) |
+| Desktop full build | `pnpm build` in `C:\code\deepseek-harness` | **10 passed, 0 failed** (135 s) |
+| Desktop menu + locale | `npx vitest run apps/desktop/tests/preload-menu.client.spec.ts apps/desktop/tests/locale.spec.ts` | **30 passed** (menu spec 13, snapshots updated) |
 
 New/updated test cases worth naming:
 
@@ -197,7 +199,7 @@ New/updated test cases worth naming:
 - `place-order.test.tsx` — 15 cases: rows and artifact summary, several projects, duplicate basenames, empty workspace, scan failure, PCB/PCBA hand-off (board + schematic), no-schematic hand-off, three readiness reasons, probing chips, refresh rescans, handle installed/removed, handle reports failure without a panel.
 - `order-panel.test.tsx` — 6 cases: one-click upload with no dialog and no `confirm` in the body, PCBA with quantity, double click = one order while both cards wait, `focus` places the chosen kind exactly once, signed-out and package-failed states keep the buttons disabled.
 - `routes.test.ts` — *uploads without requiring a confirmation flag from the client*: both `POST /order/pcb` and `/order/smt` answer 200 for a request without `confirm`, and the service never sees a `confirm` key; a missing `path` is still `400 invalid-request`.
-- `preload-menu.client.spec.ts` — 12 cases: the original 8 plus workflow invocation without IPC, absent-plugin notice, rejected invocation, arrow cycling past the third entry.
+- `preload-menu.client.spec.ts` — 13 cases: the original 8 plus workflow invocation without IPC, absent-plugin notice, rejected invocation, a withdrawn registration returning to the notice, arrow cycling past the third entry.
 
 ---
 
@@ -206,7 +208,7 @@ New/updated test cases worth naming:
 1. **No browser E2E for this round.** The `127.0.0.1:3080` dev web server still serves a frozen 21 MB client bundle whose source could not be located (byte count unchanged after injecting a `throw` into `packages/dsh-hardware-ui/lib/client.js`). The rebuilt `lib/client.js` is 5.53 MB and does contain the new markers, so the staleness is in the dev server's serving path, not in the build. UI evidence is therefore jsdom DOM assertions, not screenshots.
 2. **One click is real.** There is no undo inside the shell: pressing the order card uploads and creates the order at Huaqiu. The compensating affordances are informational, not blocking — the package (file names, zip name and size) is prepared and listed before the button enables, the button label says it orders, and `uploadHint` says the click uploads. The host route no longer refuses an unconfirmed request, so any client that posts one is believed. If a later product decision wants a consent step back, it belongs in `OrderPanel` (and optionally a route flag), not in the agent tools.
 3. **macOS menu not touched.** PO-02 targets the Windows caption bar, which is the menu this machine shows. The macOS build uses a separate native app menu; adding the same entry there is a second, independent change.
-4. **`window.huaqiu` is a renderer global.** It is the thinnest contract available (no IPC, no framework), but it is only present while the plugin is active; the menu degrades to the `placeOrderUnavailable` notice, which is the PO-02 "plugin unavailable" requirement rather than a silent no-op.
+4. **The menu reaches the plugin through `contextBridge`, not a global.** Desktop windows run `contextIsolation: true` + `sandbox: true`, so the plugin cannot publish a callback by assigning `window.huaqiu` — a page-set global is invisible to preload, which is why the first installed build reported "the plugin is not loaded yet" while the plugin was running. Preload now owns a one-handler registry (`preload-place-order.ts`), publishes `registerPlaceOrder` on the existing `dshDesktop` product API, and the menu runs whatever is registered; no registration degrades to the `placeOrderUnavailable` notice, which is the PO-02 "plugin unavailable" requirement rather than a silent no-op. An installed build therefore needs a rebuilt preload — repackaging, not just replacing the plugin bundle.
    Its arrow-key navigation indexes a `buttons` array, and the desktop build compiles that file with `noUncheckedIndexedAccess` — so the neighbour is guarded (`if (next === undefined) return`) instead of asserted. `tsc -p apps/desktop/tsconfig.json` does not see this; `tsc -b tsconfig.host.json` (what `pnpm build` runs) does.
 5. **PCBA readiness is file-based only.** It checks board + root schematic; a schematic with no components still reports ready and fails later during packaging, with the packaging error shown by the existing order panel.
 6. **`builder`/`agent-instructions.spec.ts` baseline** in the harness still has 3 environment-level failures (Windows symlink `EPERM`), unrelated to this work.
